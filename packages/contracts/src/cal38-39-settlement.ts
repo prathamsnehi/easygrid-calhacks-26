@@ -11,8 +11,9 @@ export const emptyFollowupState=():FollowupState=>({revision:0,completedOn:null,
 const fail=(m:string):never=>{throw Error(m)};
 function verify(packet:OwnerHandoff,first:Cal37State,state:FollowupState,revision:number){
  if(revision!==state.revision)fail('Stale authoritative revision');
- if(!first.approval||first.approval.sessionId!==packet.sessionId||
- first.approval.routeId!==packet.routeId||first.approval.routeVersion!==packet.routeVersion)
+ const approval=first.approval;
+ if(!approval||approval.sessionId!==packet.sessionId||
+ approval.routeId!==packet.routeId||approval.routeVersion!==packet.routeVersion)
  fail('Current manager approval required');
  if(first.ledger.length!==packet.parcels.length)fail('All 20% payments required');
  for(const p of packet.parcels){
@@ -22,7 +23,7 @@ function verify(packet:OwnerHandoff,first:Cal37State,state:FollowupState,revisio
  entry.paymentRecipientRef!==owner.banking.paymentRecipientRef||
  entry.amountCents!==splitCompensation(p.terms.compensationCents).contractTrancheCents||
  entry.obligationId!==settlementObligationId(packet.sessionId,p.parcelId,'contract_tranche')||
- first.approval.termsVersions[p.parcelId]!==p.terms.termsVersion)fail('Invalid approved owner or first tranche');
+ approval.termsVersions[p.parcelId]!==p.terms.termsVersion)fail('Invalid approved owner or first tranche');
  }
  const seen=new Set<string>();
  for(const e of state.entries){
@@ -52,7 +53,8 @@ export function settleFollowup(packet:OwnerHandoff,first:Cal37State,state:Follow
  if(request.stage==='completion_balance'&&request.monthlyIndex!==undefined)fail('Balance cannot have month');
  if(request.stage==='monthly_fee'&&state.entries.filter(e=>e.stage==='completion_balance'&&e.status==='paid').length!==packet.parcels.length)
  fail('80% balances must settle before rent');
- const due=request.stage==='monthly_fee'?monthlyFeeDueDate(state.completedOn,request.monthlyIndex!):state.completedOn;
+ const completedOn=state.completedOn;
+ const due=request.stage==='monthly_fee'?monthlyFeeDueDate(completedOn,request.monthlyIndex!):completedOn;
  if(request.asOfDate<due)fail('Payment not yet due');
  const period=request.stage==='monthly_fee'?due.slice(0,7):null;
  const entries=[...state.entries];let changes=0;
