@@ -10,7 +10,7 @@ const route=():FinalRoute=>({sessionId:'demo-1',projectId:'project-1',routeId:'r
 test('CAL-36: final-route agreement has 20/80 exact total and post-completion monthly fee',()=>{
   const pkg=createDemoAgreements(route());
   assert.equal(pkg.agreements.length,2);
-  assert.deepEqual(compensationTranches(10003),{contract20Cents:2001,completion80Cents:8002});
+  assert.deepEqual(compensationTranches(10003),{contract20Cents:2000,completion80Cents:8003});
   assert.match(pkg.agreements[0]!.preview,/starts after completion/);
   assert.match(pkg.agreements[0]!.preview,/No separate deposit/);
   assert.equal(isAgreementPackageReady(pkg),false);
