@@ -19,3 +19,12 @@ jobs:
           cache-dependency-path: packages/contracts/package-lock.json
       - run: npm ci --ignore-scripts --prefix packages/contracts
       - run: npm test --prefix apps/map-preview
+      - name: Include offline preview instructions
+        run: cp apps/map-preview/PREVIEW.md apps/map-preview/dist/README.md
+      - name: Upload ready-to-open web preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: easygrid-web-preview
+          path: apps/map-preview/dist/
+          if-no-files-found: error
+          retention-days: 14
