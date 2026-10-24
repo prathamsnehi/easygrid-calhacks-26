@@ -142,7 +142,7 @@ analysis=createAnalysisController({world:landscape.world,canvas,
     target.x+=shift*Math.cos(yaw);target.z-=shift*Math.sin(yaw);
     fitCamera();draw(performance.now());
   },
-  onJudgeRoleChange:()=>planner.refreshParcelRoles(),
+  onUserRoleChange:()=>planner.refreshParcelRoles(),
 });
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler)});

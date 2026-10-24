@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createWorld } from '../src/world.js';
 import { createPlacement } from '../src/placement.js';
 import { ROUTING_ASSUMPTIONS, computeTransmissionRoutes, evaluateTransmissionSpan, evaluateTowerSite } from '../src/routing.js';
-import { analyzeRouteParcels, chooseJudgeParcel } from '../src/parcel-analysis.js';
+import { analyzeRouteParcels, chooseUserParcel } from '../src/parcel-analysis.js';
 
 const world=createWorld();
 function routes(ax=-43,az=-17,bx=43,bz=-17,options={}){
@@ -120,17 +120,17 @@ test('stale parcel metadata, costs and invalid geometry fail instead of producin
   assert.throws(()=>analyzeRouteParcels(fixture,route),/no longer feasible/);
 });
 
-test('judge binding is guaranteed, stable while affected and rebinds when excluded',()=>{
+test('user binding is guaranteed, stable while affected and rebinds when excluded',()=>{
   const analysis={parcels:[
     {parcelId:'C',towerCount:0,lineLengthTiles:30},
     {parcelId:'B',towerCount:1,lineLengthTiles:5},
     {parcelId:'A',towerCount:1,lineLengthTiles:5},
   ]};
-  assert.equal(chooseJudgeParcel(analysis),'A');
-  assert.equal(chooseJudgeParcel(analysis,'C'),'C');
-  assert.equal(chooseJudgeParcel(analysis,'not-selected'),'A');
-  assert.equal(chooseJudgeParcel({parcels:analysis.parcels.filter(p=>p.parcelId!=='C')},'C'),'A');
-  assert.equal(chooseJudgeParcel({parcels:[]}),null);
-  assert.equal(chooseJudgeParcel(null),null);
+  assert.equal(chooseUserParcel(analysis),'A');
+  assert.equal(chooseUserParcel(analysis,'C'),'C');
+  assert.equal(chooseUserParcel(analysis,'not-selected'),'A');
+  assert.equal(chooseUserParcel({parcels:analysis.parcels.filter(p=>p.parcelId!=='C')},'C'),'A');
+  assert.equal(chooseUserParcel({parcels:[]}),null);
+  assert.equal(chooseUserParcel(null),null);
   assert.deepEqual(analysis.parcels.map(p=>p.parcelId),['C','B','A'],'selection never sorts caller state in place');
 });

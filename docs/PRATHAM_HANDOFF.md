@@ -1,6 +1,6 @@
 # Map → parcel analysis → voice agent
 
-Tracked in [CAL-23](https://linear.app/easygrid-calhacks-2026/issue/CAL-23/prepare-route-parcel-analysis-and-judge-roleplay-handoff-for-pratham), related to CAL-7, CAL-8, CAL-10 and CAL-16.
+Tracked in [CAL-23](https://linear.app/easygrid-calhacks-2026/issue/CAL-23), related to CAL-7, CAL-8, CAL-10 and CAL-16.
 
 This slice collects a consented demo participant before planning, then prepares the selected transmission route and the fictional landowner that participant will play. Registration on **Start demo** is local page state. It does not dial a phone, import a project into a backend, register a server contact, record land access, or create an agreement. The map, parcel data and cost assumptions are synthetic.
 
@@ -10,9 +10,9 @@ This slice collects a consented demo participant before planning, then prepares 
 2. Place **A · Substation** and **B · Data center**. Review the recommended connection or choose another route.
 3. The app binds the registered participant to exactly one affected parcel on the selected route, including the recommended optimal route. It retains that parcel on route changes when possible; otherwise it chooses another affected parcel deterministically. The base owner and parcel fixtures remain unchanged.
 4. Choose **Analyze affected parcels** to open **Land & people**. Each affected parcel shows its owner role, crossed centerline length, pylons/foundation area, fictional upfront compensation and rent. The participant summary uses the startup registration; there is no second participant-entry form.
-5. Export the redacted handoff JSON or use **Prepare participant handoff** after the host registers the integration callback. Only this explicit preparation action delivers the private participant to the handler. Preparation does not start a call. Pratham's integration owns the later explicit call action.
+5. Select **Agent call** after the host registers the calling-agent callback. This is the only action that delivers the private participant to the handler. The button stays disabled if the agent is disconnected, consent is missing or the route is ineligible. No JSON download control is shown. A successful callback reports request delivery, not that a phone connected.
 
-The judge role's call consent and the fictional parcel's land-access consent are separate. Entering a phone number never marks a parcel allowed or an agreement accepted.
+The user role's call consent and the fictional parcel's land-access consent are separate. Entering a phone number never marks a parcel allowed or an agreement accepted.
 
 **Edit participant** in the toolbar or participant summary returns to the startup screen and invalidates any pending handoff. Endpoints are preserved, but planning and routing remain locked until registration is validated again. Reset, reload and `pagehide` erase participant details and require registration again. Names and phone numbers exist only in page memory. Reload may restore validated endpoint coordinates from local storage, but it never restores participant registration or bypasses the startup gate.
 
@@ -24,7 +24,7 @@ The standalone app exposes:
 window.easygridDemo.getHandoff(); // Redacted packet; null until participant + route are ready.
 
 window.easygridDemo.setHandoffHandler(async ({ handoff, participant, signal }) => {
-  // The only private contact delivery path. Called by Prepare participant handoff,
+  // The only private contact delivery path. Called by Agent call,
   // never by Start demo or local participant registration.
   // participant = { alias, phoneE164, consent: true }
   // handoff contains no entered alias or phone number.
@@ -38,20 +38,20 @@ The callback is a same-page integration seam. It does not automatically cross an
 
 ## Public packet
 
-`apps/map-preview/src/handoff.js` exports `createHandoff(...)`. The packet uses `kind: "easygrid-map-handoff"`, `schemaVersion: 1`, and `sourceMode: "fixture"`.
+`apps/map-preview/src/handoff.js` exports `createHandoff(...)`. The packet uses `kind: "easygrid-map-handoff"`, `schemaVersion: 2`, and `sourceMode: "fixture"`. Version 2 uses `userRole`, per-parcel `userRole` flags and `:user` local contact references. The nested shared `Snapshot` objects remain schema version 1; backend API v1 is unchanged. Host adapters must read the version 2 role field.
 
-`npm run build --prefix apps/map-preview` also generates `apps/map-preview/dist/demo-handoff-example.json` from the baseline A(−43, −17) / B(43, −17), with session ID `example-cal-23` and no participant contact. The development server serves it at `/demo-handoff-example.json`. This regenerable developer fixture is distinct from the current selection exported in the application; it does not bypass the application's mandatory startup registration or make a private handoff available.
+`npm run build --prefix apps/map-preview` also generates `apps/map-preview/dist/demo-handoff-example.json` from the baseline A(−43, −17) / B(43, −17), with session ID `example-cal-23` and no participant contact. The development server serves it at `/demo-handoff-example.json`. This regenerable developer fixture is separate from the current selected route; the app no longer offers a JSON download action. It does not bypass mandatory startup registration or make private contact available.
 
 | Field | Meaning |
 | --- | --- |
 | `sessionId`, `routeVersion` | Local demo identity and version. They are not canonical server project or route versions. |
 | `snapshot` | A snapshot that passes the shared `Snapshot` Zod schema. Owners and parcels remain fictional; no negotiations, agreements, approvals or payments are fabricated. |
 | `parcelAnalysis` | Per-parcel length, foundations, exact allocated upfront/rent cents, cap, pending status, fictional contacts, and display-role overlay. |
-| `judgeRole` | One affected `parcelId`, original fictional owner, generic `displayAlias: "Judge participant"`, local opaque contact reference, and participant readiness. The entered participant alias is not exported. |
+| `userRole` | One affected `parcelId`, original fictional owner, generic `displayAlias: "User participant"`, local opaque contact reference, and participant readiness. The entered participant alias is not exported. |
 | `coordinateTransform` | Explicit, invented local-grid-to-WGS84 conversion described below. |
 | `callPreparation` | Preparation status, selected role's proposed amounts, and `backendBindingRequired: true`, `contactRegistered: false`, `canStartCall: false`. |
 
-The local `judgeRole.participantContactRef` is a correlation identifier. **It is not a registered dial destination.** It must not be submitted directly to the live call service. The host needs to register the private participant and obtain a server-owned contact reference.
+The local `userRole.participantContactRef` is a correlation identifier. **It is not a registered dial destination.** It must not be submitted directly to the live call service. The host needs to register the private participant and obtain a server-owned contact reference.
 
 The snapshot preserves `accessConsent: "unknown"` and `negotiationStatus: "pending"` from the fixture, and `readyToApprove: false`. Parcel cap or budget failures set `eligible: false` and `callPreparation.status: "review-required"`. The handoff's default USD 1,000,000 budget is a fictional fixture parameter, configurable through `createHandoff({ ..., budgetCents })`; it is not the user's approval of a real budget.
 
@@ -102,21 +102,22 @@ window.easygridDemo.setHandoffHandler(async ({ handoff, participant, signal }) =
   const request = buildCallSessionRequest({
     projectId: state.projectId,
     expectedRevision: state.revision,
-    parcelId: binding.parcelIds[handoff.judgeRole.parcelId],
+    parcelId: binding.parcelIds[handoff.userRole.parcelId],
     routeVersion: state.routeVersion,
     registeredContactRef: registered.contactRef,
     participantConsent: true,
     idempotencyKey: host.newCallActionId(),
   });
 
-  // Stage for Pratham's explicit call action; do not dial from preparation alone.
-  await host.stagePreparedCall(request, { signal });
+  // Agent call was the explicit action. Recheck current consent and route
+  // on the server, then submit through the shared createCallSession operation.
+  await host.createCallSession(request, { signal });
 });
 ```
 
-At the explicit call action, recheck participant consent, the intended recipient, parcel inclusion, current revision and route version. Then submit the validated request through the shared `createCallSession` operation (`POST /api/v1/call-sessions`). Keep the same idempotency key for that action; an unknown outcome must not automatically trigger another call.
+The host implements `createCallSession` using the shared operation (`POST /api/v1/call-sessions`). Before dialing, it must recheck participant consent, the intended recipient, parcel inclusion, current revision and route version. Keep the same idempotency key for one action; an unknown outcome must not automatically trigger another call. These host methods are integration requirements, not services included in the standalone preview.
 
-Aborting a browser request cannot undo a server mutation that already arrived. The host must reject stale versions and invalidate staged calls when the route or participant changes. Phone registration alone is never proof a call happened.
+Aborting a browser request cannot undo a server mutation that already arrived. The host must reject stale versions and invalidate pending call requests when the route or participant changes. Phone registration alone is never proof a call happened.
 
 ## Validation
 

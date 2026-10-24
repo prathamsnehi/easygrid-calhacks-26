@@ -21,10 +21,10 @@ const compiled=new vm.Script(embedded
   .replace(hook,'return {...exports, WebGLRenderer: TestRenderer};})();')
   .replace(worldHook,`${worldHook}\nprepareWorld(landscape.world);`),{filename:'standalone-map.js'});
 const expectedWorld=createWorld();
-const privateJudge={alias:'Test User',phone:'+12025550123'};
+const privateUser={alias:'Test User',phone:'+12025550123'};
 
 function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,rect={left:37,top:100,width:1100,height:700}}={}) {
-  const errors=[],elements=new Map(),downloads=[];
+  const errors=[],elements=new Map();
   let currentScene,currentCamera,clock=1000;
   let timerSequence=0;
   const timers=new Map();
@@ -65,7 +65,7 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
       for(const handler of this.listeners.get(type)??[]){handler(event);if(event.immediatePropagationStopped)break;}
       return event;
     }
-    click(){if(!this.disabled){if(this.tagName==='A'&&this.download)downloads.push({filename:this.download,url:this.href});this.emit('click');}}
+    click(){if(!this.disabled)this.emit('click');}
     focus(){document.activeElement=this;}
     scrollIntoView(){}
     setPointerCapture(){}
@@ -97,13 +97,8 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
     render(scene,camera){scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);currentScene=scene;currentCamera=camera;}
   }
   class ClockDate extends Date {static now(){return clock;}}
-  const blobs=new Map();
-  class TestURL extends URL {
-    static createObjectURL(blob){const key=`blob:test-${blobs.size+1}`;blobs.set(key,blob);return key;}
-    static revokeObjectURL(){}
-  }
   const context=vm.createContext({
-    document,window,TestRenderer,prepareWorld,AbortController,AbortSignal,Blob,URL:TestURL,Date:ClockDate,performance:{now:()=>clock},
+    document,window,TestRenderer,prepareWorld,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
     matchMedia:()=>({matches:true,addEventListener(){}}),
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},
     setTimeout:(callback,delay=0,...args)=>{const id=++timerSequence;timers.set(id,{callback,args,at:clock+delay});return id;},
@@ -119,7 +114,7 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
   };
   const input=(type,values={})=>canvas.emit(type,{pointerId:1,button:0,shiftKey:false,...values});
   const app={
-    canvas,elements,saved,errors,point,input,window,document,downloads,blobs,
+    canvas,elements,saved,errors,point,input,window,document,
     click:id=>elements.get(id).click(),
     advance:ms=>{clock+=ms;},
     scene:()=>currentScene,
@@ -140,7 +135,7 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
       }
     },
   };
-  if(autoStart)enterJudge(app);
+  if(autoStart)enterUser(app);
   return app;
 }
 
@@ -389,13 +384,12 @@ test('view reset, resize and leaving the canvas invalidate stale placement previ
 });
 
 const handoffOf=app=>app.window.easygridDemo.getHandoff();
-const plain=value=>JSON.parse(JSON.stringify(value));
-function enterJudge(app,{alias=privateJudge.alias,phone=privateJudge.phone,consent=true}={}) {
-  for(const [id,value] of [['judge-alias',alias],['judge-phone',phone]]){
+function enterUser(app,{alias=privateUser.alias,phone=privateUser.phone,consent=true}={}) {
+  for(const [id,value] of [['user-alias',alias],['user-phone',phone]]){
     const field=app.elements.get(id);field.value=value;field.emit('input');
   }
-  const checkbox=app.elements.get('judge-consent');checkbox.checked=consent;checkbox.emit('input');
-  app.elements.get('judge-form').emit('submit');
+  const checkbox=app.elements.get('user-consent');checkbox.checked=consent;checkbox.emit('input');
+  app.elements.get('user-form').emit('submit');
 }
 async function settlePromises(){for(let i=0;i<5;i++)await Promise.resolve();}
 
@@ -407,20 +401,24 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   app.click('open-analysis');
   assert.equal(app.elements.get('analysis-panel').hidden,false);
   const handoff=handoffOf(app),route=handoff.snapshot.routes[0];
+  assert.equal(handoff.schemaVersion,2);
   assert.equal(route.id,app.canvas.dataset.routeId);
   assert.equal(handoff.parcelAnalysis.length,route.parcelIds.length);
   assert.equal(app.elements.get('analysis-parcel-list').children.length,route.parcelIds.length);
   assert.equal(app.elements.get('analysis-count').textContent,String(route.parcelIds.length));
   assert.equal(app.elements.get('analysis-upfront').textContent,usd(route.upfrontCompensationCents));
   assert.equal(app.elements.get('analysis-rent').textContent,usd(route.recurringRentTotalCents));
-  assert.equal(handoff.parcelAnalysis.filter(row=>row.judgeRole).length,1);
-  assert(route.parcelIds.includes(handoff.judgeRole.parcelId));
-  assert.equal(handoff.judgeRole.participantReady,true);
-  assert.equal(app.elements.get('prepare-handoff').disabled,true);
-  assert.equal(app.elements.get('export-handoff').disabled,false);
-  app.click('focus-judge-parcel');
-  assert.equal(app.elements.get('analysis-owner').textContent,privateJudge.alias);
-  assert.match(app.elements.get('analysis-parcel-copy').textContent,new RegExp(handoff.judgeRole.parcelId));
+  assert.equal(handoff.parcelAnalysis.filter(row=>row.userRole).length,1);
+  assert(route.parcelIds.includes(handoff.userRole.parcelId));
+  assert.equal(handoff.userRole.participantReady,true);
+  assert.equal(app.elements.get('agent-call').disabled,true);
+  assert.equal(app.elements.get('agent-call').textContent,'Agent call');
+  assert.equal(app.elements.has('export-handoff'),false);
+  assert.equal(app.elements.has('prepare-handoff'),false);
+  assert(!/\bdownload(?:=|\s)/.test(markup),'the application has no download control');
+  app.click('focus-user-parcel');
+  assert.equal(app.elements.get('analysis-owner').textContent,privateUser.alias);
+  assert.match(app.elements.get('analysis-parcel-copy').textContent,new RegExp(handoff.userRole.parcelId));
   assert.equal(app.scene().getObjectByName('Selected fictional parcel').visible,true);
   app.click('close-analysis');
   assert.equal(app.elements.get('analysis-panel').hidden,true);
@@ -428,140 +426,140 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.deepEqual(app.errors,[]);
 });
 
-test('participant consent gates a private handoff while shared JSON and saved plans stay contact-redacted',async()=>{
+test('participant consent gates Agent call while public snapshots and saved plans stay contact-redacted',async()=>{
   const app=boot();placePair(app);await app.flushTimers();app.click('open-analysis');
   app.click('edit-analysis-participant');
   assert.equal(app.elements.get('demo-onboarding').hidden,false);
   assert.equal(app.elements.get('demo-workspace').inert,true);
   assert.equal(handoffOf(app),null,'opening participant editing revokes the current private handoff');
   assert.equal(networkOf(app).children.length,0);
-  enterJudge(app,{consent:false});
+  enterUser(app,{consent:false});
   assert.equal(handoffOf(app),null);
-  assert.equal(app.elements.get('prepare-handoff').disabled,true);
-  enterJudge(app,{phone:'555-0123'});
+  assert.equal(app.elements.get('agent-call').disabled,true);
+  enterUser(app,{phone:'555-0123'});
   assert.equal(handoffOf(app),null);
-  enterJudge(app);await app.flushTimers();
-  assert.equal(handoffOf(app).judgeRole.participantReady,true);
-  assert.equal(app.elements.get('prepare-handoff').disabled,true,'saving contact does not connect or call a backend');
+  enterUser(app);await app.flushTimers();
+  assert.equal(handoffOf(app).userRole.participantReady,true);
+  assert.equal(app.elements.get('agent-call').disabled,true,'saving contact does not connect or call a backend');
   const serialized=JSON.stringify(handoffOf(app));
-  for(const secret of Object.values(privateJudge)){
+  for(const secret of Object.values(privateUser)){
     assert(!serialized.includes(secret),'shareable handoff must not contain entered participant data');
     assert(!JSON.stringify([...app.saved]).includes(secret),'participant data must not enter local storage');
   }
-  app.click('export-handoff');
-  assert.equal(app.downloads.length,1);
-  const exported=JSON.parse(await app.blobs.get(app.downloads[0].url).text());
-  assert.deepEqual(exported,plain(handoffOf(app)));
-  const field=app.elements.get('judge-phone');field.value='+12025550124';field.emit('input');
+  const field=app.elements.get('user-phone');field.value='+12025550124';field.emit('input');
   assert.equal(handoffOf(app),null,'an edit revokes the saved participant and its route handoff');
-  assert.equal(app.elements.get('prepare-handoff').disabled,true);
-  enterJudge(app);await app.flushTimers();
-  app.click('clear-judge');
-  assert.equal(app.elements.get('judge-phone').value,'');
-  assert.equal(app.elements.get('judge-consent').checked,false);
+  assert.equal(app.elements.get('agent-call').disabled,true);
+  enterUser(app);await app.flushTimers();
+  app.click('clear-user');
+  assert.equal(app.elements.get('user-phone').value,'');
+  assert.equal(app.elements.get('user-consent').checked,false);
   assert.equal(handoffOf(app),null);
   assert.deepEqual(app.errors,[]);
 });
 
-test('route changes invalidate prior handoffs, rebind the judge to an affected parcel and reset clears private contact',async()=>{
+test('route changes invalidate prior handoffs, rebind the user to an affected parcel and reset clears private contact',async()=>{
   const app=boot();placePair(app);await app.flushTimers();
   const prior=handoffOf(app);
   app.click('route-choice-1');
   const alternate=handoffOf(app);
   assert.notEqual(alternate.snapshot.routes[0].id,prior.snapshot.routes[0].id);
   assert(alternate.routeVersion>prior.routeVersion);
-  assert.equal(alternate.parcelAnalysis.filter(row=>row.judgeRole).length,1);
-  assert(alternate.snapshot.routes[0].parcelIds.includes(alternate.judgeRole.parcelId));
-  assert.equal(alternate.judgeRole.participantReady,true);
-  if(alternate.snapshot.routes[0].parcelIds.includes(prior.judgeRole.parcelId))assert.equal(alternate.judgeRole.parcelId,prior.judgeRole.parcelId);
+  assert.equal(alternate.parcelAnalysis.filter(row=>row.userRole).length,1);
+  assert(alternate.snapshot.routes[0].parcelIds.includes(alternate.userRole.parcelId));
+  assert.equal(alternate.userRole.participantReady,true);
+  if(alternate.snapshot.routes[0].parcelIds.includes(prior.userRole.parcelId))assert.equal(alternate.userRole.parcelId,prior.userRole.parcelId);
   app.click('step-a');app.click('next-site');app.click('confirm-placement');
   assert.equal(handoffOf(app),null,'old route data must disappear during recalculation');
-  assert.equal(app.elements.get('export-handoff').disabled,true);
+  assert.equal(app.elements.get('agent-call').disabled,true);
   await app.flushTimers();
   const moved=handoffOf(app);
-  assert.equal(moved.parcelAnalysis.filter(row=>row.judgeRole).length,1);
-  assert(moved.snapshot.routes[0].parcelIds.includes(moved.judgeRole.parcelId));
-  assert.equal(moved.judgeRole.participantReady,true);
+  assert.equal(moved.parcelAnalysis.filter(row=>row.userRole).length,1);
+  assert(moved.snapshot.routes[0].parcelIds.includes(moved.userRole.parcelId));
+  assert.equal(moved.userRole.participantReady,true);
   app.click('reset-plan');
   assert.equal(handoffOf(app),null);
-  assert.equal(app.elements.get('judge-phone').value,'');
-  assert.equal(app.elements.get('judge-alias').value,'');
-  assert.equal(app.elements.get('judge-consent').checked,false);
+  assert.equal(app.elements.get('user-phone').value,'');
+  assert.equal(app.elements.get('user-alias').value,'');
+  assert.equal(app.elements.get('user-consent').checked,false);
   placePair(app);await app.flushTimers();
   assert.equal(app.canvas.dataset.placementCount,'0','reset requires a new participant before placement');
   assert.equal(handoffOf(app),null);
-  enterJudge(app);placePair(app);await app.flushTimers();
-  assert.equal(handoffOf(app).judgeRole.participantReady,true);
+  enterUser(app);placePair(app);await app.flushTimers();
+  assert.equal(handoffOf(app).userRole.participantReady,true);
   assert.deepEqual(app.errors,[]);
 });
 
-test('the host receives private contact only on explicit preparation and stale asynchronous completion is ignored',async()=>{
+test('Agent call invokes the registered host only on click and ignores stale asynchronous completion',async()=>{
   const app=boot({autoStart:false});
   const calls=[];let finish;
   app.window.easygridDemo.setHandoffHandler(input=>{calls.push(input);return new Promise(resolve=>{finish=resolve;});});
-  app.click('prepare-handoff');assert.equal(calls.length,0);
-  enterJudge(app,{phone:'(202) 555-0123'});
+  app.click('agent-call');assert.equal(calls.length,0);
+  enterUser(app,{phone:'(202) 555-0123'});
   assert.equal(calls.length,0,'saving participant data must never invoke the host');
+  assert.equal(app.elements.get('agent-call').disabled,true,'a current route is required before calling');
   placePair(app);await app.flushTimers();
   assert.equal(calls.length,0,'placing facilities must never invoke the host');
-  assert.equal(app.elements.get('prepare-handoff').disabled,false);
-  app.click('prepare-handoff');await settlePromises();
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  app.click('agent-call');await settlePromises();
   assert.equal(calls.length,1);
-  assert.equal(calls[0].participant.phoneE164,privateJudge.phone);
-  assert.equal(calls[0].participant.alias,privateJudge.alias);
+  assert.equal(calls[0].participant.phoneE164,privateUser.phone);
+  assert.equal(calls[0].participant.alias,privateUser.alias);
   assert.equal(calls[0].participant.consent,true);
-  assert(!JSON.stringify(calls[0].handoff).includes(privateJudge.phone));
-  assert.equal(app.elements.get('prepare-handoff').disabled,true);
-  app.click('prepare-handoff');assert.equal(calls.length,1,'a pending handoff cannot be submitted twice');
+  assert(!JSON.stringify(calls[0].handoff).includes(privateUser.phone));
+  assert.equal(app.elements.get('agent-call').disabled,true);
+  app.click('agent-call');assert.equal(calls.length,1,'a pending call request cannot be submitted twice');
   app.click('reset-plan');
   assert.equal(calls[0].signal.aborted,true);
   const resetMessage=app.elements.get('handoff-result').textContent;
-  finish({status:'prepared'});await settlePromises();
+  finish({status:'requested'});await settlePromises();
   assert.equal(app.elements.get('handoff-result').textContent,resetMessage,'late completion cannot restore stale success');
   assert.equal(handoffOf(app),null);
-  assert.equal(app.elements.get('judge-phone').value,'');
+  assert.equal(app.elements.get('user-phone').value,'');
   assert.deepEqual(app.errors,[]);
 });
 
 test('adapter failures do not expose private contact and page departure clears participant state',async()=>{
   const app=boot();placePair(app);await app.flushTimers();
   let calls=0;
-  app.window.easygridDemo.setHandoffHandler(async()=>{calls++;throw new Error(`Provider rejected ${privateJudge.phone}`);});
-  app.click('prepare-handoff');await settlePromises();
+  app.window.easygridDemo.setHandoffHandler(async()=>{calls++;throw new Error(`Provider rejected ${privateUser.phone}`);});
+  app.click('agent-call');await settlePromises();
   assert.equal(calls,1);
   assert.match(app.elements.get('handoff-result').textContent,/failed|unable|could not|unavailable|did not confirm/i);
-  assert(!app.elements.get('handoff-result').textContent.includes(privateJudge.phone));
-  assert(!JSON.stringify(app.errors).includes(privateJudge.phone));
+  assert(!app.elements.get('handoff-result').textContent.includes(privateUser.phone));
+  assert(!JSON.stringify(app.errors).includes(privateUser.phone));
   app.window.emit('pagehide');
-  assert.equal(app.elements.get('judge-phone').value,'');
+  assert.equal(app.elements.get('user-phone').value,'');
   assert.equal(handoffOf(app),null);
 });
 
-test('accepted handoff signals remain revocable after success on contact edits, route changes and reset',async()=>{
+test('accepted call request signals remain revocable after contact edits, route changes and reset',async()=>{
   const app=boot();placePair(app);await app.flushTimers();
   const accepted=[];
   app.window.easygridDemo.setHandoffHandler(async input=>{accepted.push(input);});
-  app.click('prepare-handoff');await settlePromises();
+  app.click('agent-call');await settlePromises();
   assert.equal(accepted.length,1);
   assert.equal(accepted[0].signal.aborted,false);
-  assert.equal(app.elements.get('handoff-status-badge').textContent,'PREPARED');
-  assert.equal(app.elements.get('prepare-handoff').disabled,true);
-  const phone=app.elements.get('judge-phone');phone.value='+12025550124';phone.emit('input');
-  assert.equal(accepted[0].signal.aborted,true,'contact edits revoke even a successfully prepared handoff');
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'REQUEST SENT');
+  assert.equal(app.elements.get('handoff-result').textContent,'Call request sent to the agent.');
+  assert.equal(app.elements.get('agent-call').disabled,true);
+  app.click('agent-call');
+  assert.equal(accepted.length,1,'an accepted call request cannot be submitted twice');
+  const phone=app.elements.get('user-phone');phone.value='+12025550124';phone.emit('input');
+  assert.equal(accepted[0].signal.aborted,true,'contact edits revoke even an accepted call request');
   assert.equal(handoffOf(app),null);
-  enterJudge(app);await app.flushTimers();app.click('prepare-handoff');await settlePromises();
+  enterUser(app);await app.flushTimers();app.click('agent-call');await settlePromises();
   assert.equal(accepted.length,2);
   const priorVersion=accepted[1].handoff.routeVersion;
   app.click('route-choice-1');
-  assert.equal(accepted[1].signal.aborted,true,'a changed selected route revokes its prepared handoff');
+  assert.equal(accepted[1].signal.aborted,true,'a changed selected route revokes its accepted call request');
   assert(handoffOf(app).routeVersion>priorVersion);
-  app.click('prepare-handoff');await settlePromises();
+  app.click('agent-call');await settlePromises();
   assert.equal(accepted.length,3);
   assert.equal(accepted[2].signal.aborted,false);
   app.click('reset-plan');
   assert.equal(accepted[2].signal.aborted,true);
   assert.equal(handoffOf(app),null);
-  assert.equal(app.elements.get('judge-phone').value,'');
+  assert.equal(app.elements.get('user-phone').value,'');
   assert.deepEqual(app.errors,[]);
 });
 
@@ -575,13 +573,13 @@ test('changing planner mode closes analysis and parcel inspection highlights the
     assert.equal(app.canvas.dataset.analysisParcel,'');
   }
   app.click('open-analysis');
-  const judgeId=handoffOf(app).judgeRole.parcelId;
+  const userId=handoffOf(app).userRole.parcelId;
   app.click('inspect-parcels');
   assert.equal(app.elements.get('analysis-panel').hidden,true);
   assert.equal(app.canvas.dataset.analysisParcel,'');
   assert.equal(app.canvas.dataset.plannerMode,'inspect');
   app.click('reset-view');
-  const point=[[-43,-17],[43,17]].find(([x,z])=>expectedWorld.tileAt(x,z).parcelId!==judgeId);
+  const point=[[-43,-17],[43,17]].find(([x,z])=>expectedWorld.tileAt(x,z).parcelId!==userId);
   app.hover(...point);
   const parcel=expectedWorld.parcelById.get(expectedWorld.tileAt(...point).parcelId);
   assert.equal(app.canvas.dataset.selectedParcel,parcel.id);
@@ -602,8 +600,8 @@ test('changing planner mode closes analysis and parcel inspection highlights the
 test('mandatory onboarding accepts a US national phone but still requires a name and roleplay consent',async()=>{
   const app=boot({autoStart:false}),modal=app.elements.get('demo-onboarding'),workspace=app.elements.get('demo-workspace');
   assert.equal(modal.hidden,false);assert.equal(workspace.inert,true);
-  assert.equal(app.elements.get('judge-alias').value,'');assert.equal(app.elements.get('judge-phone').value,'');
-  assert.equal(app.elements.get('judge-consent').checked,false);
+  assert.equal(app.elements.get('user-alias').value,'');assert.equal(app.elements.get('user-phone').value,'');
+  assert.equal(app.elements.get('user-consent').checked,false);
   assert.equal(handoffOf(app),null);assert.equal(app.pendingTimers(),0);
   const originalZoom=app.canvas.dataset.zoom;
   // This harness intentionally does not enforce inert: production handlers must also guard mutations.
@@ -617,28 +615,28 @@ test('mandatory onboarding accepts a US national phone but still requires a name
   const escape=app.document.emit('keydown',{key:'Escape'});
   assert.equal(escape.defaultPrevented,true);assert.equal(modal.hidden,false);
   for(const invalid of [{alias:''},{alias:'   '},{phone:'555-0123'},{consent:false}]){
-    enterJudge(app,invalid);
+    enterUser(app,invalid);
     assert.equal(modal.hidden,false);assert.equal(workspace.inert,true);
     assert.equal(handoffOf(app),null);assert.equal(app.pendingTimers(),0);
     app.elements.get('next-site').emit('click');app.elements.get('confirm-placement').emit('click');
     assert.equal(app.canvas.dataset.placementCount,'0');
   }
-  enterJudge(app,{phone:'202-555-0123',consent:false});
+  enterUser(app,{phone:'202-555-0123',consent:false});
   assert.equal(modal.hidden,false);
-  assert.equal(app.elements.get('judge-phone').getAttribute('aria-invalid'),'false');
-  assert.equal(app.elements.get('judge-consent').getAttribute('aria-invalid'),'true');
-  enterJudge(app,{phone:'202-555-0123'});
+  assert.equal(app.elements.get('user-phone').getAttribute('aria-invalid'),'false');
+  assert.equal(app.elements.get('user-consent').getAttribute('aria-invalid'),'true');
+  enterUser(app,{phone:'202-555-0123'});
   assert.equal(modal.hidden,true);assert.equal(workspace.inert,false);
-  assert.equal(app.elements.get('judge-phone').value,privateJudge.phone);
+  assert.equal(app.elements.get('user-phone').value,privateUser.phone);
   placePair(app);await app.flushTimers();app.click('open-analysis');
   const packet=handoffOf(app);
-  assert.equal(packet.judgeRole.participantReady,true);
-  assert.equal(packet.parcelAnalysis.filter(row=>row.judgeRole).length,1);
-  assert(packet.snapshot.routes[0].parcelIds.includes(packet.judgeRole.parcelId));
-  assert.equal(app.elements.get('analysis-owner').textContent,privateJudge.alias);
-  assert.equal(app.elements.get('analysis-parcel-list').children.filter(row=>row.textContent.startsWith(privateJudge.alias)).length,1);
-  assert(!JSON.stringify([...app.saved]).includes(privateJudge.phone));
-  assert(!JSON.stringify([...app.saved]).includes(privateJudge.alias));
+  assert.equal(packet.userRole.participantReady,true);
+  assert.equal(packet.parcelAnalysis.filter(row=>row.userRole).length,1);
+  assert(packet.snapshot.routes[0].parcelIds.includes(packet.userRole.parcelId));
+  assert.equal(app.elements.get('analysis-owner').textContent,privateUser.alias);
+  assert.equal(app.elements.get('analysis-parcel-list').children.filter(row=>row.textContent.startsWith(privateUser.alias)).length,1);
+  assert(!JSON.stringify([...app.saved]).includes(privateUser.phone));
+  assert(!JSON.stringify([...app.saved]).includes(privateUser.alias));
   assert.deepEqual(app.errors,[]);
 });
 
@@ -647,23 +645,23 @@ test('restored facilities wait for fresh onboarding and no participant data surv
   const plan=original.storage(),reloaded=boot({saved:original.saved,autoStart:false});
   assert.equal(reloaded.elements.get('demo-onboarding').hidden,false);
   assert.equal(reloaded.elements.get('demo-workspace').inert,true);
-  assert.equal(reloaded.elements.get('judge-alias').value,'');assert.equal(reloaded.elements.get('judge-phone').value,'');
-  assert.equal(reloaded.elements.get('judge-consent').checked,false);
+  assert.equal(reloaded.elements.get('user-alias').value,'');assert.equal(reloaded.elements.get('user-phone').value,'');
+  assert.equal(reloaded.elements.get('user-consent').checked,false);
   assert.equal(reloaded.canvas.dataset.placementCount,'2');
   assert.equal(networkOf(reloaded).children.length,0);assert.equal(reloaded.pendingTimers(),0);
   assert.equal(handoffOf(reloaded),null);
   for(const id of ['recalculate-route','route-choice-1','step-a','next-site','confirm-placement'])reloaded.elements.get(id).emit('click');
   reloaded.tap(-43,17);reloaded.input('keydown',{key:'Enter'});
   assert.deepEqual(reloaded.storage(),plan);assert.equal(reloaded.pendingTimers(),0);
-  enterJudge(reloaded,{alias:'',consent:true});
+  enterUser(reloaded,{alias:'',consent:true});
   assert.equal(reloaded.pendingTimers(),0);assert.equal(handoffOf(reloaded),null);
-  enterJudge(reloaded);
+  enterUser(reloaded);
   assert.equal(reloaded.elements.get('demo-onboarding').hidden,true);
   assert.equal(reloaded.pendingTimers(),1,'valid participant entry unlocks recomputation for restored sites');
   await reloaded.flushTimers();
   assert.equal(reloaded.canvas.dataset.routeState,'ok');
-  assert.equal(handoffOf(reloaded).judgeRole.participantReady,true);
-  assert.equal(handoffOf(reloaded).parcelAnalysis.filter(row=>row.judgeRole).length,1);
+  assert.equal(handoffOf(reloaded).userRole.participantReady,true);
+  assert.equal(handoffOf(reloaded).parcelAnalysis.filter(row=>row.userRole).length,1);
   reloaded.click('edit-participant');
   assert.equal(reloaded.elements.get('demo-onboarding').hidden,false);
   assert.equal(reloaded.elements.get('demo-workspace').inert,true);

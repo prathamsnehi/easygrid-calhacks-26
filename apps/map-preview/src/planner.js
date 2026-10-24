@@ -121,9 +121,9 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
       write('card-copy',parcel?'The highlighted land belongs to one fictional owner.':'Hover or tap the map to see ownership and land details.');
       if(parcel){
         const owner=world.ownerById.get(parcel.ownerId),role=getParcelRole(parcel.id);
-        write('owner-name',role?`${role.ownerAlias} · judge roleplay`:owner.alias);
+        write('owner-name',role?`${role.ownerAlias} · user roleplay`:owner.alias);
         write('owner-phone',role?.phoneDisplay??owner.phoneDisplay);write('owner-email',role?.email??owner.email);
-        if(role)write('card-copy',`Judge roleplay parcel. Fictional owner role: ${owner.alias}. This is not a real ownership record.`);
+        if(role)write('card-copy',`User roleplay parcel. Fictional owner role: ${owner.alias}. This is not a real ownership record.`);
         const names={meadow:'Open land',hill:'Hills',field:'Farmland',river:'River',shore:'Riverbank',road:'Road',farmyard:'Farmstead'};
         const composition=Object.entries(parcel.terrainCounts).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([name])=>names[name]??name).join(' · ');
         write('parcel-use',composition);write('parcel-area',`${parcel.tileCount} tiles`);write('parcel-offer',money.format(parcel.compensation.initialOfferCents/100));

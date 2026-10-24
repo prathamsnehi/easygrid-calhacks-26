@@ -16,12 +16,14 @@ test('every map handoff snapshot and canonical call request pass the frozen shar
   for(const route of result.candidates){
     const analysis=analyzeRouteParcels(world,route,result.assumptions);
     const handoff=createHandoff({world,route,analysis,placements,sessionId:'schema-check',routeVersion:7});
+    assert.equal(handoff.schemaVersion,2,'the renamed public envelope has its own version');
+    assert.equal(handoff.snapshot.project.schemaVersion,1,'the shared API remains v1');
     assert.deepEqual(Snapshot.parse(handoff.snapshot),handoff.snapshot);
-    const request=buildCallSessionRequest({projectId:'backend-project-17',parcelId:handoff.judgeRole.parcelId,
+    const request=buildCallSessionRequest({projectId:'backend-project-17',parcelId:handoff.userRole.parcelId,
       expectedRevision:8,routeVersion:7,registeredContactRef:'registered-demo-contact-19',
       participantConsent:true,idempotencyKey:`call-${route.id}-7`});
     assert.deepEqual(operations.createCallSession.request.parse(request),request);
     assert.equal(request.participantContactRef,'registered-demo-contact-19');
-    assert.notEqual(request.participantContactRef,handoff.judgeRole.participantContactRef);
+    assert.notEqual(request.participantContactRef,handoff.userRole.participantContactRef);
   }
 });

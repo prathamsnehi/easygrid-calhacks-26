@@ -43,38 +43,42 @@ test('US national phone inputs normalize to +1 while explicit international pref
   }
 });
 
-test('every selected route receives exactly one in-route judge role without changing fixture owners',()=>{
+test('every selected route receives exactly one in-route user role without changing fixture owners',()=>{
   const before=JSON.stringify({owners:world.owners,parcels:world.parcels});
   for(const candidate of result.candidates){
     const nextAnalysis=analyzeRouteParcels(world,candidate,result.assumptions);
-    const packet=createHandoff({...input,route:candidate,analysis:nextAnalysis,judgeParcelId:'not-on-route'});
-    assert(candidate.parcelIds.includes(packet.judgeRole.parcelId));
-    assert.equal(packet.parcelAnalysis.filter(row=>row.judgeRole).length,1);
-    assert.equal(packet.judgeRole.participantReady,false);
+    const packet=createHandoff({...input,route:candidate,analysis:nextAnalysis,userParcelId:'not-on-route'});
+    assert.equal(packet.schemaVersion,2);
+    assert.equal(packet.snapshot.project.schemaVersion,1);
+    assert.doesNotMatch(JSON.stringify(packet),/judge/i);
+    assert(candidate.parcelIds.includes(packet.userRole.parcelId));
+    assert.equal(packet.userRole.participantContactRef,`${input.sessionId}:user`);
+    assert.equal(packet.parcelAnalysis.filter(row=>row.userRole).length,1);
+    assert.equal(packet.userRole.participantReady,false);
     assert.equal(packet.callPreparation.status,'participant-required');
     assert.equal(packet.callPreparation.canStartCall,false);
     assert.equal(packet.snapshot.routes[0].readyToApprove,false);
     assert(packet.snapshot.parcels.every(parcel=>parcel.accessConsent==='unknown'));
-    const selected=packet.snapshot.parcels.find(parcel=>parcel.id===packet.judgeRole.parcelId);
+    const selected=packet.snapshot.parcels.find(parcel=>parcel.id===packet.userRole.parcelId);
     assert.equal(selected.ownerAlias,world.parcelById.get(selected.id).ownerAlias);
   }
   assert.equal(JSON.stringify({owners:world.owners,parcels:world.parcels}),before);
 });
 
 test('shared packet redacts real participant alias and number while exposing exact route and proposal costs',()=>{
-  const participant=validateDemoParticipant({alias:'Secret Judge Name 907',phone:'+14155550134',consent:true}).participant;
-  const packet=createHandoff({...input,participant,judgeParcelId:route.parcelIds.at(-1)});
+  const participant=validateDemoParticipant({alias:'Secret User Name 907',phone:'+14155550134',consent:true}).participant;
+  const packet=createHandoff({...input,participant,userParcelId:route.parcelIds.at(-1)});
   const json=JSON.stringify(packet);
   assert(!json.includes(participant.alias));assert(!json.includes(participant.phoneE164));assert(!json.includes('14155550134'));
-  assert.equal(packet.judgeRole.parcelId,route.parcelIds.at(-1));
-  assert.equal(packet.judgeRole.participantReady,true);
+  assert.equal(packet.userRole.parcelId,route.parcelIds.at(-1));
+  assert.equal(packet.userRole.participantReady,true);
   assert.equal(packet.callPreparation.status,'ready-for-host-adapter');
   assert.equal(packet.callPreparation.backendBindingRequired,true);
   assert.equal(packet.callPreparation.contactRegistered,false);
   assert.equal(packet.callPreparation.canStartCall,false);
-  const selected=packet.parcelAnalysis.find(row=>row.judgeRole);
+  const selected=packet.parcelAnalysis.find(row=>row.userRole);
   assert.equal(selected.email,null);assert.equal(selected.phoneDisplay,'Private demo participant');
-  assert.equal(selected.displayOwnerAlias,'Judge participant');
+  assert.equal(selected.displayOwnerAlias,'User participant');
   assert.equal(packet.parcelAnalysis.reduce((sum,p)=>sum+p.upfrontCents,0),route.costBreakdown.compensationCents);
   assert.equal(packet.parcelAnalysis.reduce((sum,p)=>sum+p.rentTotalCents,0),route.costBreakdown.rentCents);
   const candidate=packet.snapshot.routes[0];

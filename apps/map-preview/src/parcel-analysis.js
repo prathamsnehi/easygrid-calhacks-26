@@ -118,8 +118,8 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
   return {routeId:route.id,sourceMode:'fixture',coordinateSystem:'local-demo-grid',rentHorizonMonths:months,parcels,totals};
 }
 
-/** Keep the judge role on an affected parcel; every valid nonempty route gets one. */
-export function chooseJudgeParcel(analysis,previousParcelId=null){
+/** Keep the user role on an affected parcel; every valid nonempty route gets one. */
+export function chooseUserParcel(analysis,previousParcelId=null){
   const parcels=analysis?.parcels;
   if(!Array.isArray(parcels)||parcels.length===0)return null;
   if(parcels.some(parcel=>parcel.parcelId===previousParcelId))return previousParcelId;

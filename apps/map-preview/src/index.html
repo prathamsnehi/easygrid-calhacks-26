@@ -74,7 +74,7 @@
   </aside>
   <section id="analysis-panel" class="analysis-panel" aria-labelledby="analysis-title" hidden>
     <header class="analysis-header">
-      <div><span class="eyebrow">ROUTE → LANDOWNER HANDOFF</span><h2 id="analysis-title">Land &amp; people</h2><p id="analysis-route-note">Choose a route to review its affected parcels.</p></div>
+      <div><span class="eyebrow">ROUTE → LANDOWNER CONTACT</span><h2 id="analysis-title">Land &amp; people</h2><p id="analysis-route-note">Choose a route to review its affected parcels.</p></div>
       <button id="close-analysis" class="quiet-button" type="button" aria-label="Close parcel analysis">Back to map <span aria-hidden="true">×</span></button>
     </header>
     <div class="analysis-overview">
@@ -104,11 +104,11 @@
         </article>
         <p class="analysis-footnote">Fictional land and illustrative USD amounts. Lengths use demo tiles. Compensation covers centerline length and pylon pads; corridor-only parcels still need review.</p>
       </div>
-      <aside class="analysis-handoff" aria-label="Judge demo participant and handoff">
-        <div class="judge-heading"><span class="judge-symbol" aria-hidden="true">J</span><div><span class="eyebrow">ONE LIVE DEMO ROLE</span><h3>Judge participant</h3></div></div>
-        <p class="judge-copy">One affected parcel is always reserved for the judge's landowner role. The assignment follows the selected route.</p>
-        <button id="focus-judge-parcel" class="judge-assignment" type="button"><span><small>Assigned parcel</small><strong id="judge-parcel-label">—</strong></span><span id="judge-contact-status" class="role-badge">CONTACT NEEDED</span></button>
-        <p id="judge-role-note" class="analysis-footnote">A role in this fictional simulation, not a claim of real ownership.</p>
+      <aside class="analysis-handoff" aria-label="User and calling agent">
+        <div class="user-heading"><span class="user-symbol" aria-hidden="true">U</span><div><span class="eyebrow">YOUR DEMO PROPERTY</span><h3>User</h3></div></div>
+        <p class="user-copy">One affected parcel is reserved for your landowner role. It follows the selected route.</p>
+        <button id="focus-user-parcel" class="user-assignment" type="button"><span><small>Assigned parcel</small><strong id="user-parcel-label">—</strong></span><span id="user-contact-status" class="role-badge">CONTACT NEEDED</span></button>
+        <p id="user-role-note" class="analysis-footnote">A role in this fictional simulation, not a claim of real ownership.</p>
         <div class="registered-participant">
           <span class="eyebrow">REGISTERED FOR THIS DEMO</span>
           <strong id="registered-participant-name">Participant</strong>
@@ -117,13 +117,11 @@
           <button id="edit-analysis-participant" class="quiet-button" type="button">Edit participant</button>
         </div>
         <div class="handoff-box">
-          <div class="analysis-section-heading"><h3>Ready for Pratham</h3><span id="handoff-status-badge" class="role-badge">LOCAL PREVIEW</span></div>
-          <p id="handoff-connection-note">The voice backend is not connected. Export the route package to review the integration.</p>
+          <div class="analysis-section-heading"><h3>Calling agent</h3><span id="handoff-status-badge" class="role-badge">NOT CONNECTED</span></div>
+          <p id="handoff-connection-note">Calling agent is not connected.</p>
           <p id="handoff-budget-note" class="analysis-footnote">Fixture budget: $1,000,000.00. This is a demo limit, not an approved project budget.</p>
-          <button id="export-handoff" class="secondary-button" type="button" disabled>Export handoff JSON</button>
-          <button id="prepare-handoff" class="primary-button" type="button" disabled>Prepare participant handoff</button>
-          <p id="handoff-result" class="analysis-feedback" role="status">Export includes the selected route, owner roles and proposal amounts. Personal contact details stay private.</p>
-          <p class="analysis-footnote">Preparing a handoff does not place a call. Calling and consent verification belong to the connected voice agent.</p>
+          <button id="agent-call" class="primary-button" type="button" disabled>Agent call</button>
+          <p id="handoff-result" class="analysis-feedback" role="status"></p>
         </div>
       </aside>
     </div>
@@ -131,19 +129,19 @@
   <div class="map-tools"><button id="reset-view" class="quiet-button" type="button">↗ Fit map</button><span id="map-help">Drag to rotate · Shift-drag to pan · Scroll to zoom</span></div>
   <p id="save-note" class="save-note" role="status" hidden></p>
   </div>
-  <section id="demo-onboarding" class="demo-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="judge-phone-help">
+  <section id="demo-onboarding" class="demo-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="user-phone-help">
     <div class="onboarding-card">
       <div class="onboarding-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="onboarding-title">EASYGRID</span></div>
-      <form id="judge-form" class="judge-form" autocomplete="off" novalidate>
-        <label for="judge-alias">Name</label>
-        <input id="judge-alias" type="text" maxlength="80" autocomplete="off" placeholder="Enter your name" required aria-required="true">
-        <label for="judge-phone">Phone number <span>country code optional</span></label>
-        <input id="judge-phone" type="tel" inputmode="tel" maxlength="32" autocomplete="off" placeholder="(415) 555-0123" required aria-required="true" aria-describedby="judge-phone-help">
-        <p id="judge-phone-help" class="field-help">US country code (+1) is added automatically. Contact details are excluded from exported files.</p>
-        <label class="consent-label" for="judge-consent"><input id="judge-consent" type="checkbox" required aria-required="true"><span>I agree to receive an AI demo call at this number and understand that I am playing a fictional landowner.</span></label>
-        <div class="judge-form-actions"><button id="save-judge" class="primary-button" type="submit">Start demo <span aria-hidden="true">→</span></button><button id="clear-judge" class="quiet-button muted" type="button">Clear</button></div>
+      <form id="user-form" class="user-form" autocomplete="off" novalidate>
+        <label for="user-alias">Name</label>
+        <input id="user-alias" type="text" maxlength="80" autocomplete="off" placeholder="Enter your name" required aria-required="true">
+        <label for="user-phone">Phone number <span>country code optional</span></label>
+        <input id="user-phone" type="tel" inputmode="tel" maxlength="32" autocomplete="off" placeholder="(415) 555-0123" required aria-required="true" aria-describedby="user-phone-help">
+        <p id="user-phone-help" class="field-help">US country code (+1) is added automatically. Your details stay in this page until you request a call.</p>
+        <label class="consent-label" for="user-consent"><input id="user-consent" type="checkbox" required aria-required="true"><span>I agree to receive an AI demo call at this number and understand that I am playing a fictional landowner.</span></label>
+        <div class="user-form-actions"><button id="save-user" class="primary-button" type="submit">Start demo <span aria-hidden="true">→</span></button><button id="clear-user" class="quiet-button muted" type="button">Clear</button></div>
       </form>
-      <p id="judge-form-status" class="analysis-feedback" role="status"></p>
+      <p id="user-form-status" class="analysis-feedback" role="status"></p>
     </div>
   </section>
   <div id="error" role="alert" hidden>The 3D map could not be displayed. Open it in a browser with WebGL support.</div>
