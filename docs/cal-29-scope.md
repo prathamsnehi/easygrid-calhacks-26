@@ -31,10 +31,14 @@ out of public state and logs.
 - Setup records repo-local CLI/library `2.13.0` and Pratham's confirmed CLI
   login. A database name is still proposed; no published database or verified
   collaborator access is established by those setup records.
-- CAL-27 PR [#7](https://github.com/prathamsnehi/easygrid-calhacks-26/pull/7)
-  is draft/open, stacked on #3 and #1. Inspected head:
-  `2fd3c65a666145dec1ba2cc9b2ef8ee712bf9ab4`. Its contract/map code is not
-  present on this main-based branch. Coordinate the dependency chain before
+- At initial branch creation, CAL-27 PR
+  [#7](https://github.com/prathamsnehi/easygrid-calhacks-26/pull/7) was draft/open,
+  stacked on #3/#1. Inspected head: `2fd3c65a666145dec1ba2cc9b2ef8ee712bf9ab4`.
+  During subsequent research, PR
+  [#8](https://github.com/prathamsnehi/easygrid-calhacks-26/pull/8) merged that
+  history into main at `ac9785cc595068f0df77f06ef25adda577f6b2e0`.
+  The relevant contract/helper files are unchanged. This documentation branch
+  still starts from the earlier setup main; refresh its baseline before
   implementation rather than copying schemas into a competing model.
 - Relevant CAL-27 files inspected: `packages/contracts/src/api.ts`,
   `policy.ts`, `owner-handoff.ts`, `packages/contracts/README.md`,
