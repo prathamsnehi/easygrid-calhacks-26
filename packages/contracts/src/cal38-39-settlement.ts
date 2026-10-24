@@ -90,3 +90,18 @@ export function publicSettlementView(first:Cal37State,state:FollowupState){
  balance:sum(safe.filter(e=>e.stage==='completion_balance')),
  monthly:sum(safe.filter(e=>e.stage==='monthly_fee'))};
 }
+
+/** CAL-29 adapter: commit a whole followup transition atomically; no parallel source of truth. */
+export interface FollowupStore {
+ load(sessionId:string):Promise<{packet:OwnerHandoff;first:Cal37State;state:FollowupState}>;
+ compareAndSwap(sessionId:string,expectedRevision:number,next:FollowupState):Promise<boolean>;
+}
+export async function settleFollowupAuthoritatively(store:FollowupStore,sessionId:string,
+ action:(packet:OwnerHandoff,first:Cal37State,state:FollowupState,revision:number)=>FollowupState){
+ const snapshot=await store.load(sessionId);
+ if(snapshot.packet.sessionId!==sessionId)fail('Authoritative session mismatch');
+ const next=action(snapshot.packet,snapshot.first,snapshot.state,snapshot.state.revision);
+ if(!await store.compareAndSwap(sessionId,snapshot.state.revision,next))
+ fail('Concurrent authoritative ledger update rejected');
+ return next;
+}
