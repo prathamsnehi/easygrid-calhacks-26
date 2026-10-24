@@ -40,7 +40,7 @@ export function completeSimulated(packet:OwnerHandoff,first:Cal37State,state:Fol
  expectedRevision:number,completedOn:string,confirmed:boolean):FollowupState{
  verify(packet,first,state,expectedRevision);
  if(!confirmed||state.completedOn)fail('Explicit unique completion confirmation required');
- if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(completedOn))fail('Invalid completion date');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(completedOn))fail('Invalid completion date');
  return {...state,revision:state.revision+1,completedOn};
 }
 export function settleFollowup(packet:OwnerHandoff,first:Cal37State,state:FollowupState,
