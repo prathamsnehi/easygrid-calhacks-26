@@ -16,7 +16,7 @@ export function createSettlementController({getHandoff}){
   const button=document.querySelector('#settle-payment'),status=document.querySelector('#settlement-status');
   const feedback=document.querySelector('#settlement-feedback'),overviewButton=document.querySelector('#overview-settlement');
   let handler=null,approval=null,active=null,generation=0,demoAgreement=null;
-  let onDemoProceed=()=>{};
+  let onDemoProceed=()=>{},demoBusy=false;
   // Keep a stable key across uncertain retries; a second key must not bypass host deduplication.
   const attempts=new Map();
   let sequence=0;
@@ -24,16 +24,16 @@ export function createSettlementController({getHandoff}){
   function eligible(handoff){return handoff?.snapshot?.routes?.[0]?.eligible===true&&handoff.ownerHandoff.simulationChecksPassed===true;}
   function attemptId(receipt){return JSON.stringify([receipt.mapBinding.sessionId,receipt.approvalId,receipt.packageHash]);}
   function matching(handoff){return approval&&eligible(handoff)&&sameBinding(approval.mapBinding,settlementBinding(handoff));}
-  function stop(){generation++;active?.abort();active=null;}
+  function stop(){generation++;active?.abort();active=null;demoBusy=false;}
   function render(){
     const handoff=current(),valid=matching(handoff),attempt=valid?attempts.get(attemptId(approval)):null;
     if(approval&&!valid){stop();approval=null;}
     const sent=attempt?.status==='sent',uncertain=attempt?.status==='unknown';
     if(demoAgreement&&!sameBinding(demoAgreement.mapBinding,settlementBinding(handoff)))demoAgreement=null;
-    const ready=Boolean(demoAgreement||valid&&handler&&!active&&!sent&&!uncertain);
+    const ready=Boolean(demoAgreement&&!demoBusy||valid&&handler&&!active&&!sent&&!uncertain);
     button.disabled=!ready;
     button.classList.toggle('settlement-ready',ready);
-    button.textContent=active?'Sending…':sent?'Request sent':'Continue to contract & settlement';
+    button.textContent=demoBusy?'Preparing contracts…':active?'Sending…':sent?'Request sent':'Continue to contract & settlement';
     if(overviewButton){overviewButton.disabled=button.disabled;overviewButton.classList.toggle('settlement-ready',ready);overviewButton.textContent=button.textContent;}
     status.textContent=demoAgreement?'Approved · demo':active?'Sending':sent?'Requested':uncertain?'Check status':valid?'Approved':'Awaiting approval';
     status.className=`role-badge${valid||demoAgreement?' ready':''}`;
@@ -63,7 +63,14 @@ export function createSettlementController({getHandoff}){
   }
   button.addEventListener('click',async()=>{
     const handoff=current();
-    if(demoAgreement&&sameBinding(demoAgreement.mapBinding,settlementBinding(handoff))){onDemoProceed(copy(demoAgreement));return;}
+    if(demoAgreement&&sameBinding(demoAgreement.mapBinding,settlementBinding(handoff))){
+      if(demoBusy)return;
+      const ticket=++generation;demoBusy=true;feedback.textContent='';render();
+      try{await onDemoProceed(copy(demoAgreement));}
+      catch(error){if(ticket===generation)feedback.textContent=error.message||'Contracts could not be opened. Try again.';}
+      finally{if(ticket===generation){demoBusy=false;render();}}
+      return;
+    }
     if(!handler||active||!matching(handoff)){render();return;}
     const receipt=copy(approval),key=attemptId(receipt),prior=attempts.get(key);
     if(prior?.status==='sent'||prior?.status==='unknown'){render();return;}
