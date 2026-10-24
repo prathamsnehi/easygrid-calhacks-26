@@ -4,7 +4,7 @@ import {createAcceptedOwnerHandoff,createOwnerHandoffCurrent} from '../src/owner
 import {buildCal36FromOwnerHandoff} from '../src/cal36-shared-handoff.ts';
 import {signDemoAgreement} from '../src/cal36-easement.ts';
 import {approveCal37,settleCal37,emptyCal37State} from '../src/cal37-approval.ts';
-import {emptyFollowupState,completeSimulated,settleFollowup,publicSettlementView} from '../src/cal38-39-settlement.ts';
+import {emptyFollowupState,completeSimulated,settleFollowup,publicSettlementView,settleFollowupAuthoritatively} from '../src/cal38-39-settlement.ts';
 function setup(){
  const packet=createAcceptedOwnerHandoff(),current=createOwnerHandoffCurrent(packet);
  const issued=buildCal36FromOwnerHandoff(packet,current,'EasyGrid');
@@ -46,4 +46,18 @@ test('CAL-39 two completion-anchored monthly periods and deliberate mismatch',()
  assert.equal(retried.entries.length,6);
  assert.equal(publicSettlementView(first,retried).monthly.unmatchedCents,0);
  assert.throws(()=>settleFollowup(packet,first,retried,5,{stage:'monthly_fee',monthlyIndex:2,asOfDate:'2026-12-24',outcome:'simulated_success'}));
+});
+
+test('CAL-29 handoff refuses stale atomic CAS before reporting a committed payment',async()=>{
+ const {packet,first}=setup();
+ const state=completeSimulated(packet,first,emptyFollowupState(),0,'2026-10-24',true);
+ let writes=0;
+ const store={async load(){return {packet,first,state}},
+ async compareAndSwap(_session:string,expected:number,next:typeof state){
+  assert.equal(expected,1);assert.equal(next.revision,2);writes++;return false;
+ }};
+ await assert.rejects(settleFollowupAuthoritatively(store,packet.sessionId,
+  (p,f,s,r)=>settleFollowup(p,f,s,r,{stage:'completion_balance',asOfDate:'2026-10-24',outcome:'simulated_success'})),
+ /Concurrent authoritative ledger update/);
+ assert.equal(writes,1);assert.equal(state.entries.length,0);
 });
