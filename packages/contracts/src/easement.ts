@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { ContractError } from './api.ts';
 import { canonicalJson, validateNegotiation } from './policy.ts';
-import { Easement, type NegotiationResult, type Easement as EasementType } from './schemas.ts';
+import { Easement, DateOnly, type NegotiationResult, type Easement as EasementType } from './schemas.ts';
 
 export type EasementInput = {
   id: string; projectId: string; routeId: string; parcelId: string;
@@ -41,8 +41,21 @@ export function createEasementDraft(input: EasementInput): EasementArtifact {
   if (n.evidenceRefs.length === 0) missingFields.push('evidenceRefs');
   if (n.projectId !== input.projectId || n.parcelId !== input.parcelId)
     throw new ContractError('INVALID_INPUT', 'Negotiation does not match project/parcel');
-  if (input.effectiveStartDate >= input.effectiveEndDate) missingFields.push('effectiveDates');
-  if (!input.effectiveStartDate.endsWith('-01')) missingFields.push('monthAlignedStartDate');
+  const startValid = DateOnly.safeParse(input.effectiveStartDate).success;
+  const endValid = DateOnly.safeParse(input.effectiveEndDate).success;
+  if (!startValid || !endValid || input.effectiveStartDate >= input.effectiveEndDate)
+    missingFields.push('effectiveDates');
+  if (startValid && !input.effectiveStartDate.endsWith('-01'))
+    missingFields.push('monthAlignedStartDate');
+  if (startValid && endValid && input.effectiveStartDate.endsWith('-01') &&
+      Number.isInteger(n.termMonths) && n.termMonths >= 1) {
+    const startMonth = Number(input.effectiveStartDate.slice(0, 4)) * 12 +
+      Number(input.effectiveStartDate.slice(5, 7)) - 1;
+    const endMonth = startMonth + n.termMonths;
+    const expectedEnd = new Date(Date.UTC(Math.floor(endMonth / 12),
+      endMonth % 12, 0)).toISOString().slice(0, 10);
+    if (input.effectiveEndDate !== expectedEnd) missingFields.push('termDateMismatch');
+  }
   if (input.priorContract) {
     if (input.priorContract.projectId !== input.projectId || input.priorContract.parcelId !== input.parcelId)
       throw new ContractError('INVALID_INPUT', 'Prior contract belongs to another project/parcel');
