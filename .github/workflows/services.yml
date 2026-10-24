@@ -1,0 +1,48 @@
+name: Service checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - prath/cal-28-shared-setup
+
+permissions:
+  contents: read
+
+jobs:
+  services:
+    name: Cartesia and SpacetimeDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install Cartesia dependencies
+        run: npm ci --prefix services/cartesia
+
+      - name: Test Cartesia with mocked provider responses
+        run: npm test --prefix services/cartesia
+
+      - name: Typecheck Cartesia
+        run: npm run typecheck --prefix services/cartesia
+
+      - name: Build Cartesia
+        run: npm run build --prefix services/cartesia
+
+      - name: Install SpacetimeDB dependencies
+        run: npm ci --prefix services/spacetimedb
+
+      - name: Typecheck SpacetimeDB
+        run: npm run typecheck --prefix services/spacetimedb
+
+      - name: Build SpacetimeDB
+        run: npm run build --prefix services/spacetimedb
