@@ -14,6 +14,18 @@ npm run build
 
 The tests mock provider responses; they do not demonstrate live provider connectivity. See [the Cartesia README](../services/cartesia/README.md) for configuration and usage. Keep actual configuration values in backend secret configuration or an ignored local environment file.
 
+Provisioning owner: Pratham Snehi. Pratham confirmed the Cartesia account,
+outbound number and existing live-test setup are ready. The Cartesia README
+records the key, number, voice and Managed Agent provisioning steps. These
+account-level checks do not establish the later integrated calling workflow.
+
+## Claude access smoke test
+
+Use the [Claude setup README](../services/claude-api/README.md) to configure the
+local credential and reproduce the successful `READY` smoke test. This folder
+currently provides access-test instructions and an environment template; the
+reusable AI service is implementation work for CAL-33/CAL-34.
+
 ## SpacetimeDB: Maincloud with repo-local tooling
 
 Use **Maincloud shared development** for team integration. Keep the native CLI
@@ -162,6 +174,23 @@ published databases do not automatically share application state.
 References: [Node.js quickstart](https://spacetimedb.com/docs/quickstarts/nodejs/),
 [Maincloud deployment](https://spacetimedb.com/docs/how-to/deploy/maincloud/),
 [official installer implementation](https://github.com/clockworklabs/SpacetimeDB/blob/master/crates/update/src/cli/self_install.rs).
+
+## Provider-unavailable behavior
+
+These are planned implementation requirements. Automatic runtime fallback modes
+are not yet implemented. CAL-28 documents the policy; CAL-29, CAL-33, and CAL-34
+implement and verify the behavior described below.
+
+| Failure | Required behavior | Implementation owner |
+| --- | --- | --- |
+| Cartesia cannot start a call | Show the failure. Allow the operator to explicitly select a deterministic simulated call scenario, labeled “Simulation — no live call placed.” | CAL-33 |
+| Cartesia request times out after submission and acceptance is uncertain | Keep the attempt pending/unknown. Reconcile its provider status before permitting another live call. | CAL-33 |
+| Claude transcript analysis fails | Keep the real outcome pending/review-required. An operator-selected fixture demonstration must remain isolated and labeled simulated. | CAL-34 |
+| SpacetimeDB is unreachable | Show shared state as unavailable and block state-changing actions. Any standalone fixture demonstration must state that its data is not persisted. | CAL-29 |
+
+Simulation must be explicitly selected and must never overwrite an uncertain
+live outcome. Fixture paths, selection commands, and runtime verification will
+be documented when the owning issues implement them.
 
 ## Connect pull requests to Linear
 
