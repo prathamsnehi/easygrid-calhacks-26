@@ -61,9 +61,12 @@ From the repository root:
 ```sh
 ./.tools/spacetime-cli --version
 ./.tools/spacetime-cli login
+./.tools/spacetime-cli login show
 ```
 
 Use the same GitHub or Google account for CLI login and the Maincloud dashboard.
+`login show` confirms the current identity; omit `--token` when recording or
+sharing the result.
 
 ### CLI wrapper
 
@@ -94,17 +97,51 @@ the subcommand. Prefer the wrapper for day-to-day commands.
 Record the verified CLI version for teammates and CI. Keep the module library,
 generated bindings, client SDK, and deployment target versions compatible.
 The relocated local installation was verified as CLI/module-library version
-`2.13.0` using the wrapper. Login and database deployment require separate
-verification.
+`2.13.0` using the wrapper. Pratham subsequently confirmed CLI login as recorded
+below. Database deployment still requires separate verification.
 
 ### Shared development target and first deployment
 
 - Provider: SpacetimeDB Maincloud.
 - Host URI: `https://maincloud.spacetimedb.com`.
-- Deployment owner: Pratham, with individual collaborator access for Theo and Stella.
+- Deployment owner: Pratham Snehi. Individual Maincloud collaborator access for
+  Theo and Stella will be configured and verified when the project is available.
 - Database name: choose and record a distinctive available development name;
   `easygrid-calhacks26-dev-pratham` is a suggestion, not a provisioned database.
-- Plan: start with Free and review current limits before changing plans.
+- Account energy: **100,000**, reported available by Pratham on October 24, 2026.
+  This is a reported balance at setup time, not a verified subscription tier or
+  a measured workload-capacity estimate.
+- Plan: Free was the initial recommendation; the actual account tier has not
+  been recorded. Do not infer the tier from the energy balance alone.
+
+### Account readiness checkpoint — October 24, 2026
+
+| Item | Recorded status |
+| --- | --- |
+| Development target | Shared SpacetimeDB Maincloud |
+| Deployment owner | Pratham Snehi |
+| CLI / reported library | `2.13.0` / `2.13.0` |
+| Service npm SDK | Pinned to `2.13.0` |
+| CLI authentication | Confirmed by Pratham's supplied `login show` output: logged-in identity present |
+| Account energy | 100,000 available, user-reported |
+| Database name | `easygrid-calhacks26-dev-pratham` remains a proposal, pending first publish and availability |
+| Database deployment | Pending CAL-29's initial module publish |
+| Maincloud collaborator access | Pending project setup and verification for Theo and Stella |
+
+The login check was run from the repository's `.tools/` directory:
+
+```sh
+./spacetime-cli login show
+```
+
+From the repository root, the equivalent command is
+`./.tools/spacetime-cli login show`. The confirmation establishes CLI
+authentication; it does not establish a published database, generated bindings,
+or authorized application access. CLI credentials stay in the ignored
+`.tools/spacetime/` installation; the backend's optional application identity
+token is configured separately in `services/spacetimedb/.env`.
+
+### First module publish
 
 CAL-28 prepares access, tooling, and documented connection settings. The first
 module publish creates the database and overlaps with CAL-29's initial scaffold.
