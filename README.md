@@ -1,4 +1,4 @@
-# easygrid-calhacks-26
+# QuickGrid
 
 Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → simulated compensation and rent reconciliation.
 

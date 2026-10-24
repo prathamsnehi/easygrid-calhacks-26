@@ -3,6 +3,7 @@ import { createLandscape } from './landscape.js';
 import { createPlanner } from './planner.js';
 import { createRouteController } from './route-controller.js';
 import { createAnalysisController } from './analysis-controller.js';
+import { createNegotiationController } from './negotiation-controller.js';
 
 const canvas = document.querySelector('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -67,6 +68,7 @@ let width = 1, height = 1, raf = 0;
 let planner = null;
 let routing = null;
 let analysis = null;
+let negotiation = null;
 let demoReady = false;
 const pointers = new Map();
 let pinchDistance = 0;
@@ -190,16 +192,82 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   },
   onUserRoleChange:()=>planner.refreshParcelRoles(),
 });
+const negotiationMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
+let refusalDemoActive=false;
+function renderNegotiation(state){
+  const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=negotiation?.hasSource()??false;
+  const get=id=>document.querySelector(`#${id}`),write=(id,value)=>{get(id).textContent=value;};
+  get('negotiation-progress').hidden=!active;
+  get('simulate-refusal').hidden=connectedSource;
+  get('simulate-refusal').disabled=connectedSource||active||!h?.snapshot.routes[0].eligible||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
+  get('negotiation-result').hidden=!active;
+  write('negotiation-mode',connectedSource?'Owner responses':'Demo scenario');
+  const labels={idle:connectedSource?(state.connected?'Listening':'Connecting'):'Ready',rerouting:'Rerouting',negotiating:'Simulating',confirmed:'Confirmed · simulated',review_required:'Review needed',no_route:'No route',awaiting_owners:'Pending owners'};
+  write('negotiation-status',labels[state.phase]??'Pending');
+  get('negotiation-status').className=`role-badge${state.phase==='confirmed'?' ready':''}`;
+  write('negotiation-reason',state.reason);
+  const hasNew=Boolean(state.next),confirmed=state.phase==='confirmed';
+  get('negotiation-steps').hidden=!state.previous;
+  write('negotiation-step-refusal',state.blockedParcelIds.length?'Owner declined':'Owner condition');
+  for(const [id,done,busy] of [['negotiation-step-refusal',Boolean(state.previous),false],['negotiation-step-route',hasNew,state.phase==='rerouting'],['negotiation-step-owners',confirmed,state.phase==='negotiating']]){
+    get(id).classList.toggle('done',done);get(id).classList.toggle('active',busy);
+  }
+  get('negotiation-costs').hidden=!state.previous||!state.next;
+  const agreement=negotiation?.getAgreement(),newCost=agreement?.totals.totalCostCents??state.next?.totalCostCents;
+  const money=cents=>negotiationMoney.format(cents/100);
+  if(state.previous&&state.next){
+    write('negotiation-old-cost',money(state.previous.totalCostCents));write('negotiation-new-cost',money(newCost));
+    write('negotiation-new-label',agreement?'Agreed demo total':'New estimate');
+    const delta=newCost-state.previous.totalCostCents;write('negotiation-cost-change',`${delta>0?'+':''}${money(delta)}`);
+  }
+  const added=state.next?.parcelIds.filter(id=>!state.previous?.parcelIds.includes(id))??[];
+  const removed=state.previous?.parcelIds.filter(id=>!state.next?.parcelIds.includes(id))??[];
+  write('negotiation-parcels',state.next?[removed.length?`Removed: ${removed.join(', ')}`:'',added.length?`Added: ${added.join(', ')}`:'',confirmed?`${state.outcomes.length} owners accepted · simulated`:''].filter(Boolean).join(' · '):'');
+  get('negotiation-old-path').hidden=!state.previous;
+  canvas.dataset.negotiationState=state.phase;
+  if(h&&state.outcomes.length){
+    const rows=state.outcomes.filter(outcome=>h.snapshot.routes[0].parcelIds.includes(outcome.parcelId));
+    analysis.setNegotiationDisplay({routeVersion:h.routeVersion,outcomes:rows});
+  }else analysis.setNegotiationDisplay(null);
+  analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,packet=>{
+    get('demo-settlement-summary').hidden=false;
+    write('demo-settlement-compensation',money(packet.totals.compensationCents));
+    write('demo-settlement-rent',money(packet.totals.rentTotalCents));
+    write('settlement-feedback','');
+    get('demo-settlement-summary').scrollIntoView?.({block:'nearest'});
+  });
+  if(confirmed){
+    write('route-title','Updated connection');write('route-badge','DEMO AGREED');
+    write('route-status-note',`${state.outcomes.length} owners accepted · simulated`);
+    if(agreement){write('cost-total',money(agreement.totals.totalCostCents));write('cost-rent',money(agreement.totals.rentTotalCents));write('analysis-rent',money(agreement.totals.rentTotalCents));}
+  }
+}
+negotiation=createNegotiationController({world:landscape.world,getHandoff:()=>analysis.getHandoff(),getSessionId:()=>analysis.getSessionId(),
+  invalidateApproval:()=>analysis.settlement.invalidate(),lockLiveCall:()=>analysis.setLiveCallLockout(true),
+  onReroute:()=>{analysis.close({restoreFocus:false});planner.showOverview();routing.replan();},onChange:renderNegotiation});
+document.querySelector('#overview-settlement').addEventListener('click',()=>{
+  if(document.querySelector('#overview-settlement').disabled)return;
+  analysis.open();document.querySelector('#settle-payment').click();
+});
+document.querySelector('#simulate-refusal').addEventListener('click',()=>{
+  try{refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose an eligible route before starting this scenario.';}
+});
+document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoActive=false;negotiation.reset();});
+window.addEventListener('pagehide',()=>{refusalDemoActive=false;negotiation.reset();});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
   getSettlementBinding:()=>analysis.settlement.getBinding(),
   setSettlementApproval:approval=>analysis.settlement.setApproval(approval),
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
-  resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result)});
+  resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
+  getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
+  setNegotiationSource:source=>{refusalDemoActive=false;analysis.settlement.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
+  getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{refusalDemoActive=true;return negotiation.runRefusalDemo();}});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),
-  onRouteChange:snapshot=>analysis.setRoute(snapshot),
+  getRoutingOptions:()=>negotiation.getRoutingOptions(),
+  onRouteChange:snapshot=>{analysis.setRoute(snapshot);negotiation.routeChanged();},onNoRoute:()=>negotiation.noRoute(),
   onFitRoute:(_route,diagnostics)=>{
     rebuildViewBounds(diagnostics.maxY+1);resetCamera();
     if(width>900)pan(-Math.min(width*.12,160),0);
@@ -207,6 +275,7 @@ routing=createRouteController({THREE,scene,world:landscape.world,landscape,canva
     fitCamera();draw(performance.now());
   },
 });
+renderNegotiation(negotiation.getState());
 canvas.addEventListener('pointerdown', e => {
   if(!demoReady)return;
   if (![0, 1, 2].includes(e.button)) return;

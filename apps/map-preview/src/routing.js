@@ -1,4 +1,5 @@
 import { DEMO_COST_MODEL, COST_KEYS, emptyRouteCosts, applyConstructionAllowances, terminalConstructionCosts } from './cost-model.js';
+import { normalizeRoutingConstraints, spanIntersectsExclusion, foundationIntersectsExclusion } from './routing-constraints.js';
 
 /** Deterministic routing on a finite demo support-site graph, not an engineering design. */
 export const ROUTING_ASSUMPTIONS = Object.freeze({
@@ -78,6 +79,7 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
   const lengthTiles=Math.hypot(b.x-a.x,b.z-a.z);
   if(lengthTiles<EPS||lengthTiles>config.maxSpanTiles+EPS)return null;
   const pad=config.corridorHalfWidthTiles;
+  if(spanIntersectsExclusion(a,b,pad,config.exclusionZones))return null;
   for(const [kind,placement] of Object.entries(placements)){
     if(!placement)continue;
     const f=placement.footprint;
@@ -131,12 +133,13 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
 
 export function evaluateTowerSite(world,x,z,placements,config=ROUTING_ASSUMPTIONS,blocked=new Set()){
   const radius=config.foundationWidthTiles/2,foundation={x0:x-radius,x1:x+radius,z0:z-radius,z1:z+radius};
+  if(foundationIntersectsExclusion(foundation,config.exclusionZones))return null;
   if(Object.values(placements).some(p=>p&&rectOverlap(foundation,p.footprint)))return null;
   let groundY=null,cropCells=0;const parcelIds=new Set(),costs=emptyCosts();
   for(let tz=Math.floor(foundation.z0);tz<Math.ceil(foundation.z1);tz++){
     for(let tx=Math.floor(foundation.x0);tx<Math.ceil(foundation.x1);tx++){
       const tile=world.tileAt(tx+.5,tz+.5);
-      if(!tile||isRefused(world,tile,blocked)||['river','shore','road','farmyard'].includes(tile.terrain)||tile.occupiedBy.some(kind=>FOUNDATION_OBSTACLES.has(kind)))return null;
+      if(!tile||isRefused(world,tile,blocked)||config.blockedTowerParcelIds?.includes(tile.parcelId)||['river','shore','road','farmyard'].includes(tile.terrain)||tile.occupiedBy.some(kind=>FOUNDATION_OBSTACLES.has(kind)))return null;
       if(groundY===null)groundY=tile.height;else if(groundY!==tile.height)return null;
       if(tile.terrain==='field')cropCells++;
       parcelIds.add(tile.parcelId);
@@ -186,8 +189,8 @@ export function shortestTransmissionPath(graph,profile='balanced'){
 }
 
 export function buildTransmissionGraph(world,placements,options={}){
-  const config={...ROUTING_ASSUMPTIONS,...options,rates:{...ROUTING_ASSUMPTIONS.rates,...options.rates}};
-  const blocked=new Set(options.blockedParcelIds??[]);
+  const config={...ROUTING_ASSUMPTIONS,...options,...normalizeRoutingConstraints(world,options),rates:{...ROUTING_ASSUMPTIONS.rates,...options.rates}};
+  const blocked=new Set(config.blockedParcelIds);
   if(!Number.isInteger(config.gridStep)||config.gridStep<1||config.gridStep>6||!Number.isFinite(config.maxSpanTiles)||config.maxSpanTiles<1||config.maxSpanTiles>24)throw new Error('Invalid demo graph dimensions.');
   if(Object.values(config.rates).some(rate=>!Number.isSafeInteger(rate)||rate<0))throw new Error('Demo cost rates must be nonnegative safe-integer cents.');
   if(config.foundationWidthTiles!==2||!Number.isFinite(config.corridorHalfWidthTiles)||config.corridorHalfWidthTiles<.8||config.corridorHalfWidthTiles>2||

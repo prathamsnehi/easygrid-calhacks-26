@@ -14,8 +14,9 @@ function sameBinding(a,b){return Boolean(a&&b)&&['sessionId','routeId','routeVer
 /** UI gate only. The host owns approval, authorization and simulated ledger writes. */
 export function createSettlementController({getHandoff}){
   const button=document.querySelector('#settle-payment'),status=document.querySelector('#settlement-status');
-  const feedback=document.querySelector('#settlement-feedback');
-  let handler=null,approval=null,active=null,generation=0;
+  const feedback=document.querySelector('#settlement-feedback'),overviewButton=document.querySelector('#overview-settlement');
+  let handler=null,approval=null,active=null,generation=0,demoAgreement=null;
+  let onDemoProceed=()=>{};
   // Keep a stable key across uncertain retries; a second key must not bypass host deduplication.
   const attempts=new Map();
   let sequence=0;
@@ -28,15 +29,17 @@ export function createSettlementController({getHandoff}){
     const handoff=current(),valid=matching(handoff),attempt=valid?attempts.get(attemptId(approval)):null;
     if(approval&&!valid){stop();approval=null;}
     const sent=attempt?.status==='sent',uncertain=attempt?.status==='unknown';
-    const ready=Boolean(valid&&handler&&!active&&!sent&&!uncertain);
+    if(demoAgreement&&!sameBinding(demoAgreement.mapBinding,settlementBinding(handoff)))demoAgreement=null;
+    const ready=Boolean(demoAgreement||valid&&handler&&!active&&!sent&&!uncertain);
     button.disabled=!ready;
     button.classList.toggle('settlement-ready',ready);
-    button.textContent=active?'Sending…':sent?'Request sent':'Settle';
-    status.textContent=active?'Sending':sent?'Requested':uncertain?'Check status':valid?'Approved':'Awaiting approval';
-    status.className=`role-badge${valid?' ready':''}`;
+    button.textContent=active?'Sending…':sent?'Request sent':'Continue to contract & settlement';
+    if(overviewButton){overviewButton.disabled=button.disabled;overviewButton.classList.toggle('settlement-ready',ready);overviewButton.textContent=button.textContent;}
+    status.textContent=demoAgreement?'Approved · demo':active?'Sending':sent?'Requested':uncertain?'Check status':valid?'Approved':'Awaiting approval';
+    status.className=`role-badge${valid||demoAgreement?' ready':''}`;
     if(!active&&!sent&&!uncertain&&!feedback.textContent&&valid&&!handler)feedback.textContent='Settlement not connected.';
   }
-  function invalidate(){stop();approval=null;feedback.textContent='';render();}
+  function invalidate(){stop();approval=null;demoAgreement=null;document.querySelector('#demo-settlement-summary')?.setAttribute('hidden','');feedback.textContent='';render();}
   function getBinding(){return settlementBinding(current());}
   function setApproval(next){
     // Repeated subscription delivery of the same approval must not cancel its request.
@@ -60,6 +63,7 @@ export function createSettlementController({getHandoff}){
   }
   button.addEventListener('click',async()=>{
     const handoff=current();
+    if(demoAgreement&&sameBinding(demoAgreement.mapBinding,settlementBinding(handoff))){onDemoProceed(copy(demoAgreement));return;}
     if(!handler||active||!matching(handoff)){render();return;}
     const receipt=copy(approval),key=attemptId(receipt),prior=attempts.get(key);
     if(prior?.status==='sent'||prior?.status==='unknown'){render();return;}
@@ -90,5 +94,9 @@ export function createSettlementController({getHandoff}){
     feedback.textContent=nextStatus==='submitted'?'Settlement request sent.':'';render();
   }
   render();
-  return {getBinding,setApproval,setHandler,resolveAttempt,invalidate};
+  return {getBinding,setApproval,setHandler,resolveAttempt,invalidate,
+    setDemoAgreement(value,onProceed=()=>{}){
+      demoAgreement=value?.sourceMode==='mock'&&sameBinding(value.mapBinding,getBinding())?copy(value):null;
+      onDemoProceed=onProceed;render();
+    }};
 }
