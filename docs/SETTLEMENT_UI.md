@@ -1,6 +1,6 @@
 # Approval-gated settlement button
 
-CAL-37 / CAL-41. The map's **Land & compensation** panel contains one **Settle** button labeled **Simulated**. It stays disabled until the host supplies approval for the displayed proposal and connects the settlement handler. A matching approval enables the green button. The map does not create owner consent, signatures, manager approval, bank transfers or paid receipts.
+CAL-37 / CAL-41. **Continue to contract & settlement** is available in the map's parcel panel and, after a reroute, in the overview. In host-connected mode it stays disabled until the host supplies matching approval and a settlement handler. A matching approval enables the green button. The explicit manual **Simulate refusal** demo instead enables local contract preparation after the other fictional owners' scripted acceptances; clicking only opens a summary and never calls the payment handler. Connecting a negotiation source removes this shortcut. No signatures, manager approval, bank transfers or paid receipts are created by the demo.
 
 ## Host integration
 

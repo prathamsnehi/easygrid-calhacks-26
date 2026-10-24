@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#e4e6d8">
-  <title>EasyGrid · Site Planning</title>
+  <title>QuickGrid · Site Planning</title>
   <style>/* APP_STYLES */</style>
 </head>
 <body>
   <div id="demo-workspace" inert aria-hidden="true">
   <header class="toolbar">
-    <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><div><strong>EASYGRID</strong><span>Fictional site simulation</span></div></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><div><strong>QUICKGRID</strong><span>Fictional site simulation</span></div></div>
     <nav class="steps" aria-label="Facility placement steps">
       <button id="step-a" class="step" type="button" aria-pressed="true"><b>A</b><span>Substation<small id="a-status">Choose a site</small></span><i class="step-check" aria-hidden="true">✓</i></button>
       <span class="step-divider" aria-hidden="true"></span>
@@ -53,6 +53,17 @@
       <div class="route-loading-heading"><span class="route-loading-orbit" aria-hidden="true"></span><span>Comparing routes…</span></div>
       <div class="route-loading-track" aria-hidden="true"><span></span></div>
     </div>
+    <section id="negotiation-progress" class="negotiation-progress" aria-label="Post-call route progress" hidden>
+      <div class="card-heading"><span id="negotiation-mode" class="eyebrow">Demo scenario</span><span id="negotiation-status" class="role-badge">Ready</span></div>
+      <div id="negotiation-result" hidden>
+        <ol id="negotiation-steps" class="negotiation-steps" aria-label="Route response steps"><li id="negotiation-step-refusal">Owner declined</li><li id="negotiation-step-route">New route</li><li id="negotiation-step-owners">Owners agreed</li></ol>
+        <p id="negotiation-reason" class="route-note" role="status"></p>
+        <dl id="negotiation-costs" class="route-costs" hidden><div><dt>Previous estimate</dt><dd id="negotiation-old-cost"></dd></div><div><dt id="negotiation-new-label">New estimate</dt><dd id="negotiation-new-cost"></dd></div><div><dt>Change</dt><dd id="negotiation-cost-change"></dd></div></dl>
+        <p id="negotiation-parcels" class="route-note"></p>
+        <p id="negotiation-old-path" class="route-legend" hidden><span class="previous-key">Previous route</span><span class="updated-key">New route</span></p>
+        <button id="overview-settlement" class="primary-button settlement-button" type="button" disabled>Continue to contract &amp; settlement</button>
+      </div>
+    </section>
     <div id="route-summary" hidden>
       <div class="route-metrics"><div><span>Length</span><strong id="route-length">—</strong></div><div><span>Pylons</span><strong id="route-towers">—</strong></div><div><span>Owners</span><strong id="route-owners">—</strong></div></div>
       <div class="route-options" role="group" aria-label="Compare calculated routes">
@@ -75,17 +86,7 @@
       <p id="analysis-entry-status" class="analysis-feedback error analysis-entry-status" role="status" hidden></p>
       <p class="route-note">Simulation · estimated costs.</p>
     </div>
-    <section id="negotiation-progress" class="negotiation-progress" aria-label="Post-call route progress">
-      <div class="card-heading"><span id="negotiation-mode" class="eyebrow">Demo scenario</span><span id="negotiation-status" class="role-badge">Ready</span></div>
-      <button id="simulate-refusal" class="secondary-button" type="button" disabled>Simulate refusal</button>
-      <div id="negotiation-result" hidden>
-        <ol id="negotiation-steps" class="negotiation-steps" aria-label="Route response steps"><li id="negotiation-step-refusal">Owner declined</li><li id="negotiation-step-route">New route</li><li id="negotiation-step-owners">Owners agreed</li></ol>
-        <p id="negotiation-reason" class="route-note" role="status"></p>
-        <dl id="negotiation-costs" class="route-costs" hidden><div><dt>Previous estimate</dt><dd id="negotiation-old-cost"></dd></div><div><dt id="negotiation-new-label">New estimate</dt><dd id="negotiation-new-cost"></dd></div><div><dt>Change</dt><dd id="negotiation-cost-change"></dd></div></dl>
-        <p id="negotiation-parcels" class="route-note"></p>
-        <p id="negotiation-old-path" class="route-note" hidden>Dashed line: previous route.</p>
-      </div>
-    </section>
+
     <p id="route-no-results" class="route-empty" hidden></p>
     <button id="recalculate-route" class="secondary-button route-recalculate" type="button" disabled>Recalculate connection</button>
   </aside>
@@ -126,11 +127,13 @@
         <div class="handoff-box">
           <div class="analysis-section-heading"><h3>Calling agent</h3><span id="handoff-status-badge" class="role-badge">OFFLINE</span></div>
           <button id="agent-call" class="primary-button" type="button" disabled>Agent call</button>
+          <button id="simulate-refusal" class="secondary-button" type="button" disabled>Simulate refusal</button>
           <p id="handoff-result" class="analysis-feedback" role="status"></p>
         </div>
         <div class="handoff-box settlement-box">
           <div class="analysis-section-heading"><h3>Settlement <small>Simulated</small></h3><span id="settlement-status" class="role-badge">Awaiting approval</span></div>
-          <button id="settle-payment" class="primary-button settlement-button" type="button" aria-describedby="settlement-status settlement-feedback" disabled>Settle</button>
+          <button id="settle-payment" class="primary-button settlement-button" type="button" aria-describedby="settlement-status settlement-feedback" disabled>Continue to contract &amp; settlement</button>
+          <div id="demo-settlement-summary" hidden><h3>Contract &amp; settlement</h3><p>Demo · owner approvals assumed</p><dl class="route-costs"><div><dt>Land compensation</dt><dd id="demo-settlement-compensation"></dd></div><div><dt>Rent total</dt><dd id="demo-settlement-rent"></dd></div></dl><p>Ready for contract preparation. No payment sent.</p></div>
           <p id="settlement-feedback" class="analysis-feedback" role="status"></p>
         </div>
       </aside>
@@ -141,7 +144,7 @@
   </div>
   <section id="demo-onboarding" class="demo-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="user-phone-help">
     <div class="onboarding-card">
-      <div class="onboarding-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="onboarding-title">EASYGRID</span></div>
+      <div class="onboarding-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="onboarding-title">QUICKGRID</span></div>
       <form id="user-form" class="user-form" autocomplete="off" novalidate>
         <label for="user-alias">Name</label>
         <input id="user-alias" type="text" maxlength="80" autocomplete="off" placeholder="Enter your name" required aria-required="true">

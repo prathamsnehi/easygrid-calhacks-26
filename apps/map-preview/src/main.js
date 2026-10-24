@@ -193,10 +193,11 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   onUserRoleChange:()=>planner.refreshParcelRoles(),
 });
 const negotiationMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
+let refusalDemoActive=false;
 function renderNegotiation(state){
   const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=negotiation?.hasSource()??false;
   const get=id=>document.querySelector(`#${id}`),write=(id,value)=>{get(id).textContent=value;};
-  get('negotiation-progress').hidden=!h&&!active;
+  get('negotiation-progress').hidden=!active;
   get('simulate-refusal').hidden=connectedSource;
   get('simulate-refusal').disabled=connectedSource||active||!h?.snapshot.routes[0].eligible||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
   get('negotiation-result').hidden=!active;
@@ -228,16 +229,31 @@ function renderNegotiation(state){
     const rows=state.outcomes.filter(outcome=>h.snapshot.routes[0].parcelIds.includes(outcome.parcelId));
     analysis.setNegotiationDisplay({routeVersion:h.routeVersion,outcomes:rows});
   }else analysis.setNegotiationDisplay(null);
-  if(confirmed)write('route-status-note',`${state.outcomes.length} owners accepted · simulated`);
+  analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,packet=>{
+    get('demo-settlement-summary').hidden=false;
+    write('demo-settlement-compensation',money(packet.totals.compensationCents));
+    write('demo-settlement-rent',money(packet.totals.rentTotalCents));
+    write('settlement-feedback','');
+    get('demo-settlement-summary').scrollIntoView?.({block:'nearest'});
+  });
+  if(confirmed){
+    write('route-title','Updated connection');write('route-badge','DEMO AGREED');
+    write('route-status-note',`${state.outcomes.length} owners accepted · simulated`);
+    if(agreement){write('cost-total',money(agreement.totals.totalCostCents));write('cost-rent',money(agreement.totals.rentTotalCents));write('analysis-rent',money(agreement.totals.rentTotalCents));}
+  }
 }
 negotiation=createNegotiationController({world:landscape.world,getHandoff:()=>analysis.getHandoff(),getSessionId:()=>analysis.getSessionId(),
   invalidateApproval:()=>analysis.settlement.invalidate(),lockLiveCall:()=>analysis.setLiveCallLockout(true),
   onReroute:()=>{analysis.close({restoreFocus:false});planner.showOverview();routing.replan();},onChange:renderNegotiation});
-document.querySelector('#simulate-refusal').addEventListener('click',()=>{
-  try{negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose an eligible route before starting this scenario.';}
+document.querySelector('#overview-settlement').addEventListener('click',()=>{
+  if(document.querySelector('#overview-settlement').disabled)return;
+  analysis.open();document.querySelector('#settle-payment').click();
 });
-document.querySelector('#reset-plan').addEventListener('click',()=>negotiation.reset());
-window.addEventListener('pagehide',()=>negotiation.reset());
+document.querySelector('#simulate-refusal').addEventListener('click',()=>{
+  try{refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose an eligible route before starting this scenario.';}
+});
+document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoActive=false;negotiation.reset();});
+window.addEventListener('pagehide',()=>{refusalDemoActive=false;negotiation.reset();});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
   getSettlementBinding:()=>analysis.settlement.getBinding(),
@@ -245,8 +261,8 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
   resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
   getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
-  setNegotiationSource:source=>negotiation.setSource(source),getNegotiationState:()=>negotiation.getState(),
-  getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>negotiation.runRefusalDemo()});
+  setNegotiationSource:source=>{refusalDemoActive=false;analysis.settlement.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
+  getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{refusalDemoActive=true;return negotiation.runRefusalDemo();}});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),

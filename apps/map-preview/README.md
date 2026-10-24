@@ -29,7 +29,7 @@ The parcel totals reconcile to the selected route's compensation and rent. A pyl
 
 Land records use a compact right sidebar on desktop and a bottom sheet on mobile, with other information panels hidden while analysis is open. Selecting a row or **Show on map** fits the full parcel into the unobstructed map area, accounting for the actual panel bounds and current camera angle. Resizing reframes the selected parcel; narrow landscape layouts retain a side panel when a bottom sheet would leave too little map space.
 
-The **Settle** button starts disabled. A host-confirmed approval for the displayed proposal and a connected settlement handler enable it in green; route or participant changes revoke that readiness. It requests only the first simulated settlement and reports **Request sent**, never a fabricated payment receipt. See [Settlement UI integration](../../docs/SETTLEMENT_UI.md). Route explanations and technical assumptions are kept in documentation rather than the primary controls.
+**Continue to contract & settlement** starts disabled. The manual **Simulate refusal** journey enables it after an eligible bypass and assumed acceptances by the other fictional owners; clicking opens a local preparation summary without making a payment request. In host-connected mode, a matching host approval and connected settlement handler are still required to submit the first simulated settlement. Route or participant changes revoke readiness. See [Settlement UI integration](../../docs/SETTLEMENT_UI.md).
 
 ## User roleplay and Pratham handoff
 

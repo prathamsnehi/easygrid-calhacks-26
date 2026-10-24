@@ -10,7 +10,7 @@ The standalone preview has a **Simulate refusal** action. It uses the same publi
 2. The parcel stays excluded from every subsequent calculation in that page session. The participant keeps the same historical owner/parcel and live calling is locked.
 3. The router finds one eligible alternative under the existing budget, cost model and rent horizon. The UI compares the previous and replacement route, affected parcels and cost.
 4. Other owners on the replacement route accept one fixed simulated offer each. Every final parcel receives its own `mock` negotiation record. The original participant is never simulated as a different owner.
-5. The map shows **Route confirmed · simulated owners**. The agreement-preparation packet is available to the host; signatures, operator approval and settlement remain separate steps. The Settle button does not become enabled merely because this scenario completes.
+5. The map shows **Route confirmed · simulated owners**. The agreement-preparation packet is available to the host; signatures, operator approval and settlement remain separate steps. For the manual demo, **Continue to contract & settlement** becomes enabled and opens a local preparation summary. This is not host authorization or a payment request.
 
 The scripted acceptance uses the new route's recommendation and fixed 120% limit. Rounded monthly estimates become explicitly chosen exact *simulated* monthly amounts; the full horizon is recalculated and checked against the budget before finalization. No old-route acceptance is carried forward automatically. No eligible route, unpriced corridor-only impact or over-budget exact terms stops the scenario for review.
 
@@ -108,3 +108,12 @@ The standalone preview computes locally and clears its state on page exit. Refre
 ## Checks
 
 Run `npm test --prefix apps/map-preview` and `npm run check --prefix packages/contracts`. Tests cover exclusion geometry, original-role retention, structured-result mapping, duplicate/stale delivery, source cleanup, refusal-to-simulated-acceptance, exact cents, budget blocking and settlement remaining gated. UI tests use the built script with a VM renderer; they do not establish browser layout, GPU rendering or live provider execution.
+
+
+### Manual demo continuation and reviewed UI (CAL-35)
+
+The user-approved offline demo places `Simulate refusal` directly below `Agent call`. An eligible bypass assumes acceptance by the other fictional owners and enables `Continue to contract & settlement`. This opens a local preparation summary; it does not create manager approval, signatures or payments, or invoke the settlement handler. The manual shortcut is bound to the current proposal and cleared by route/participant changes or connection of a host result source. Host-driven settlement still requires its matching approval and handler.
+
+The prior network remains at 20% opacity. Comparison overlays follow the sampled center conductor: muted brown previous path, opaque green new path. Reroute results and the continuation action appear above detailed costs, including on the overview after parcel analysis closes. Confirmed totals use exact agreed monthly terms.
+
+The product display name is QuickGrid. Repository names, package namespaces and public integration identifiers remain compatible. Actual call callbacks and database persistence/subscriptions are still integration work.

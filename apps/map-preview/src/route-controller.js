@@ -19,21 +19,47 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
   const moneyOf=cents=>money.format(cents/100);
   const layer=createTransmissionLayer(THREE,world);scene.add(layer.group);
   const previousLayer=new THREE.Group();previousLayer.name='Previous route';scene.add(previousLayer);
+  const comparisonLayer=new THREE.Group();comparisonLayer.name='Updated route highlight';scene.add(comparisonLayer);
   let generation=0,timer=null,result=null,selectedId=null,state='incomplete',routeVersion=0;
 
   function hasEndpoints(){const p=getPlacements();return canRoute()&&Boolean(p.substation&&p.datacenter);}
   function clearPrevious(){
-    for(const line of [...previousLayer.children]){line.geometry.dispose();line.material.dispose();previousLayer.remove(line);}
+    for(const line of [...previousLayer.children]){line.traverse(object=>{object.geometry?.dispose();if(object.material)object.material.dispose();});previousLayer.remove(line);}
     canvas.dataset.previousRouteVisible='false';
+  }
+  function clearHighlight(){
+    for(const mesh of [...comparisonLayer.children]){mesh.geometry.dispose();mesh.material.dispose();comparisonLayer.remove(mesh);}
+  }
+  // Presentation overlay follows the already-validated center conductor, not a new physical span.
+  function highlight(network,target,{color,opacity,radius}){
+    const paths=network.getObjectByName('Three-phase conductors')?.userData.phasePaths??[];
+    for(const path of paths.filter(path=>path.phase===1)){
+      const points=path.points.map(point=>new THREE.Vector3(point.x,point.y,point.z));
+      class SampledPath extends THREE.Curve {
+        getPoint(t,result=new THREE.Vector3()){
+          const index=t*(points.length-1),lo=Math.min(Math.floor(index),points.length-2);
+          return result.lerpVectors(points[lo],points[lo+1],index-lo);
+        }
+      }
+      const mesh=new THREE.Mesh(new THREE.TubeGeometry(new SampledPath(),points.length-1,radius,6,false),
+        new THREE.MeshBasicMaterial({color,transparent:opacity<1,opacity,depthWrite:false}));
+      mesh.name='Route comparison line';target.add(mesh);
+    }
   }
   function rememberPrevious(){
     clearPrevious();const route=result?.candidates.find(candidate=>candidate.id===selectedId);if(!route)return;
-    const points=route.nodes.map(node=>new THREE.Vector3(node.x,node.groundY+node.height,node.z));
-    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineDashedMaterial({color:0xb77e5b,dashSize:1.2,gapSize:.7,transparent:true,opacity:.72,depthWrite:false}));
-    line.computeLineDistances();previousLayer.add(line);canvas.dataset.previousRouteVisible='true';
+    const ghost=layer.group.clone(true);
+    ghost.name='Faded previous transmission network';
+    ghost.traverse(object=>{
+      if(object.geometry)object.geometry=object.geometry.clone();
+      if(object.material){object.material=object.material.clone();object.material.transparent=true;object.material.opacity=.2;object.material.depthWrite=false;}
+      object.castShadow=false;
+    });
+    highlight(ghost,ghost,{color:0x9c775c,opacity:.4,radius:.22});
+    previousLayer.add(ghost);canvas.dataset.previousRouteVisible='true';
   }
   function clearGeometry(){
-    layer.clear();landscape.setFoundationClearings([]);
+    clearHighlight();layer.clear();landscape.setFoundationClearings([]);
     canvas.dataset.routeId='';canvas.dataset.routeTowerCount='0';canvas.dataset.routeParcelIds='';
     canvas.dataset.routeTotalCents='';canvas.dataset.routeMinClearance='';
   }
@@ -70,6 +96,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     clearGeometry();
     try{
       const diagnostics=layer.showRoute(route);
+      if(previousLayer.children.length)highlight(layer.group,comparisonLayer,{color:0x126748,opacity:1,radius:.16});
       landscape.setFoundationClearings(route.nodes.filter(node=>node.kind==='tower').map(node=>node.foundation));
       selectedId=id;state='ok';
       const isRecommended=id===result.recommendedId;

@@ -676,7 +676,7 @@ test('route changes invalidate prior handoffs, preserve the original user role a
   assert.deepEqual(app.errors,[]);
 });
 
-test('refusal demo bypasses the original owner, simulates all new-route agreements and keeps settlement locked',async()=>{
+test('refusal demo bypasses the original owner, simulates all new-route agreements and enables demo contract continuation',async()=>{
   const app=boot();placePair(app);await app.flushTimers();
   const api=app.window.easygridDemo,before=handoffOf(app),original=before.userRole.parcelId;
   let calls=0;api.setHandoffHandler(async()=>{calls++;});
@@ -710,12 +710,27 @@ test('refusal demo bypasses the original owner, simulates all new-route agreemen
   const row=app.elements.get('analysis-parcel-list').children[0];row.click();
   assert.equal(app.elements.get('analysis-negotiation').textContent,'Accepted · simulated');
   app.click('agent-call');assert.equal(calls,0);
-  assert.equal(app.elements.get('settle-payment').disabled,true,'simulated owner agreement does not create manager approval');
+  assert.equal(app.elements.get('settle-payment').disabled,false,'demo agreement enables contract continuation');
+  assert(app.elements.get('settle-payment').classList.contains('settlement-ready'));
+  app.click('settle-payment');
+  assert.equal(app.elements.get('demo-settlement-summary').hidden,false);
+  assert.equal(app.elements.get('demo-settlement-compensation').textContent,new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(agreed.totals.compensationCents/100));
+  const ghost=app.scene().getObjectByName('Previous route').children[0];
+  ghost.traverse(object=>{if(object.material)assert.equal(object.material.opacity,object.name==='Route comparison line'?.4:.2);});
+  assert(app.scene().getObjectByName('Updated route highlight').children.length>0);
+  app.click('close-analysis');
+  assert.equal(app.elements.get('overview-settlement').disabled,false);
+  app.click('overview-settlement');
+  assert.equal(app.elements.get('analysis-panel').hidden,false);
+  assert.equal(app.elements.get('demo-settlement-summary').hidden,false);
+  assert.equal(app.elements.get('cost-total').textContent,app.elements.get('negotiation-new-cost').textContent);
   assert.equal(app.elements.get('simulate-refusal').disabled,true);
   assert(after.ownerHandoff.parcels.every(p=>p.terms.outcome==='pending'),'original map estimate stays separate from simulated agreements');
   for(const secret of Object.values(privateUser))assert(!JSON.stringify(agreed).includes(secret));
   app.click('close-analysis');app.click('recalculate-route');
   assert.equal(api.getNegotiatedHandoff(),null,'old-route agreement is revoked immediately');
+  assert.equal(app.elements.get('overview-settlement').disabled,true);
+  assert.equal(app.scene().getObjectByName('Updated route highlight').children.length,0);
   await app.runTimersFor(1600);
   assert.equal(api.getNegotiatedHandoff(),null,'a newly calculated route needs fresh agreements');
   await app.flushTimers();

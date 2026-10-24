@@ -35,3 +35,15 @@
 .negotiation-steps li.active{border-color:#b58045;color:#785729}
 .negotiation-progress .route-note{font-size:11px;margin:8px 0}
 .negotiation-progress .route-costs{margin:10px 0}
+
+/* Keep the reroute result and its next action above the detailed estimate. */
+.negotiation-progress{border:1px solid #cbdac8;border-radius:12px;background:#f0f5eb;margin:12px 0 16px;padding:12px}
+.negotiation-progress .card-heading{gap:8px}.negotiation-progress .role-badge{font-size:8px}
+#overview-settlement{display:block;width:100%;white-space:normal;font-size:11px;margin-top:12px}
+#overview-settlement:disabled{background:#dfe4da;color:#7a8576;cursor:not-allowed;opacity:1}
+#overview-settlement.settlement-ready{background:#28783f;color:#fff;box-shadow:0 0 0 3px #5a9e5629}
+.route-legend{display:flex;gap:16px;font-size:10px;color:#54654e;margin:10px 0}
+.route-legend span:before{content:"";display:inline-block;width:18px;height:4px;margin-right:6px;vertical-align:middle;border-radius:2px}
+.previous-key:before{background:#9c775c;opacity:.5}.updated-key:before{background:#126748}
+#demo-settlement-summary{margin:12px 0;padding:12px;background:#eff5e9;border:1px solid #cadac2;border-radius:10px}
+#demo-settlement-summary h3{font-size:13px}#demo-settlement-summary p{font-size:10px;line-height:1.5}
