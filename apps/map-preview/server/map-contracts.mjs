@@ -41,16 +41,26 @@ export function reconstructMapProposal(context, world = createWorld()) {
 }
 
 /** Local fixture registry. Production replaces this boundary with Pratham's atomic shared store. */
-export async function createMapContractService({stateURL, now = () => new Date().toISOString()}) {
+export async function createMapContractService({stateURL, bank:configuredBank, now = () => new Date().toISOString()}) {
+  const bankMode = configuredBank?.mode ?? 'simulation';
+  const bankIdentity = configuredBank?.storageNamespace ?? null;
+  requireState(['simulation','nessie-sandbox'].includes(bankMode), 'Unsupported map payment provider.');
   let state;
   try {state = JSON.parse(await readFile(stateURL,'utf8'));}
-  catch (error) {if (error.code !== 'ENOENT') throw new Error('Preserve the unreadable map contract ledger for review.');state = {schemaVersion:1,packages:{},current:{}};}
-  requireState(state.schemaVersion === 1 && state.packages && state.current, 'Invalid map contract registry.');
+  catch (error) {if (error.code !== 'ENOENT') throw new Error('Preserve the unreadable map contract ledger for review.');state = {schemaVersion:2,bankMode,bankIdentity,packages:{},current:{}};}
+  // Untagged registries predate provider integration and contain local simulation only.
+  if (state.schemaVersion === 1 && !state.bankMode && bankMode === 'simulation') {
+    for (const record of Object.values(state.packages ?? {})) record.recipientBindingVersion = 1;
+    state = {...state,schemaVersion:2,bankMode,bankIdentity};
+  }
+  requireState(state.schemaVersion === 2 && state.packages && state.current, 'Invalid map contract registry.');
+  requireState(state.bankMode === bankMode, 'The map ledger belongs to a different payment provider. Preserve it and use a separate ledger.');
+  requireState((state.bankIdentity ?? null) === bankIdentity, 'The map ledger belongs to a different bank identity. Preserve it and use the original bank configuration.');
   const world = createWorld(), workers = new Map(); let queue = Promise.resolve();
   const serial = action => {const result = queue.then(action);queue = result.catch(() => {});return result;};
   const save = async () => {
     await mkdir(new URL('./',stateURL),{recursive:true});
-    const temporary = new URL('map-contracts.tmp',new URL('./',stateURL));
+    const temporary = new URL(`${stateURL.pathname.split('/').at(-1)}.tmp`,stateURL);
     await writeFile(temporary,JSON.stringify(state) + '\n',{mode:0o600});
     // Windows sync/indexing tools may briefly lock the existing destination.
     for (let attempt = 0; ; attempt++) {
@@ -58,13 +68,16 @@ export async function createMapContractService({stateURL, now = () => new Date()
       catch (error) {if (!['EPERM','EACCES','EBUSY'].includes(error.code) || attempt >= 5) throw error;await delay(25 * 2 ** attempt);}
     }
   };
-  const response = record => copy({packageId:record.packageId,input:record.source,mapBinding:record.agreement.mapBinding,agreement:record.agreement,simulated:true});
+  const response = record => copy({packageId:record.packageId,input:record.source,mapBinding:record.agreement.mapBinding,agreement:record.agreement,
+    simulated:true,bankMode,paymentsEnabled:configuredBank?.canTransfer !== false});
   const worker = record => {
     if (workers.has(record.packageId)) return workers.get(record.packageId);
-    const bank = createDemoBank();
+    const bank = configuredBank ?? createDemoBank();
     const recipients = new Map(record.agreement.ownerHandoff.owners.map(owner => [owner.ownerId,owner.banking.paymentRecipientRef]));
     const boundBank = {...bank,recipientBinding:ownerId => {
-      requireState(recipients.has(ownerId),'The approved fictional owner has no recipient.');return digest([ownerId,recipients.get(ownerId)]);
+      requireState(recipients.has(ownerId),'The approved fictional owner has no recipient.');
+      if (record.recipientBindingVersion === 1 && bankMode === 'simulation') return digest([ownerId,recipients.get(ownerId)]);
+      return digest([ownerId,recipients.get(ownerId),bank.recipientBinding(ownerId)]);
     }};
     workers.set(record.packageId,createContractWorkflow({source:record.source,bank:boundBank,
       initialState:record.ledger,persist:async ledger => {record.ledger=ledger;await save();},now}));
@@ -79,7 +92,7 @@ export async function createMapContractService({stateURL, now = () => new Date()
       requireState(!previous || context.routeVersion > previous.source.route.version, 'A changed proposal requires a newer route version.');
       const agreement = simulatedMapAgreement(handoff,{negotiationId:`neg-${digest(mapBinding).slice(0,32)}`,approvedAt:now()});
       const source = contractSourceFromAgreement(agreement,handoff);
-      const record = {packageId,source,agreement,ledger:createWorkflowState()};
+      const record = {packageId,source,agreement,recipientBindingVersion:2,ledger:createWorkflowState()};
       state.packages[packageId]=record;state.current[context.sessionId]=packageId;
       try {await save();}
       catch (error) {

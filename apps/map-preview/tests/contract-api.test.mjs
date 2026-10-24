@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, writeFile, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
@@ -54,4 +54,46 @@ test('the example endpoint supplies the same approved source used to validate co
     await api({method:'GET',headers:{host:'untrusted.example'}},res,'/api/contracts/example');
     assert.equal(result.status,403);
   } finally { await rm(directory,{recursive:true,force:true}); }
+});
+
+test('Nessie readiness is explicit in config and contract state without exposing credentials', async () => {
+  const directory = await mkdtemp(join(tmpdir(),'quickgrid-nessie-config-'));
+  try {
+    const environment = {
+      EASYGRID_PAYMENT_PROVIDER:'nessie',NESSIE_API_ORIGIN:'https://prod-api.nessieisreal.com',NESSIE_API_KEY:'private-test-key',
+      NESSIE_PAYER_ACCOUNT_ID:'private-payer-account',NESSIE_ALLOW_SANDBOX_TRANSFERS:'no',
+      NESSIE_OWNER_RECIPIENTS:JSON.stringify({'OWNER-DEMO-004':{accountId:'private-owner-account',customerId:'private-owner-customer'}}),
+    };
+    const api = await createContractAPI({environment,stateURL:pathToFileURL(join(directory,'state.json')),fetcher:async () => {throw new Error('No provider request expected.');}});
+    const result = {}, res = {writeHead(status) {result.status=status;return this;},end(value) {result.body=JSON.parse(value);}};
+    await api({method:'GET',headers:{host:'127.0.0.1:4177'}},res,'/api/contracts/config');
+    assert.equal(result.status,200);assert.equal(result.body.bankMode,'nessie-sandbox');assert.equal(result.body.paymentsEnabled,false);
+    const draft = createContractDraft(createContractExample(),'P-004',{id:'nessie-read-only-draft'});
+    const execution = await call(api,'/api/contracts/state',{draft});
+    assert.equal(execution.status,200);assert.equal(execution.body.bankMode,'nessie-sandbox');assert.equal(execution.body.paymentsEnabled,false);
+    for(const value of ['private-test-key','private-payer-account','private-owner-account','private-owner-customer']) assert(!JSON.stringify({config:result.body,state:execution.body}).includes(value));
+    const persisted = JSON.parse(await readFile(join(directory,'nessie-contract-ledger.json'),'utf8'));
+    assert.equal(persisted.bankMode,'nessie-sandbox');assert.match(persisted.bankIdentity,/^[a-f0-9]{64}$/);
+    for (const change of [{NESSIE_PAYER_ACCOUNT_ID:'other-payer-account'},{NESSIE_API_ORIGIN:'https://api.nessieisreal.com'}]) {
+      await assert.rejects(createContractAPI({environment:{...environment,...change},stateURL:pathToFileURL(join(directory,'state.json'))}),/different bank identity/);
+    }
+    await createContractAPI({environment:{...environment,NESSIE_API_KEY:'rotated-test-key'},stateURL:pathToFileURL(join(directory,'state.json'))});
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
+
+test('a copied local simulation contract ledger is never accepted as Nessie proof', async () => {
+  const directory = await mkdtemp(join(tmpdir(),'quickgrid-provider-ledger-'));
+  try {
+    const options = {environment:{},stateURL:pathToFileURL(join(directory,'state.json'))};
+    const simulation = await createContractAPI(options), draft = createContractDraft(createContractExample(),'P-004',{id:'provider-tagged'});
+    await call(simulation,'/api/contracts/state',{draft});
+    const state = JSON.parse(await readFile(join(directory,'contract-ledger.json'),'utf8'));
+    await writeFile(join(directory,'nessie-contract-ledger.json'),JSON.stringify(state));
+    const environment = {EASYGRID_PAYMENT_PROVIDER:'nessie',NESSIE_API_ORIGIN:'https://prod-api.nessieisreal.com',NESSIE_API_KEY:'test-key',
+      NESSIE_PAYER_ACCOUNT_ID:'test-payer',NESSIE_OWNER_RECIPIENTS:JSON.stringify({'OWNER-DEMO-004':{accountId:'test-payee',customerId:'test-customer'}})};
+    await assert.rejects(createContractAPI({...options,environment}),/different payment provider/);
+    delete state.bankMode;
+    await writeFile(join(directory,'nessie-contract-ledger.json'),JSON.stringify(state));
+    await assert.rejects(createContractAPI({...options,environment}),/untagged contract ledger/);
+  } finally {await rm(directory,{recursive:true,force:true});}
 });

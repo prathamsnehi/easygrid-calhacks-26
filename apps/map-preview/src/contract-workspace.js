@@ -6,11 +6,13 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
   const ids = ['contract-workspace','cg-close','cg-demo-controls','cg-example-status','cg-package-state','cg-gate','cg-gate-title','cg-gate-copy','cg-proceed','cg-gate-error','cg-approved-tag','cg-project-name','cg-route-name','cg-owner-count','cg-total','cg-initial','cg-balance','cg-editor','cg-draft-state','cg-parcel','cg-owner-caption','cg-form','cg-developer','cg-date','cg-access','cg-notes','cg-save','cg-download','cg-feedback','cg-parcel-total','cg-parcel-initial','cg-parcel-balance','cg-preview','cg-version','cg-stale'];
   ids.push('cg-sign-utility','cg-sign-landowner','cg-utility-signature-status','cg-landowner-signature-status','cg-submit','cg-reconcile','cg-reject','cg-execution-status','cg-provider-mode','cg-scenario-wrap','cg-finance-scenario','cg-audit-panel','cg-payment-state','cg-payment-summary','cg-audit-list','cg-journal-summary');
   ids.push('cg-payment-panel','cg-completion-panel','cg-signer-developer','cg-signer-owner');
+  ids.push('cg-demo-provider','cg-deposit-provider','cg-completion-provider','cg-deposit-recipient','cg-deposit-basis','cg-deposit-status','cg-deposit-help','cg-transfer-reference','cg-transfer-reference-value','cg-footer-disclaimer');
   ids.push('cg-construction-status','cg-pay-balance','cg-balance-status','cg-balance-reconcile','cg-balance-reject','cg-preview-completion');
   const el = Object.fromEntries(ids.map(id => [id, document.querySelector(`#${id}`)]));
   const store = createContractDraftStore(storage), drafts = new Map();
   let source = null, sourceKey = null, selected = null, invalidated = false, restoreFocus = null, previousInert = false, generation = 0, busy = false, demoMode = false;
   let constructionHandler = null, constructionAbort = new AbortController(), notifiedRun = null;
+  let paymentAction = null;
   const write = (id, value) => { el[id].textContent = String(value); };
   const fields = () => ({developerName: el['cg-developer'].value, agreementDate: el['cg-date'].value, accessTerms: el['cg-access'].value, specialConditions: el['cg-notes'].value});
   const entry = () => drafts.get(selected);
@@ -54,22 +56,36 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     const valid = current() && validateContractDraft(candidate(), source).valid;
     const locked = Boolean(payment && payment.status !== 'held');
     const both = Boolean(execution?.signatures?.utility && execution?.signatures?.landowner);
+    const nessie = execution?.bankMode === 'nessie-sandbox';
+    const provider = nessie ? 'Nessie sandbox' : execution?.bankMode === 'simulation' ? 'Local simulation' : 'Bank connection pending';
+    const paymentsEnabled = execution?.paymentsEnabled !== false;
     el['cg-payment-panel'].hidden = !both && !payment;
     el['cg-completion-panel'].hidden = payment?.status !== 'paid';
     const owner = source.parcels.find(p => p.parcelId === selected);
+    const split = compensationSplit(owner.compensationCents);
+    write('cg-demo-provider', nessie ? 'Nessie sandbox' : 'Simulation');
+    write('cg-deposit-provider', provider); write('cg-completion-provider', provider);
+    write('cg-deposit-recipient', `To ${owner.ownerName}`);
+    write('cg-deposit-basis', `20% of ${money(split.totalCents)} approved compensation`);
     write('cg-signer-developer', source.project.signerName ? `${source.project.signerName} · ${value.fields.developerName}` : value.fields.developerName);
     write('cg-signer-owner', owner.signerName || owner.ownerName);
     for (const side of ['utility','landowner']) {
       el[`cg-sign-${side}`].disabled = !valid || busy || locked || Boolean(execution?.signatures?.[side]);
       write(`cg-${side}-signature-status`, execution?.signatures?.[side] ? '✓ Signed' : 'Sign ↗');
     }
-    el['cg-submit'].disabled = !valid || busy || !both || !execution?.packageReady || locked;
-    el['cg-submit'].textContent = payment?.status === 'paid' ? 'Initial 20% paid · simulated' : 'Pay initial 20% · simulated';
+    el['cg-submit'].disabled = !valid || busy || !both || !execution?.packageReady || locked || !paymentsEnabled;
+    el['cg-submit'].textContent = busy && paymentAction === 'initial' ? 'Sending deposit…' : `${payment?.status === 'paid' ? 'Deposit paid' : 'Pay deposit'} · ${money(split.initialCents)}`;
+    const paymentLabels = {checking:'Checking payment',processing:'Processing',submitted:'Pending confirmation',unknown:'Outcome unknown','review-required':'Needs review',held:'On hold',rejected:'Rejected',paid:'Paid'};
+    write('cg-deposit-status', busy && paymentAction === 'initial' ? 'Submitting once' : paymentLabels[payment?.status] ?? (!execution?.packageReady ? 'Waiting for all signatures' : !paymentsEnabled ? 'Setup required' : 'Ready to send'));
+    el['cg-deposit-status'].className = `cg-payment-chip${payment?.status === 'paid' ? ' cg-payment-chip-success' : ['held','unknown','review-required','rejected'].includes(payment?.status) ? ' cg-payment-chip-attention' : ''}`;
+    write('cg-deposit-help', payment ? payment.reason : !execution?.packageReady ? 'Sign every agreement on this route before sending a deposit.' : !paymentsEnabled ? 'Nessie sandbox transfers are not enabled on the server yet.' : nessie ? 'This sends a sandbox transfer. No real money moves.' : 'This records a local simulated transfer. No real money moves.');
+    el['cg-transfer-reference'].hidden = !payment?.transactionRef;
+    write('cg-transfer-reference-value', payment?.transactionRef ?? '');
     el['cg-reconcile'].hidden = !['submitted','processing','unknown','review-required'].includes(payment?.status);
     el['cg-reconcile'].disabled = busy || !valid;
     el['cg-reject'].hidden = payment?.status !== 'held'; el['cg-reject'].disabled = busy || !valid;
-    el['cg-pay-balance'].disabled = !valid || busy || !both || payment?.status !== 'paid' || construction?.status !== 'completed' || Boolean(balance && balance.status !== 'held');
-    el['cg-pay-balance'].textContent = balance?.status === 'paid' ? 'Completion balance paid · simulated' : 'Pay completion balance · simulated';
+    el['cg-pay-balance'].disabled = !valid || busy || !both || payment?.status !== 'paid' || construction?.status !== 'completed' || Boolean(balance && balance.status !== 'held') || !paymentsEnabled;
+    el['cg-pay-balance'].textContent = busy && paymentAction === 'balance' ? 'Sending balance…' : `${balance?.status === 'paid' ? 'Balance paid' : 'Pay balance'} · ${money(split.completionCents)}`;
     el['cg-balance-reconcile'].hidden = !['submitted','processing','unknown','review-required'].includes(balance?.status);
     el['cg-balance-reconcile'].disabled = busy || !valid;
     el['cg-balance-reject'].hidden = balance?.status !== 'held'; el['cg-balance-reject'].disabled = busy || !valid;
@@ -81,14 +97,16 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     el['cg-parcel'].disabled = busy || invalidated;
     el['cg-finance-scenario'].disabled = busy || locked;
     el['cg-scenario-wrap'].hidden = !demoMode || execution?.bankMode === 'nessie-sandbox';
-    write('cg-provider-mode', execution ? `${execution.bankMode === 'simulation' ? 'Local simulation' : 'Nessie sandbox'} · rule-based finance worker · simulated role identities` : 'Local development service · click signatures are simulated');
+    write('cg-provider-mode', execution ? `${provider} · rule-based finance worker · simulated role identities` : 'Local development service · click signatures are simulated');
+    write('cg-footer-disclaimer', nessie ? 'Fictional demo · simulated signatures · Nessie sandbox payments' : 'Fictional demo · simulated signatures and payments');
     if (busy) write('cg-execution-status', 'Checking the contract workflow…');
     else if (payment) write('cg-execution-status', `${payment.status === 'paid' ? (execution.bankMode === 'simulation' ? 'Simulated 20% payment complete. ' : 'Sandbox 20% payment confirmed. ') : ''}${payment.reason}`);
-    else write('cg-execution-status', both ? (execution?.packageReady ? 'The full package is signed. Pay the initial 20% to fund construction.' : 'Sign every final-route contract before paying any initial amount.') : 'Both signatures are required before payment.');
+    else write('cg-execution-status', both ? (execution?.packageReady ? paymentsEnabled ? 'The full package is signed. The 20% deposit is ready for payment.' : 'The full package is signed. Sandbox transfers are not enabled yet.' : 'Sign every final-route contract before paying any initial amount.') : 'Both signatures are required before payment.');
     el['cg-audit-panel'].hidden = !execution?.audit?.length;
     if (execution?.audit?.length) {
       write('cg-payment-state', balance?.status === 'paid' ? 'Compensation paid' : payment?.status ?? 'Awaiting payment');
-      write('cg-payment-summary', payment ? `Initial: ${money(payment.amountCents)} · ${payment.status}. Completion: ${balance ? `${money(balance.amountCents)} · ${balance.status}` : 'awaiting completion'}. All payments are simulated.` : 'The utility approver, landowner and payment worker have distinct simulated identities.');
+      el['cg-payment-state'].className = `cg-status${payment?.status === 'paid' ? '' : ' cg-pending'}`;
+      write('cg-payment-summary', payment ? `Deposit: ${money(payment.amountCents)} · ${payment.status}. Completion: ${balance ? `${money(balance.amountCents)} · ${balance.status}` : 'awaiting completion'}. ${provider}; no real money moves.` : 'The utility approver, landowner and payment worker have distinct simulated identities.');
       el['cg-audit-list'].replaceChildren(...execution.audit.map(event => {
         const item = document.createElement('li'), title = document.createElement('strong'), detail = document.createElement('span');
         title.textContent = event.action.replaceAll('-', ' '); detail.textContent = `${event.reason} (${event.actorId})`;
@@ -193,7 +211,7 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
         store.save(value.draft, source); value.saved = true;
       } catch { feedback('Browser storage is unavailable; the server will still validate this contract.', true); }
     }
-    const ticket = ++generation; busy = true; renderDraft();
+    const ticket = ++generation; busy = true; paymentAction = operation === 'submit' ? extra.stage ?? 'initial' : null; renderDraft();
     try {
       const result = await api(operation, candidate(), {...(operation === 'submit' ? {scenario:el['cg-finance-scenario'].value || 'normal'} : {}), ...extra});
       if (ticket !== generation || !current() || entry() !== value) return;
@@ -204,7 +222,7 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
       if (!quiet) feedback(error.message, true);
       if (operation === 'construction-complete') throw error;
     } finally {
-      if (ticket === generation) { busy = false; renderDraft(); notifyConstruction(); }
+      if (ticket === generation) { busy = false; paymentAction = null; renderDraft(); notifyConstruction(); }
     }
   }
   function review() {

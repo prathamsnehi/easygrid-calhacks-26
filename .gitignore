@@ -21,5 +21,6 @@ coverage/
 **/.tools/*
 !/.tools/spacetime-cli
 
-# Local simulated finance ledgers
-apps/map-preview/.local/
+
+# Private local contract ledgers and sandbox setup checkpoints
+.local/

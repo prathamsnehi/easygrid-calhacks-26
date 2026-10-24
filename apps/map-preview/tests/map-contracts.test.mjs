@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -12,7 +12,8 @@ import {createHandoff} from '../src/handoff.js';
 import {mapContractRequest, contractSourceFromAgreement, simulatedMapAgreement} from '../src/contract-handoff.js';
 import {createContractDraft, contractDocument} from '../src/contract-authoring.js';
 import {createContractAPI} from '../server/contract-api.mjs';
-import {reconstructMapProposal} from '../server/map-contracts.mjs';
+import {createMapContractService, reconstructMapProposal} from '../server/map-contracts.mjs';
+import {createDemoBank} from '../server/contract-workflow.mjs';
 
 const world = createWorld();
 const substation = createPlacement(world,'substation',-43,-17);
@@ -159,4 +160,117 @@ test('a refusal reroute signs and pays only final-route owners, with server-vali
   const persisted=JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).packages[packageId];
   assert.equal(Object.keys(persisted.ledger.obligations).length,drafts.length*2);
   assert.equal(persisted.ledger.journal.reduce((sum,p)=>sum+p.debitCents,0),handoff.snapshot.routes[0].upfrontCompensationCents);
+}));
+
+function nessieFixture(source, {pending = false} = {}) {
+  const recipients = Object.fromEntries(source.parcels.map(parcel => [parcel.ownerId,{accountId:`account-${parcel.ownerId}`,customerId:`customer-${parcel.ownerId}`}])) ;
+  const rows = [], calls = [];
+  const environment = {
+    EASYGRID_PAYMENT_PROVIDER:'nessie',NESSIE_API_KEY:'test-only-nessie-key',NESSIE_API_ORIGIN:'https://prod-api.nessieisreal.com',
+    NESSIE_PAYER_ACCOUNT_ID:'test-project-payer',NESSIE_OWNER_RECIPIENTS:JSON.stringify(recipients),NESSIE_ALLOW_SANDBOX_TRANSFERS:'yes',
+  };
+  const fetcher = async (url, options) => {
+    assert.equal(url.searchParams.get('key'),environment.NESSIE_API_KEY);
+    assert.equal(options.redirect,'error');
+    calls.push({path:url.pathname,method:options.method});
+    if (url.pathname === '/accounts/test-project-payer') return Response.json({_id:'test-project-payer',balance:1000000});
+    const recipient = Object.values(recipients).find(row => `/accounts/${row.accountId}` === url.pathname);
+    if (recipient) return Response.json({_id:recipient.accountId,customer_id:recipient.customerId});
+    if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'GET') return Response.json(rows);
+    if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'POST') {
+      const body = JSON.parse(options.body);
+      assert.equal(body.medium,'balance');
+      assert(Object.values(recipients).some(row => row.accountId === body.payee_id));
+      const row = {...body,_id:`test-transfer-${rows.length+1}`,payer_id:'test-project-payer',status:pending?'pending':'completed'};
+      rows.push(row);return Response.json({objectCreated:row},{status:201});
+    }
+    const transfer = rows.find(row => `/transfers/${row._id}` === url.pathname);
+    if (transfer) return Response.json(transfer);
+    throw new Error('Unexpected mock Nessie endpoint.');
+  };
+  return {environment,fetcher,rows,calls};
+}
+
+test('map contracts use Nessie only after all signatures, preserve exact amounts and never resend after restart', async () => withAPI(async (_simulation,options,directory) => {
+  const context = mapContractRequest(proposal(),placements);
+  const source = contractSourceFromAgreement(agreement(),proposal()), mock = nessieFixture(source);
+  const nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
+  const api = await createContractAPI(nessieOptions);
+  const approved = await call(api,'approve-map',{context});
+  assert.equal(approved.status,200,approved.body.error);
+  assert.equal(approved.body.bankMode,'nessie-sandbox');assert.equal(approved.body.paymentsEnabled,true);
+  const {packageId,input} = approved.body;
+  const drafts = input.parcels.map((parcel,index) => createContractDraft(input,parcel.parcelId,{id:`nessie-map-${index}`}));
+  const command = async (operation,draft,extra={}) => {
+    const result = await call(api,operation,{packageId,draft,...extra});
+    assert.equal(result.status,200,result.body.error);assert.equal(result.body.bankMode,'nessie-sandbox');return result.body;
+  };
+  assert.equal((await call(api,'submit',{packageId,draft:drafts[0]})).status,409);
+  await command('sign/utility',drafts[0]);await command('sign/landowner',drafts[0]);
+  assert.equal((await call(api,'submit',{packageId,draft:drafts[0]})).status,409);
+  assert.equal(mock.calls.length,0,'unsigned packages must not contact the bank');
+  for(const draft of drafts.slice(1)) {await command('sign/utility',draft);await command('sign/landowner',draft);}
+  const first = await command('submit',drafts[0]);
+  assert.equal(first.payment.status,'paid');assert.equal(first.payment.mode,'nessie-sandbox');
+  assert.equal(first.payment.amountCents,Math.floor(input.parcels[0].compensationCents/5));
+  assert.equal(mock.rows[0].amount,first.payment.amountCents/100);
+  assert.equal(first.payment.transactionRef,'nessie-test-transfer-1');
+  await Promise.all([command('submit',drafts[0]),command('submit',drafts[0])]);
+  assert.equal(mock.rows.length,1);
+  const restarted = await createContractAPI(nessieOptions);
+  const replay = await call(restarted,'submit',{packageId,draft:drafts[0]});
+  assert.equal(replay.body.payment.status,'paid');assert.equal(replay.body.journal.length,1);assert.equal(mock.rows.length,1);
+  const newDraft = {...drafts[0],id:'new-id-same-obligation'};
+  await call(restarted,'state',{packageId,draft:newDraft});
+  assert.equal((await call(restarted,'submit',{packageId,draft:newDraft})).status,409);
+  assert.equal(mock.rows.length,1,'regenerated draft IDs must not create another payment');
+  assert.equal((await call(restarted,'submit',{packageId,draft:drafts[0],stage:'balance'})).status,409);
+  const serialized = await readFile(join(directory,'nessie-map-contracts.json'),'utf8');
+  assert.equal(JSON.parse(serialized).bankMode,'nessie-sandbox');
+  assert.match(JSON.parse(serialized).bankIdentity,/^[a-f0-9]{64}$/);
+  for (const change of [{NESSIE_PAYER_ACCOUNT_ID:'different-project-payer'},{NESSIE_API_ORIGIN:'https://api.nessieisreal.com'}]) {
+    await assert.rejects(createContractAPI({...nessieOptions,environment:{...mock.environment,...change}}),/different bank identity/);
+  }
+  for (const secret of [mock.environment.NESSIE_API_KEY,'test-project-payer',...Object.values(JSON.parse(mock.environment.NESSIE_OWNER_RECIPIENTS)).map(row=>row.accountId)]) assert(!serialized.includes(secret));
+}));
+
+test('pending Nessie payment reconciles after restart without resubmitting and simulation payments cannot satisfy it', async () => withAPI(async (simulation,options,directory) => {
+  const context = mapContractRequest(proposal(),placements);
+  const simulated = await call(simulation,'approve-map',{context}), {packageId,input} = simulated.body;
+  const drafts = input.parcels.map((parcel,index)=>createContractDraft(input,parcel.parcelId,{id:`isolated-${index}`}));
+  for(const draft of drafts) {
+    await call(simulation,'sign/utility',{packageId,draft});await call(simulation,'sign/landowner',{packageId,draft});
+  }
+  assert.equal((await call(simulation,'submit',{packageId,draft:drafts[0]})).body.payment.status,'paid');
+  const mock = nessieFixture(input,{pending:true}), nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
+  const api = await createContractAPI(nessieOptions);
+  assert.equal((await call(api,'state',{packageId,draft:drafts[0]})).status,409);
+  const approvedNessie = await call(api,'approve-map',{context});assert.equal(approvedNessie.status,200);
+  const nessieDrafts = approvedNessie.body.input.parcels.map((parcel,index)=>createContractDraft(approvedNessie.body.input,parcel.parcelId,{id:`nessie-isolated-${index}`}));
+  const blank = await call(api,'state',{packageId,draft:nessieDrafts[0]});assert.equal(blank.status,200,blank.body.error);
+  assert.deepEqual(blank.body.signatures,{});assert.equal(blank.body.payment,null);
+  assert.equal((await call(api,'submit',{packageId,draft:nessieDrafts[0]})).status,409);
+  for(const draft of nessieDrafts) {await call(api,'sign/utility',{packageId,draft});await call(api,'sign/landowner',{packageId,draft});}
+  const pending = await call(api,'submit',{packageId,draft:nessieDrafts[0]});
+  assert.equal(pending.body.payment.status,'submitted');assert.equal(pending.body.journal.length,0);
+  assert.equal(pending.body.construction.status,'awaiting-initial-payments');
+  const restarted = await createContractAPI(nessieOptions);
+  await call(restarted,'submit',{packageId,draft:nessieDrafts[0]});assert.equal(mock.rows.length,1);
+  mock.rows[0].status='completed';
+  const confirmed = await call(restarted,'reconcile',{packageId,draft:nessieDrafts[0]});
+  assert.equal(confirmed.body.payment.status,'paid');assert.equal(confirmed.body.journal.length,1);assert.equal(mock.rows.length,1);
+  assert.equal(JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).bankMode,'simulation');
+  assert.equal(JSON.parse(await readFile(join(directory,'nessie-map-contracts.json'),'utf8')).bankMode,'nessie-sandbox');
+}));
+
+test('provider-tagged and legacy simulation ledgers cannot be loaded as Nessie evidence', async () => withAPI(async (api,options,directory) => {
+  await call(api,'approve-map',{context:mapContractRequest(proposal(),placements)});
+  const stateURL = pathToFileURL(join(directory,'map-contracts.json'));
+  const bank = {...createDemoBank(),mode:'nessie-sandbox'};
+  await assert.rejects(createMapContractService({stateURL,bank}),/different payment provider/);
+  const legacy = JSON.parse(await readFile(stateURL,'utf8'));legacy.schemaVersion=1;delete legacy.bankMode;
+  await writeFile(stateURL,JSON.stringify(legacy));
+  await assert.rejects(createMapContractService({stateURL,bank}),/Invalid map contract registry/);
+  const restoredSimulation = await createMapContractService({stateURL});
+  assert.equal((await restoredSimulation.approve(mapContractRequest(proposal(),placements))).bankMode,'simulation');
 }));

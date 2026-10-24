@@ -107,6 +107,51 @@ test('an unattempted hold can recover after the underlying issue is corrected', 
   assert.equal(app.flow.snapshot().journal.length,1);
 });
 
+test('a missing recipient blocks utility signature and an unattempted mapping loss recovers from a durable hold', async () => {
+  const base = createDemoBank(), saved = []; let missing = true;
+  const bank = {...base,recipientBinding:ownerId => {
+    if (missing) throw new Error('No configured recipient for this fictional owner.');
+    return base.recipientBinding(ownerId);
+  }};
+  const app = setup({bank,persist:async state => {saved.push(state);}});
+  await assert.rejects(app.flow.sign(app.draft,'utility',DEMO_ACTORS.utility),/No configured recipient/);
+  assert.equal(app.transfers,0);
+  missing = false;await signBoth(app);missing = true;
+  const held = await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+  assert.equal(held.payment.status,'held');assert.match(held.payment.reason,/No transfer was attempted/);
+  assert.equal(Object.values(saved.at(-1).obligations)[0].status,'held');assert.equal(app.transfers,0);
+  missing = false;
+  const paid = await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+  assert.equal(paid.payment.status,'paid');assert.equal(paid.journal.length,1);assert.equal(app.transfers,1);
+});
+
+test('failed and rejected provider transfers require review and never permit a replacement submission', async () => {
+  for (const failure of ['failed','rejected']) {
+    const base = createDemoBank();let providerStatus = 'pending';
+    const bank = {...base,
+      transfer:async input => ({...await base.transfer(input),status:providerStatus}),
+      inspect:async input => {
+        const result = await base.inspect(input);
+        return {...result,existingEvidence:result.existingEvidence ? {...result.existingEvidence,status:providerStatus} : null};
+      },
+    };
+    const app = setup({bank});await signBoth(app);
+    assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'submitted');
+    providerStatus = failure;
+    const failed = await app.flow.reconcile(app.draft,DEMO_ACTORS.requester);
+    assert.equal(failed.payment.status,'review-required');assert.match(failed.payment.reason,/failed or rejected/);
+    assert.equal(failed.journal.length,0);assert.equal(failed.construction.paidCount,0);
+    assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'review-required');
+    assert.equal(app.transfers,1);
+    assert(failed.audit.some(row => row.action === 'bank-payment-failed' && row.bankStatus === failure));
+    // A terminal failure returned immediately from the submission uses the same gate.
+    const immediate = setup({bank:{...createDemoBank(),transfer:async input => ({...input,recipientMatches:true,status:failure,transactionRef:'terminal-test-transfer'})}});
+    await signBoth(immediate);
+    assert.equal((await immediate.flow.submit(immediate.draft,DEMO_ACTORS.requester)).payment.status,'review-required');
+    await immediate.flow.submit(immediate.draft,DEMO_ACTORS.requester);assert.equal(immediate.transfers,1);
+  }
+});
+
 test('unknown transfer outcomes and a recovered processing record never trigger a blind retry', async () => {
   const base = createDemoBank(); let calls = 0, observed = null;
   const bank = {...base, transfer:async input => { calls++; observed = {...input,recipientMatches:true,status:'completed',transactionRef:'bank-recovered'}; throw new Error('timeout'); }, inspect:async () => ({recipientMatches:true,balanceCents:10000000,existingEvidence:null})};

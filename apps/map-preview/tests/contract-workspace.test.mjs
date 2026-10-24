@@ -6,7 +6,7 @@ import {createContractWorkspace} from '../src/contract-workspace.js';
 import {createContractExample} from '../src/contract-fixtures.js';
 import {createContractWorkflow,createDemoBank,DEMO_ACTORS} from '../server/contract-workflow.mjs';
 
-function boot({saved = new Map(), workflow = null, apiOverride = null} = {}) {
+function boot({saved = new Map(), workflow = null, apiOverride = null, paymentsEnabled} = {}) {
   const nodes = new Map();
   class Element {
     constructor(id, tag = '') {this.id=id;this.hidden=/\shidden(?:\s|>)/.test(tag);this.disabled=/\sdisabled(?:\s|>)/.test(tag);this.value='';this.textContent='';this.innerHTML='';this.className='';this.children=[];this.listeners=new Map();this.attributes={};}
@@ -30,7 +30,7 @@ function boot({saved = new Map(), workflow = null, apiOverride = null} = {}) {
     if (operation === 'reconcile') return flow.reconcile(draft,DEMO_ACTORS.requester,extra);
     return flow.reject(draft,DEMO_ACTORS.utility,extra);
   };
-  const app = createContractWorkspace({storage:{getItem:key => saved.get(key) ?? null,setItem:(key,value) => saved.set(key,value)},api:apiOverride ?? api});
+  const app = createContractWorkspace({storage:{getItem:key => saved.get(key) ?? null,setItem:(key,value) => saved.set(key,value)},api:async (...args) => ({...await (apiOverride ?? api)(...args), ...(paymentsEnabled === undefined ? {} : {paymentsEnabled})})});
   return {app,nodes,saved,flow,restore:() => {globalThis.document=original;},flush:() => new Promise(done => setImmediate(done)),
     click:async id => {if(!nodes.get(id).disabled)await nodes.get(id).emit('click');}};
 }
@@ -71,6 +71,81 @@ test('approval gate, authoring, both click signatures, submission and restored p
     assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
     assert.equal(ui.flow.snapshot().journal.length,3);
     assert.equal(notices,1);
+  } finally {ui.restore();}
+});
+
+async function signEveryAgreement(ui) {
+  await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
+  ui.nodes.get('cg-parcel').value='P-009'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
+  await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
+  ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
+}
+
+test('Nessie deposit requires an explicit click, locks repeated sends and shows pending evidence until reconciliation', async () => {
+  let transferCount = 0, releaseTransfer, bankEvidence = null;
+  const bank = {...createDemoBank(), mode:'nessie-sandbox',
+    inspect:async input => ({recipientMatches:true,balanceCents:10000000,existingEvidence:bankEvidence?.obligationId === input.obligationId ? bankEvidence : null}),
+    transfer:async input => {
+      transferCount++;
+      await new Promise(resolve => {releaseTransfer=resolve;});
+      bankEvidence = {...input,recipientMatches:true,status:'pending',transactionRef:'nessie-transfer-fixture-001'};
+      return bankEvidence;
+    },
+  };
+  const ui = boot({workflow:createContractWorkflow({source:createContractExample(),bank}),paymentsEnabled:true});
+  try {
+    ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
+    await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Waiting for all signatures');
+    assert.equal(transferCount,0);
+    await signEveryAgreement(ui);
+    assert.equal(ui.nodes.get('cg-deposit-provider').textContent,'Nessie sandbox');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Pay deposit · $2,400.00');
+    assert.equal(ui.nodes.get('cg-deposit-basis').textContent,'20% of $12,000.00 approved compensation');
+    assert.equal(ui.nodes.get('cg-deposit-recipient').textContent,'To Willow Creek Orchard');
+    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Ready to send');
+    assert.equal(ui.nodes.get('cg-scenario-wrap').hidden,true);
+    assert.equal(ui.nodes.get('cg-preview-completion').hidden,true);
+    assert.equal(transferCount,0,'collecting signatures alone cannot send money');
+    const sending = ui.click('cg-submit'); await ui.flush();
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Sending deposit…');
+    await ui.nodes.get('cg-submit').emit('click');
+    assert.equal(transferCount,1,'even a direct duplicate event cannot send while busy');
+    releaseTransfer(); await sending;
+    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Pending confirmation');
+    assert.equal(ui.nodes.get('cg-transfer-reference').hidden,false);
+    assert.equal(ui.nodes.get('cg-transfer-reference-value').textContent,'nessie-transfer-fixture-001');
+    assert.equal(ui.nodes.get('cg-reconcile').hidden,false);
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.nodes.get('cg-completion-panel').hidden,true);
+    assert.equal(ui.flow.snapshot().journal.length,0,'pending bank acknowledgement is not payment');
+    bankEvidence.status='completed'; await ui.click('cg-reconcile');
+    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Paid');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Deposit paid · $2,400.00');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.nodes.get('cg-reconcile').hidden,true);
+    assert.equal(ui.nodes.get('cg-completion-panel').hidden,false);
+    assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
+    assert.equal(ui.flow.snapshot().journal.length,1);
+    assert.equal(transferCount,1,'reconciliation never submits another transfer');
+  } finally {ui.restore();}
+});
+
+test('disabled Nessie writes keep a signed deposit locked and explain the missing setup', async () => {
+  let transferCount=0;
+  const bank={...createDemoBank(),mode:'nessie-sandbox',canTransfer:false,transfer:async () => {transferCount++;throw new Error('Writes are disabled.');}};
+  const ui=boot({workflow:createContractWorkflow({source:createContractExample(),bank}),paymentsEnabled:false});
+  try {
+    ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
+    await signEveryAgreement(ui);
+    assert.equal(ui.nodes.get('cg-payment-panel').hidden,false);
+    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Setup required');
+    assert.match(ui.nodes.get('cg-deposit-help').textContent,/not enabled/);
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    await ui.click('cg-submit');
+    assert.equal(transferCount,0);
   } finally {ui.restore();}
 });
 

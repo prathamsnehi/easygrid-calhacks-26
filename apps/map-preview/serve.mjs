@@ -1,7 +1,17 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { createContractAPI } from './server/contract-api.mjs';
-const contractAPI=await createContractAPI();
+import { acquireLedgerProcessLock } from './server/ledger-process-lock.mjs';
+const ledgerLock=process.env.EASYGRID_PAYMENT_PROVIDER==='nessie'
+  ? acquireLedgerProcessLock(new URL('./.local/nessie-server.lock',import.meta.url)) : null;
+if(ledgerLock){
+  // Exit ends every in-flight request before the exit hook releases ownership.
+  process.once('SIGINT',()=>process.exit(130));
+  process.once('SIGTERM',()=>process.exit(143));
+}
+let contractAPI;
+try { contractAPI=await createContractAPI(); }
+catch (error) { ledgerLock?.release(); throw error; }
 const previewPort=Number(process.env.EASYGRID_PREVIEW_PORT??4177);
 const resources=new Map([
   ['/', ['index.html','text/html; charset=utf-8']],
@@ -10,7 +20,7 @@ const resources=new Map([
   ['/parcel-fixtures.json', ['parcel-fixtures.json','application/json; charset=utf-8']],
   ['/demo-handoff-example.json', ['demo-handoff-example.json','application/json; charset=utf-8']],
 ]);
-createServer(async (req,res)=>{
+const server=createServer(async (req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   if(await contractAPI(req,res,path))return;
   if(path==='/favicon.ico'){res.writeHead(204).end();return;}
@@ -20,4 +30,9 @@ createServer(async (req,res)=>{
     const bytes=await readFile(new URL(`./dist/${resource[0]}`,import.meta.url));
     res.writeHead(200,{'content-type':resource[1],'cache-control':'no-store'});res.end(bytes);
   }catch{res.writeHead(500).end('Build the preview first.');}
-}).listen(previewPort,'127.0.0.1',()=>console.log(`Local: http://127.0.0.1:${previewPort}`));
+});
+server.once('error',error=>{
+  // An uncaught listen error exits, which releases the lock synchronously.
+  throw error;
+});
+server.listen(previewPort,'127.0.0.1',()=>console.log(`Local: http://127.0.0.1:${previewPort}`));

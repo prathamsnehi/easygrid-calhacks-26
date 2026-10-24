@@ -85,6 +85,10 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       record(actor, 'reconciliation-held', payment.reason, draft, {obligationId: payment.id, expectedCents: payment.amountCents, observedCents: evidence?.amountCents ?? null}); return;
     }
     payment.transactionRef = evidence.transactionRef;
+    if (['failed','rejected'].includes(evidence.status)) {
+      payment.status = 'review-required'; payment.reason = 'The bank reported a failed or rejected transfer. Controller review is required; no replacement payment was sent.';
+      record(actor, 'bank-payment-failed', payment.reason, draft, {obligationId: payment.id, bankStatus: evidence.status}); return;
+    }
     if (evidence.status !== 'completed') {
       payment.status = 'submitted'; payment.reason = 'The sandbox accepted the transfer; completion is not yet confirmed.';
       record(actor, 'bank-submission-pending', payment.reason, draft, {obligationId: payment.id}); return;
@@ -133,7 +137,13 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       payment = state.obligations[id] = {id, stage, documentHash: doc.hash, amountCents, parcelId: draft.parcelId,
         status: 'checking', requestedBy: actor.id, approvedBy: utility.actorId, reason: 'Validating approved contract against banking evidence.'};
       record(actor, 'payment-requested', stage === 'initial' ? 'Explicit initial-payment request for the approved 20%.' : 'Explicit completion-payment request for the exact approved remainder.', draft, {obligationId: id, amountCents: payment.amountCents, documentHash: doc.hash});
-      if (utility.approvedRecipientBinding !== bank.recipientBinding(document.ownerId)) {
+      let currentRecipientBinding;
+      try { currentRecipientBinding = bank.recipientBinding(document.ownerId); }
+      catch {
+        payment.status = 'held'; payment.reason = 'The approved payout destination is not configured. No transfer was attempted.';
+        record(actor, 'payment-held', payment.reason, draft, {obligationId:id, rule:'configured-recipient'}); await save(); return project(draft);
+      }
+      if (utility.approvedRecipientBinding !== currentRecipientBinding) {
         payment.status = 'held'; payment.reason = 'The configured payout destination changed after utility approval.';
         record(actor, 'payment-held', payment.reason, draft, {obligationId:id, rule:'approved-recipient-binding'}); await save(); return project(draft);
       }

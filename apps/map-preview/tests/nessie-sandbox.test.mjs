@@ -55,6 +55,36 @@ test('bank dollar conversion preserves cents and rejects fractional cents or ove
 test('a bank response without a verifiable transaction ID cannot prove a completed payment', async () => {
   const mock = transport({missingTransactionId:true});
   const bank = createNessieSandboxBank({...config,allowTransfers:true,fetcher:mock.fetcher});
-  await assert.rejects(bank.transfer(input),/no verifiable transaction ID/);
+  await assert.rejects(bank.transfer(input),/transaction identity/);
   assert.equal(mock.calls.filter(row => row.method === 'POST').length,1);
+});
+
+
+test('payer and API origin are part of sandbox authorization and storage identity', () => {
+  const bank=createNessieSandboxBank(config);
+  const otherPayer=createNessieSandboxBank({...config,payerId:'another-payer'});
+  assert.notEqual(bank.recipientBinding(input.ownerId),otherPayer.recipientBinding(input.ownerId));
+  assert.notEqual(bank.storageNamespace,otherPayer.storageNamespace);
+  const otherRecipient=createNessieSandboxBank({...config,recipients:{[input.ownerId]:{accountId:'another-payee',customerId:'sandbox-customer'}}});
+  assert.equal(bank.storageNamespace,otherRecipient.storageNamespace);
+  assert.notEqual(bank.recipientBinding(input.ownerId),otherRecipient.recipientBinding(input.ownerId));
+});
+
+test('terminal failed transfer evidence is preserved and a different transfer ID is rejected', async () => {
+  for (const status of ['failed','rejected','cancelled']) {
+    const mock=transport();
+    const fetcher=async (url,options) => {
+      const response=await mock.fetcher(url,options);
+      if(url.pathname==='/transfers/transfer-fixture') return Response.json({...await response.json(),status});
+      return response;
+    };
+    const result=await createNessieSandboxBank({...config,allowTransfers:true,fetcher}).transfer(input);
+    assert.equal(result.status,status==='cancelled'?'rejected':status);
+  }
+  const mock=transport();
+  const fetcher=async(url,options)=>{
+    const response=await mock.fetcher(url,options);
+    return url.pathname==='/transfers/transfer-fixture'?Response.json({...await response.json(),_id:'unrelated-transfer'}):response;
+  };
+  await assert.rejects(createNessieSandboxBank({...config,allowTransfers:true,fetcher}).transfer(input),/different transaction identity/);
 });
