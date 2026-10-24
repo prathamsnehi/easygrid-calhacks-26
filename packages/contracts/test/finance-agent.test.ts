@@ -13,11 +13,11 @@ const deps = {
 };
 test('detects 101 cent month-two underpayment and requires review',async()=>{
   const r=await runFinanceReconciliation('s1','run1','2026-10-24T00:00:00Z',deps);
-  assert.equal(r.decisions[0].status,'matched');
-  assert.equal(r.decisions[1].differenceCents,101);
-  assert.equal(r.decisions[1].suggestedAction,'request_review');
+  assert.equal(r.decisions[0]?.status,'matched');
+  assert.equal(r.decisions[1]?.differenceCents,101);
+  assert.equal(r.decisions[1]?.suggestedAction,'request_review');
   assert.equal(r.requiresHumanApproval,true);
-  assert.deepEqual(r.decisions[1].transactionIds,['n2']);
+  assert.deepEqual(r.decisions[1]?.transactionIds,['n2']);
 });
 test('does not execute or approve money and fails closed on duplicate bank evidence',async()=>{
   await assert.rejects(runFinanceReconciliation('s1','run1','now',{
@@ -28,5 +28,5 @@ test('unmatched bank movement is flagged',async()=>{
   const r=await runFinanceReconciliation('s1','run2','now',{
     ...deps,loadBankMovements:async()=>[...(await deps.loadBankMovements()),{transactionId:'orphan',amountCents:100,period:'2026-12',obligationId:'unknown',source:'nessie' as const}]
   });
-  assert.equal(r.decisions[2].suggestedAction,'request_review');
+  assert.equal(r.decisions[2]?.suggestedAction,'request_review');
 });
