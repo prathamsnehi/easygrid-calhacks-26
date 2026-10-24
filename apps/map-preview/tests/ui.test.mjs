@@ -23,12 +23,36 @@ const compiled=new vm.Script(embedded
 const expectedWorld=createWorld();
 const privateUser={alias:'Test User',phone:'+12025550123'};
 
-function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,rect={left:37,top:100,width:1100,height:700}}={}) {
+function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,panelRects={},rect={left:37,top:100,width:1100,height:700}}={}) {
   const errors=[],elements=new Map();
   let currentScene,currentCamera,clock=1000;
   let timerSequence=0;
   const timers=new Map();
   let viewport={...rect};
+  const withEdges=rect=>({...rect,x:rect.left,y:rect.top,right:rect.left+rect.width,bottom:rect.top+rect.height});
+  // Controlled layout inputs for camera math; this harness does not lay out CSS.
+  function elementRect(element) {
+    const analysisOpen=elements.get('demo-workspace')?.dataset.analysisOpen==='true';
+    const cssHidden=(element.id==='context-card'&&element.classList.contains('overview'))||
+      (['context-card','route-panel'].includes(element.id)&&analysisOpen);
+    if(element.hidden||cssHidden)return withEdges({left:0,top:0,width:0,height:0});
+    const configured=panelRects[element.id];
+    if(configured)return withEdges(typeof configured==='function'?configured(viewport):configured);
+    const {left,top,width,height}=viewport;
+    const compactLandscape=width<=900&&width>height&&height<=400;
+    if(element.id==='analysis-panel')return withEdges(width>900?
+      {left:left+width-360,top:top+12,width:348,height:height-24}:
+      compactLandscape?{left:left+width-width*.4-12,top:top+10,width:width*.4,height:height-22}:
+      {left:left+12,top:top+height*.56,width:width-24,height:height*.44-12});
+    if(element.id==='context-card')return withEdges(width>900?
+      {left:left+24,top:top+height-304,width:312,height:280}:
+      compactLandscape?{left:left+12,top:top+10,width:Math.min(312,width*.4),height:height-22}:
+      {left:left+12,top:top+height*.57,width:width-24,height:height*.43-12});
+    if(element.id==='route-panel')return withEdges(width>900?
+      {left:left+width-350,top:top+14,width:326,height:height-98}:
+      {left:left+12,top:top+height*.54,width:width-24,height:height*.46-12});
+    return withEdges(viewport);
+  }
   class Element {
     constructor(id,tag='') {
       this.id=id;this.dataset={};this.style={};this.attributes=new Map();this.listeners=new Map();
@@ -69,7 +93,7 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
     focus(){document.activeElement=this;}
     scrollIntoView(){}
     setPointerCapture(){}
-    getBoundingClientRect(){return{...viewport,right:viewport.left+viewport.width,bottom:viewport.top+viewport.height};}
+    getBoundingClientRect(){return elementRect(this);}
     get clientWidth(){return viewport.width;}
     get clientHeight(){return viewport.height;}
   }
@@ -118,6 +142,7 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
     click:id=>elements.get(id).click(),
     advance:ms=>{clock+=ms;},
     scene:()=>currentScene,
+    camera:()=>currentCamera,
     storage:()=>JSON.parse(saved.get(PLAN_STORAGE_KEY)),
     hover:(x,z)=>input('pointermove',point(x,z)),
     tap:(x,z)=>{const p=point(x,z);input('pointerdown',p);input('pointerup',p);},
@@ -668,4 +693,122 @@ test('restored facilities wait for fresh onboarding and no participant data surv
   assert.equal(handoffOf(reloaded),null);
   assert.equal(networkOf(reloaded).children.length,0);
   assert.deepEqual(reloaded.errors,[]);
+});
+
+function parcelScreenBounds(app,parcelId) {
+  const parcel=expectedWorld.parcelById.get(parcelId),tiles=expectedWorld.tiles.filter(tile=>tile.parcelId===parcelId);
+  const heights=tiles.map(tile=>tile.terrain==='river'?.79:tile.height);
+  const points=[];
+  for(const x of [parcel.bounds.x0-.5,parcel.bounds.x1+.5]){
+    for(const z of [parcel.bounds.z0-.5,parcel.bounds.z1+.5]){
+      for(const y of [Math.min(...heights),Math.max(...heights)+1])points.push(app.point(x,z,y));
+    }
+  }
+  return {left:Math.min(...points.map(p=>p.clientX)),right:Math.max(...points.map(p=>p.clientX)),
+    top:Math.min(...points.map(p=>p.clientY)),bottom:Math.max(...points.map(p=>p.clientY))};
+}
+function remainingMapRect(app,panelId,side) {
+  const canvas=app.canvas.getBoundingClientRect(),panel=app.elements.get(panelId).getBoundingClientRect();
+  const free={left:canvas.left+24,right:canvas.right-24,top:canvas.top+(canvas.width<=900?52:24),bottom:canvas.bottom-52};
+  if(side==='right')free.right=Math.min(free.right,panel.left-24);
+  if(side==='left')free.left=Math.max(free.left,panel.right+24);
+  if(side==='bottom')free.bottom=Math.min(free.bottom,panel.top-24);
+  return free;
+}
+function assertParcelFits(app,parcelId,panelId,side) {
+  const actual=parcelScreenBounds(app,parcelId),free=remainingMapRect(app,panelId,side),epsilon=.001;
+  assert(free.right>free.left&&free.bottom>free.top,'the mocked layout must leave usable map space');
+  assert(actual.left>=free.left-epsilon,`${parcelId} left ${actual.left} is outside free map ${free.left}`);
+  assert(actual.right<=free.right+epsilon,`${parcelId} right ${actual.right} is outside free map ${free.right}`);
+  assert(actual.top>=free.top-epsilon,`${parcelId} top ${actual.top} is outside free map ${free.top}`);
+  assert(actual.bottom<=free.bottom+epsilon,`${parcelId} bottom ${actual.bottom} is outside free map ${free.bottom}`);
+}
+const cameraSignature=app=>[...app.camera().matrixWorld.elements,...app.camera().projectionMatrix.elements];
+function panMap(app,free,dx=58,dy=22) {
+  const point={clientX:(free.left+free.right)/2,clientY:(free.top+free.bottom)/2,button:2};
+  app.input('pointerdown',point);app.input('pointermove',{...point,clientX:point.clientX+dx,clientY:point.clientY+dy});
+  app.input('pointerup',{...point,clientX:point.clientX+dx,clientY:point.clientY+dy});
+}
+
+test('parcel framing uses the visible map beside a sidebar and above a bottom sheet across resizes',async()=>{
+  const sidebarLayout=view=>view.width>900||(view.width>view.height&&view.height<=400);
+  const panelRects={'analysis-panel':view=>{
+    const side=sidebarLayout(view),panelWidth=Math.min(392,view.width*.4),compact=view.width<=900;
+    return side?{left:view.left+view.width-panelWidth-12,top:view.top+(compact?10:12),width:panelWidth,height:view.height-(compact?22:24)}:
+      {left:view.left+12,top:view.top+view.height*.56,width:view.width-24,height:view.height*.44-12};
+  }};
+  const app=boot({panelRects,rect:{left:37,top:100,width:1100,height:700}});
+  placePair(app);await app.flushTimers();app.click('open-analysis');
+  assert.equal(app.elements.get('demo-workspace').dataset.analysisOpen,'true');
+  assert.equal(app.elements.get('context-card').getBoundingClientRect().width,0);
+  assert.equal(app.elements.get('route-panel').getBoundingClientRect().width,0);
+  const rows=app.elements.get('analysis-parcel-list').children;
+  assert(rows.length>1);
+  for(const row of rows){
+    row.click();
+    assert.equal(app.canvas.dataset.analysisParcel,row.dataset.parcelId);
+    assertParcelFits(app,row.dataset.parcelId,'analysis-panel','right');
+  }
+  const selected=app.canvas.dataset.analysisParcel;
+  const beforePan=cameraSignature(app);
+  panMap(app,remainingMapRect(app,'analysis-panel','right'));
+  assert.notDeepEqual(cameraSignature(app),beforePan,'manual panning remains available');
+  assert.equal(app.canvas.dataset.analysisParcel,selected);
+  app.input('keydown',{key:'ArrowLeft'});app.input('keydown',{key:'ArrowUp'});
+  app.click('focus-analysis-parcel');
+  assert.equal(app.canvas.dataset.analysisParcel,selected,'Show on map reframes the selected row');
+  assertParcelFits(app,selected,'analysis-panel','right');
+  for(const view of [
+    {left:12,top:145,width:420,height:680},
+    {left:18,top:142,width:740,height:360},
+    {left:0,top:132,width:568,height:188},
+    {left:29,top:96,width:1020,height:560},
+  ]){
+    app.resize(view);
+    assert.equal(app.canvas.dataset.analysisParcel,selected,'resize preserves the selected parcel');
+    assertParcelFits(app,selected,'analysis-panel',sidebarLayout(view)?'right':'bottom');
+  }
+  app.click('close-analysis');
+  assert.equal(app.elements.get('demo-workspace').dataset.analysisOpen,'false');
+  assert.deepEqual(app.errors,[]);
+});
+
+test('inspection clicks lock parcel selection and frame it without hover-driven camera movement',()=>{
+  const app=boot();app.click('inspect-parcels');
+  const first=expectedWorld.tileAt(-43,-17).parcelId,beforeHover=cameraSignature(app);
+  app.hover(-43,-17);
+  assert.equal(app.canvas.dataset.selectedParcel,first);
+  assert.deepEqual(cameraSignature(app),beforeHover,'hover shows details without moving the camera');
+  app.tap(-43,-17);
+  assert.equal(app.canvas.dataset.inspectionLocked,'true');
+  assert.equal(app.canvas.dataset.selectedParcel,first);
+  assertParcelFits(app,first,'context-card','left');
+  panMap(app,remainingMapRect(app,'context-card','left'),36,12);
+  assert.equal(app.canvas.dataset.selectedParcel,first);
+  const beforeLockedHover=cameraSignature(app),free=remainingMapRect(app,'context-card','left');
+  const other=expectedWorld.tiles.find(tile=>{
+    if(tile.parcelId===first||tile.height!==1.5||tile.terrain!=='meadow')return false;
+    const p=app.point(tile.x,tile.z);
+    return p.clientX>free.left+10&&p.clientX<free.right-10&&p.clientY>free.top+10&&p.clientY<free.bottom-10;
+  });
+  assert(other,'a different parcel is visible for hover and click checks');
+  app.hover(other.x,other.z);
+  assert.equal(app.canvas.dataset.selectedParcel,first,'hover cannot replace a clicked parcel');
+  assert.deepEqual(cameraSignature(app),beforeLockedHover,'hover does not chase the pointer');
+  app.click('focus-inspected-parcel');assertParcelFits(app,first,'context-card','left');
+  app.click('reset-view');
+  const second=expectedWorld.tileAt(43,17).parcelId;
+  app.tap(43,17);
+  assert.equal(app.canvas.dataset.selectedParcel,second,'an explicit click can select a different parcel');
+  assert.equal(app.canvas.dataset.inspectionLocked,'true');
+  assertParcelFits(app,second,'context-card','left');
+  for(const [view,side] of [
+    [{left:12,top:145,width:460,height:620},'bottom'],
+    [{left:0,top:132,width:568,height:188},'left'],
+  ]){
+    app.resize(view);
+    assert.equal(app.canvas.dataset.selectedParcel,second);
+    assertParcelFits(app,second,'context-card',side);
+  }
+  assert.deepEqual(app.errors,[]);
 });

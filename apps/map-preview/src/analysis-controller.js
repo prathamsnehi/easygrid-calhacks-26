@@ -5,7 +5,7 @@ import { createHandoff, validateDemoParticipant, normalizeDemoPhone } from './ha
 export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{}}) {
   const ids=['open-analysis','analysis-entry-status','analysis-panel','close-analysis','analysis-route-note','analysis-count','analysis-upfront',
     'analysis-rent-label','analysis-rent','analysis-consent-note','analysis-parcel-list','analysis-parcel-detail',
-    'analysis-parcel-title','analysis-parcel-badge','analysis-parcel-copy','analysis-owner','analysis-contact','analysis-email',
+    'analysis-parcel-title','analysis-parcel-badge','focus-analysis-parcel','analysis-parcel-copy','analysis-owner','analysis-contact','analysis-email',
     'analysis-land-use','analysis-line-length','analysis-foundation','analysis-offer','analysis-parcel-rent-label',
     'analysis-parcel-rent','analysis-negotiation','analysis-parcel-impact','focus-user-parcel','user-parcel-label',
     'user-contact-status','user-role-note','user-form','user-alias','user-phone','user-consent','save-user',
@@ -21,6 +21,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   const sessionId=`map-${window.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,12)}`}`;
   let snapshot=null,analysis=null,userParcelId=null,priorUserParcelId=null,selectedParcelId=null;
   let participant=null,handler=null,pending=null,activeHandoff=null,revision=0,callRequested=false,lastDemoReady=false;
+  el['demo-workspace'].dataset.analysisOpen='false';
 
   function feedback(id,message,kind='') {write(id,message);el[id].className=`analysis-feedback${kind?` ${kind}`:''}`;}
   function invalidateHandoff() {revision++;activeHandoff?.abort();activeHandoff=null;pending=null;callRequested=false;}
@@ -60,6 +61,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   function renderDetail() {
     const row=analysis?.parcels.find(item=>item.parcelId===selectedParcelId);
     el['analysis-parcel-detail'].hidden=!row;
+    el['focus-analysis-parcel'].disabled=!row;
     if(!row)return;
     const isUser=row.parcelId===userParcelId,role=getParcelRole(row.parcelId);
     write('analysis-parcel-title',row.name);
@@ -125,11 +127,12 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   function close({restoreFocus=true}={}) {
     const wasOpen=!el['analysis-panel'].hidden;
     el['analysis-panel'].hidden=true;el['open-analysis'].setAttribute('aria-expanded','false');
-    canvas.dataset.analysisOpen='false';onFocusParcel(null);
+    canvas.dataset.analysisOpen='false';el['demo-workspace'].dataset.analysisOpen='false';onFocusParcel(null);
     if(wasOpen&&restoreFocus)el['open-analysis'].focus({preventScroll:true});
   }
   function open() {
     if(!participant||!snapshot||!analysis)return;
+    el['demo-workspace'].dataset.analysisOpen='true';
     el['analysis-panel'].hidden=false;el['open-analysis'].setAttribute('aria-expanded','true');canvas.dataset.analysisOpen='true';
     selectParcel(selectedParcelId??userParcelId);el['close-analysis'].focus({preventScroll:true});
   }
@@ -181,6 +184,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     if(!el['analysis-panel'].hidden)close({restoreFocus:false});
   });
   el['focus-user-parcel'].addEventListener('click',()=>selectParcel(userParcelId));
+  el['focus-analysis-parcel'].addEventListener('click',()=>selectParcel(selectedParcelId));
   document.addEventListener('keydown',event=>{
     if(!isDemoReady()){
       if(event.key==='Escape'){event.preventDefault();event.stopPropagation?.();return;}

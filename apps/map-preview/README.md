@@ -19,11 +19,13 @@ The **Start demo** screen requires the participant's name, phone number and expl
 
 Click a valid location to place A (substation, 12×10 tiles), then B (data center, 20×14 tiles). The ghost and footprint turn green or red; the card explains rejection. Every footprint cell must be flat, vacant and inside the map, and the two facilities cannot overlap. The A/B buttons and building labels allow repositioning; old placement stays until a valid replacement is confirmed. The reset button clears the plan and participant details, then returns to **Start demo**.
 
-The **Parcels** button shows property boundaries and fictional owner/contact/price details. **Find open site** and **Place here** provide an alternative to mouse placement and support keyboard use.
+The **Parcels** button shows property boundaries and fictional owner/contact/price details. Hover previews a parcel; clicking selects it and fits its full land bounds into the map area beside the information card. That selection stays fixed while hovering or panning until another parcel is clicked. **Show on map** restores the selected parcel's framing. **Find open site** and **Place here** provide an alternative to mouse placement and support keyboard use.
 
 After registration and placement of both facilities, a queued route calculation runs automatically. **Transmission** opens the comparison panel. Select an alternative to update its pylons, conductors, cost breakdown and affected parcels together. Changing a committed facility immediately removes the old network, restores its crop clearings, and calculates a new connection. Reset cancels queued work; reload restores only validated saved endpoints and requires participant registration again before recalculating the recommendation. An infeasible connection is reported without relaxing constraints or showing a stale network.
 
 Choose **Analyze affected parcels** to open **Land & people**. Select a parcel to inspect its fictional owner/contact details, land use, crossed line length, pylon foundations, upfront allowance, offer cap, rent and consent status. The parcel totals reconcile to the selected route's compensation and rent. A pylon whose pad touches several parcels appears in each parcel's impacts; the route's pylon total remains a unique count. Corridor-only parcels stay in the analysis even when their modeled line-length and foundation allowance is zero. Monthly rent is a rounded equivalent; the full-horizon amount is authoritative.
+
+Land records use a compact right sidebar on desktop and a bottom sheet on mobile, with other information panels hidden while analysis is open. Selecting a row or **Show on map** fits the full parcel into the unobstructed map area, accounting for the actual panel bounds and current camera angle. Resizing reframes the selected parcel; narrow landscape layouts retain a side panel when a bottom sheet would leave too little map space.
 
 ## User roleplay and Pratham handoff
 

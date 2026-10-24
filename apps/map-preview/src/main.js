@@ -91,6 +91,55 @@ function fitCamera() {
   camera.left = -halfW; camera.right = halfW;
   camera.top = halfH; camera.bottom = -halfH;
   camera.updateProjectionMatrix();
+  return halfH*zoom;
+}
+function visibleMapRect() {
+  const inset=24,rect=canvas.getBoundingClientRect();
+  const free={left:inset,right:width-inset,top:width<=900?52:inset,bottom:height-52};
+  const analysisOpen=canvas.dataset.analysisOpen==='true';
+  const panels=analysisOpen?['analysis-panel']:canvas.dataset.plannerMode==='inspect'?['context-card']:['route-panel'];
+  for(const id of panels){
+    const panel=document.querySelector(`#${id}`);if(!panel||panel.hidden)continue;
+    const box=panel.getBoundingClientRect();if(box.width<=0||box.height<=0)continue;
+    const left=box.left-rect.left,right=left+box.width,top=box.top-rect.top,bottom=top+box.height;
+    if(right<=0||left>=width||bottom<=0||top>=height)continue;
+    if(box.width<width*.65&&left>=width/2)free.right=Math.min(free.right,left-inset);
+    else if(box.width<width*.65&&right<=width/2)free.left=Math.max(free.left,right+inset);
+    else free.bottom=Math.min(free.bottom,top-inset);
+  }
+  // Never discard panel bounds and move the selection underneath an overlay.
+  if(free.right<=free.left||free.bottom<=free.top)return null;
+  return free;
+}
+function focusParcel(parcel) {
+  if(!parcel)return;
+  const free=visibleMapRect();if(!free)return;
+  const tiles=landscape.world.tiles.filter(tile=>tile.parcelId===parcel.id);
+  if(!tiles.length)return;
+  let low=Infinity,high=-Infinity;
+  for(const tile of tiles){const y=tile.terrain==='river'?.79:tile.height;low=Math.min(low,y);high=Math.max(high,y);}
+  high+=1;
+  const b=parcel.bounds;
+  target.set((b.x0+b.x1)/2,(low+high)/2,(b.z0+b.z1)/2);
+  const baseHalfH=fitCamera(),right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
+  let halfX=0,halfY=0;
+  for(const x of [b.x0-.5,b.x1+.5])for(const y of [low,high])for(const z of [b.z0-.5,b.z1+.5]){
+    const corner=new THREE.Vector3(x,y,z).sub(target);
+    halfX=Math.max(halfX,Math.abs(corner.dot(right)));halfY=Math.max(halfY,Math.abs(corner.dot(up)));
+  }
+  const freeWidth=free.right-free.left,freeHeight=free.bottom-free.top;
+  const neededHalfH=Math.max(halfX*height/freeWidth,halfY*height/freeHeight)*1.12;
+  zoom=Math.min(baseHalfH/Math.max(neededHalfH,.01),maxZoom);
+  fitCamera();
+  const unitsPerPixel=(camera.top-camera.bottom)/height;
+  target.addScaledVector(right,-((free.left+free.right)/2-width/2)*unitsPerPixel);
+  target.addScaledVector(up,((free.top+free.bottom)/2-height/2)*unitsPerPixel);
+  fitCamera();draw(performance.now());
+}
+function selectedViewParcel() {
+  const id=canvas.dataset.analysisOpen==='true'?canvas.dataset.analysisParcel:
+    canvas.dataset.plannerMode==='inspect'&&canvas.dataset.inspectionLocked==='true'?canvas.dataset.selectedParcel:null;
+  return landscape.world.parcelById.get(id);
 }
 function pan(dx, dy) {
   const scale = (camera.top - camera.bottom) / height;
@@ -106,7 +155,8 @@ function resize() {
   const rect = canvas.getBoundingClientRect();
   width = Math.max(1, rect.width); height = Math.max(1, rect.height);
   renderer.setSize(width, height, false);
-  fitCamera(); draw(performance.now());
+  const selected=selectedViewParcel();
+  if(selected)focusParcel(selected);else {fitCamera();draw(performance.now());}
 }
 function draw(time = 0) {
   if (!reduceMotion.matches) landscape.update(time / 1000);
@@ -123,7 +173,10 @@ planner=createPlanner({THREE,scene,camera,canvas,world:landscape.world,
   canInteract:()=>demoReady,
   getParcelRole:parcelId=>analysis?.getParcelRole(parcelId)??null,
   onChange:()=>draw(performance.now()),onResetView:resetCamera,
-  onFocus:(x,z)=>{target.x=x;target.z=z;zoom=Math.max(zoom,1.9);fitCamera();draw(performance.now());},
+  onFocus:(x,z,parcel)=>{
+    if(parcel){focusParcel(parcel);return;}
+    target.set(x,homeTarget.y,z);zoom=Math.max(zoom,1.9);fitCamera();draw(performance.now());
+  },
   onPlanChange:()=>{rebuildViewBounds();routing?.invalidate();},
 });
 analysis=createAnalysisController({world:landscape.world,canvas,
@@ -134,13 +187,6 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   },
   onFocusParcel:parcelId=>{
     planner.focusAnalysisParcel(parcelId);
-    if(!parcelId||width<=900)return;
-    const exposedWidth=document.querySelector('#analysis-panel').getBoundingClientRect().left-canvas.getBoundingClientRect().left;
-    if(exposedWidth<=160)return;
-    // Put the selected land in the visible strip beside the analysis panel.
-    const shift=(width-exposedWidth)/2*(camera.right-camera.left)/width;
-    target.x+=shift*Math.cos(yaw);target.z-=shift*Math.sin(yaw);
-    fitCamera();draw(performance.now());
   },
   onUserRoleChange:()=>planner.refreshParcelRoles(),
 });

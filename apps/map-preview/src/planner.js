@@ -11,7 +11,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
   catch {restored={placements:{substation:null,datacenter:null},discarded:false};note('Placements could not be saved or restored in this browser.');}
   const placements=restored.placements;
   let mode=placements.datacenter?'overview':placements.substation?'datacenter':'substation';
-  let candidate=null,selectedParcelId=null,analysisParcelId=null,lastCommit=0;
+  let candidate=null,selectedParcelId=null,analysisParcelId=null,lastCommit=0,inspectionLocked=false;
   const siteIndex={substation:0,datacenter:0};
   const solids={},ghosts={};
   for (const kind of Object.keys(FACILITY_SPECS)) {
@@ -102,6 +102,8 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     elements['placement-info'].hidden=!FACILITY_SPECS[mode];
     elements['size-badge'].hidden=!FACILITY_SPECS[mode];
     elements['parcel-details'].hidden=mode!=='inspect'||!selectedParcelId;
+    elements['focus-inspected-parcel'].hidden=mode!=='inspect'||!selectedParcelId;
+    elements['focus-inspected-parcel'].disabled=!enabled;
     elements['fixture-note'].hidden=mode!=='inspect';
     if(FACILITY_SPECS[mode]){
       const spec=FACILITY_SPECS[mode],v=candidate?.validation;
@@ -118,7 +120,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     }else if(mode==='inspect'){
       const parcel=world.parcelById.get(selectedParcelId);
       write('card-kicker','FICTIONAL PARCELS');write('card-title',parcel?`${parcel.id} · Property details`:'Explore the parcels');
-      write('card-copy',parcel?'The highlighted land belongs to one fictional owner.':'Hover or tap the map to see ownership and land details.');
+      write('card-copy',parcel?'Click another parcel to inspect it. Show on map fits the selected land in view.':'Hover to preview a parcel. Click to select and focus it.');
       if(parcel){
         const owner=world.ownerById.get(parcel.ownerId),role=getParcelRole(parcel.id);
         write('owner-name',role?`${role.ownerAlias} · user roleplay`:owner.alias);
@@ -136,12 +138,13 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     elements['context-card'].classList.toggle('overview',mode==='overview');
     canvas.dataset.plannerMode=mode;canvas.dataset.placementCount=String(Object.values(placements).filter(Boolean).length);
     canvas.dataset.selectedParcel=selectedParcelId??'';
+    canvas.dataset.inspectionLocked=String(mode==='inspect'&&inspectionLocked);
     canvas.dataset.previewValid=String(Boolean(candidate?.validation.valid));
   }
   function setMode(next) {
     if(!canInteract())return;
     if(next==='datacenter'&&!placements.substation)return;
-    mode=next;candidate=null;hideGhosts();refreshUI();onChange();
+    mode=next;candidate=null;inspectionLocked=false;hideGhosts();refreshUI();onChange();
   }
   function commit() {
     if(!canInteract())return false;
@@ -153,7 +156,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     onPlanChange();
     return true;
   }
-  function hover(clientX,clientY) {
+  function hover(clientX,clientY,select=false) {
     if(!canInteract())return;
     if(mode==='overview')return;
     const rect=canvas.getBoundingClientRect();
@@ -166,14 +169,22 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     const hit=pickTerrain(world,raycaster.ray);
     if(!hit){candidate=null;hideGhosts();refreshUI();onChange();return;}
     if(FACILITY_SPECS[mode])showCandidate(hit.x,hit.z);
-    else if(mode==='inspect'){selectedParcelId=hit.tile.parcelId;refreshUI();}
+    else if(mode==='inspect'&&(!inspectionLocked||select)){selectedParcelId=hit.tile.parcelId;refreshUI();}
     onChange();
+    return hit;
+  }
+  function focusInspectedParcel() {
+    if(!canInteract()||mode!=='inspect')return;
+    const parcel=world.parcelById.get(selectedParcelId);if(!parcel)return;
+    inspectionLocked=true;refreshUI();
+    onFocus((parcel.bounds.x0+parcel.bounds.x1)/2,(parcel.bounds.z0+parcel.bounds.z1)/2,parcel);
   }
   function tap(clientX,clientY) {
     if(!canInteract())return;
     if(Date.now()-lastCommit<350)return;
-    hover(clientX,clientY);
+    const hit=hover(clientX,clientY,true);
     if(FACILITY_SPECS[mode])commit();
+    else if(mode==='inspect'&&hit)focusInspectedParcel();
   }
   function nextSite() {
     if(!canInteract())return;
@@ -191,6 +202,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
   elements['label-b'].addEventListener('click',()=>setMode('datacenter'));
   elements['inspect-parcels'].addEventListener('click',()=>setMode(mode==='inspect'?(placements.datacenter?'overview':placements.substation?'datacenter':'substation'):'inspect'));
   elements['next-site'].addEventListener('click',nextSite);elements['confirm-placement'].addEventListener('click',commit);
+  elements['focus-inspected-parcel'].addEventListener('click',focusInspectedParcel);
   elements['reset-view'].addEventListener('click',()=>{if(canInteract())onResetView();});
   elements['reset-plan'].addEventListener('click',()=>{
     if(!canInteract())return;
@@ -207,7 +219,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
       const parcel=world.parcelById.get(parcelId);
       analysisParcelId=parcel?.id??null;refreshHighlight();
       canvas.dataset.analysisParcel=analysisParcelId??'';
-      if(parcel)onFocus((parcel.bounds.x0+parcel.bounds.x1)/2,(parcel.bounds.z0+parcel.bounds.z1)/2);
+      if(parcel)onFocus((parcel.bounds.x0+parcel.bounds.x1)/2,(parcel.bounds.z0+parcel.bounds.z1)/2,parcel);
       else onChange();
     },
     getPlacements(){return JSON.parse(JSON.stringify(placements));},
