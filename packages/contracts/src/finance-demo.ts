@@ -47,7 +47,8 @@ export type FinanceState = {
 };
 export type Audit = { action: string; actor: string; at: string; reason: string; evidence: string[] };
 export class FinanceError extends Error {
-  constructor(public readonly code: string, message: string) { super(message); this.name = 'FinanceError'; }
+  readonly code: string;
+  constructor(code: string, message: string) { super(message); this.code = code; this.name = 'FinanceError'; }
 }
 function assert(ok: unknown, code: string, message: string): asserts ok {
   if (!ok) throw new FinanceError(code, message);
