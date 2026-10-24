@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+# Resolve the installation relative to this script, independent of the caller's cwd.
+tools_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P)
+spacetime_root="$tools_dir/spacetime"
+cli="$spacetime_root/spacetime"
+
+if [ ! -x "$cli" ]; then
+  printf '%s\n' \
+    "The repo-local SpacetimeDB CLI is not installed or is not executable." \
+    "Follow the installation instructions in docs/shared-setup.md." >&2
+  exit 127
+fi
+
+exec "$cli" "--root-dir=$spacetime_root" "$@"

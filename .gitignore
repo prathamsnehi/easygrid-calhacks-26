@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Test coverage and logs
+coverage/
+.nyc_output/
+*.log
+
+# macOS metadata
+.DS_Store
+
+# Repo-local tools and credentials; keep the CLI wrapper versioned.
+**/.tools/*
+!/.tools/spacetime-cli
