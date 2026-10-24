@@ -28,7 +28,8 @@ export type DemoAgreementPackage = {
   packageHash: string; agreements: DemoAgreement[]; simulated: true;
 };
 export class EasementError extends Error {
-  constructor(public readonly code: string, message: string) { super(message); this.name='EasementError'; }
+  readonly code: string;
+  constructor(code: string, message: string) { super(message); this.code=code; this.name='EasementError'; }
 }
 function check(ok: unknown, code: string, message: string): asserts ok {
   if (!ok) throw new EasementError(code,message);
