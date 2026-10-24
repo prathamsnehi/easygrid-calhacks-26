@@ -32,10 +32,10 @@ test('20 percent half-up cents and exact remainder; no deposit', () => {
   assert.deepEqual(splitCompensation(1),{contractCents:0,completionCents:1});
   assert.throws(()=>splitCompensation(-1),{code:'INVALID_AMOUNT'});
   const pkg=make();
-  assert.equal(pkg.agreements[0].contractTrancheCents+pkg.agreements[0].completionTrancheCents,10003);
-  assert.match(pkg.agreements[0].preview,/SIMULATED EASEMENT/);
-  assert.match(pkg.agreements[0].preview,/No separate deposit/);
-  assert.match(pkg.agreements[0].contentHash,/^sha256:/);
+  assert.equal(pkg.agreements[0]!.contractTrancheCents+pkg.agreements[0]!.completionTrancheCents,10003);
+  assert.match(pkg.agreements[0]!.preview,/SIMULATED EASEMENT/);
+  assert.match(pkg.agreements[0]!.preview,/No separate deposit/);
+  assert.match(pkg.agreements[0]!.contentHash,/^sha256:/);
 });
 test('all final-route parcels must have accepted terms and evidence', () => {
   assert.throws(()=>make({parcels:[parcel('A')]}),{code:'MISSING_TERMS'});
@@ -48,9 +48,9 @@ test('simulated signature is version bound and old agreement can be superseded',
   const pkg=make();
   assert.throws(()=>demoSignAgreement(pkg,'A','Wrong person','2026-10-24'),{code:'UNAUTHORIZED'});
   const signed=signAll(pkg);
-  assert.equal(signed.agreements[0].signature?.contentHash,signed.agreements[0].contentHash);
+  assert.equal(signed.agreements[0]!.signature?.contentHash,signed.agreements[0]!.contentHash);
   assert.throws(()=>demoSignAgreement(signed,'A','Owner A','2026-10-24'),{code:'BLOCKED_STATE'});
-  assert.equal(supersedePackage(signed).agreements[0].signature,undefined);
+  assert.equal(supersedePackage(signed).agreements[0]!.signature,undefined);
 });
 test('approval blocked for unsigned, stale and same requester/approver', () => {
   assert.throws(()=>approvePackage(initialFinanceState(make()),{
