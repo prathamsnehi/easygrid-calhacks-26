@@ -15,7 +15,7 @@ export type EasementInput = {
   accessConditions: string[]; effectiveStartDate: string; effectiveEndDate: string;
   negotiation: NegotiationResult; offerCapCents: number;
   priorContract?: EasementType;
-  currentRouteVersion?: number; currentTermsVersion?: number;
+  currentRouteVersion: number; currentTermsVersion: number;
 };
 
 export type EasementArtifact = {
@@ -37,8 +37,11 @@ export function createEasementDraft(input: EasementInput): EasementArtifact {
   if (input.accessConditions.length === 0 || input.accessConditions.some(v => !nonempty(v)))
     missingFields.push('accessConditions');
   const n = input.negotiation;
-  if (input.currentRouteVersion !== undefined) assertVersion(input.currentRouteVersion, n.routeVersion);
-  if (input.currentTermsVersion !== undefined) assertVersion(input.currentTermsVersion, n.termsVersion);
+  if (!Number.isSafeInteger(input.currentRouteVersion) || input.currentRouteVersion < 1 ||
+      !Number.isSafeInteger(input.currentTermsVersion) || input.currentTermsVersion < 1)
+    throw new ContractError('INVALID_INPUT', 'Current route and terms versions are required');
+  assertVersion(input.currentRouteVersion, n.routeVersion);
+  assertVersion(input.currentTermsVersion, n.termsVersion);
   if (n.outcome !== 'accepted') missingFields.push('acceptedNegotiation');
   if (n.accessConsent !== 'allowed' || !n.explicitConfirmation) missingFields.push('explicitAccessConsent');
   if (n.evidenceRefs.length === 0) missingFields.push('evidenceRefs');
