@@ -29,6 +29,8 @@ The parcel totals reconcile to the selected route's compensation and rent. A pyl
 
 Land records use a compact right sidebar on desktop and a bottom sheet on mobile, with other information panels hidden while analysis is open. Selecting a row or **Show on map** fits the full parcel into the unobstructed map area, accounting for the actual panel bounds and current camera angle. Resizing reframes the selected parcel; narrow landscape layouts retain a side panel when a bottom sheet would leave too little map space.
 
+The **Settle** button starts disabled. A host-confirmed approval for the displayed proposal and a connected settlement handler enable it in green; route or participant changes revoke that readiness. It requests only the first simulated settlement and reports **Request sent**, never a fabricated payment receipt. See [Settlement UI integration](../../docs/SETTLEMENT_UI.md). Route explanations and technical assumptions are kept in documentation rather than the primary controls.
+
 ## User roleplay and Pratham handoff
 
 Every valid selected route assigns the participant registered on **Start demo** to exactly one affected parcel. This includes the recommended optimal route and each selected alternative. The assignment prefers a pylon-bearing parcel, then the greatest crossed length. It preserves the existing assignment while that parcel remains affected and reassigns it when a different route excludes it. This is a display and handoff overlay: the underlying fictional parcel and owner records are not rewritten, and it is not a claim of actual land ownership. The analysis shows the existing registration and does not collect it a second time.

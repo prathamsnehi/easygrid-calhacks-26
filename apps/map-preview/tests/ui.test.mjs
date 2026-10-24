@@ -253,7 +253,8 @@ test('A/B completion automatically selects and renders the lowest modeled cost r
   const amounts=['cost-line','cost-structures','cost-impact','cost-engineering','cost-contingency','cost-land','cost-rent'].map(id=>Math.round(Number(app.elements.get(id).textContent.replace(/[^\d.]/g,''))*100));
   assert.equal(amounts.reduce((sum,value)=>sum+value,0),route.totalCostCents);
   assert.equal(app.elements.get('route-choice-0').attributes.get('aria-pressed'),'true');
-  assert.match(app.elements.get('route-status-note').textContent,/not an approval/i);
+  assert.match(app.elements.get('route-status-note').textContent,/^\d+ parcels awaiting consent$/);
+  for(const id of ['route-reason','route-method-copy','route-rates','route-assumptions'])assert.equal(app.elements.has(id),false);
   for(const element of app.elements.values())assert(!/[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/u.test(element.textContent),element.id);
   assert.deepEqual(app.errors,[]);
 });
@@ -582,6 +583,33 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.equal(app.elements.get('analysis-panel').hidden,true);
   assert.equal(app.document.activeElement,app.elements.get('open-analysis'));
   assert.deepEqual(app.errors,[]);
+});
+
+test('settlement stays locked until host approval, then lights up and is revoked on route or participant changes',async()=>{
+  const app=boot(),api=app.window.easygridDemo;
+  assert.equal(app.elements.get('settle-payment').disabled,true);
+  placePair(app);await app.flushTimers();app.click('open-analysis');
+  const packet=handoffOf(app);let request;
+  api.setSettlementHandler(async input=>{request=input;return {status:'submitted',approvalId:input.approval.approvalId,
+    requestKey:input.requestKey,requestId:'settlement-request-1'};});
+  assert.equal(app.elements.get('settle-payment').disabled,true,'call consent is not settlement approval');
+  const approval=()=>({approvalId:'approval-ui-1',packageHash:`sha256:${'a'.repeat(64)}`,simulated:true,mapBinding:api.getSettlementBinding()});
+  api.setSettlementApproval(approval());
+  assert.equal(app.elements.get('settle-payment').disabled,false);
+  assert(app.elements.get('settle-payment').classList.contains('settlement-ready'));
+  app.click('settle-payment');await settlePromises();
+  assert.equal(app.elements.get('settle-payment').textContent,'Request sent');
+  assert.equal(request.stage,'contract_tranche');assert(!('participant' in request));
+  assert(!JSON.stringify(request).includes(privateUser.phone));assert(!JSON.stringify(request).includes(privateUser.alias));
+  assert.equal(handoffOf(app).snapshot.project.status,packet.snapshot.project.status,'button never manufactures project approval');
+  assert(handoffOf(app).ownerHandoff.parcels.every(p=>p.terms.outcome==='pending'));
+  app.click('close-analysis');app.click('recalculate-route');
+  assert.equal(app.elements.get('settle-payment').disabled,true);assert.equal(app.elements.get('settlement-status').textContent,'Awaiting approval');
+  await app.flushTimers();
+  api.setSettlementApproval({...approval(),approvalId:'approval-ui-2'});
+  assert.equal(app.elements.get('settle-payment').disabled,false);
+  app.click('edit-participant');assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.equal(api.getSettlementBinding(),null);assert.deepEqual(app.errors,[]);
 });
 
 test('participant consent gates Agent call while public snapshots and saved plans stay contact-redacted',async()=>{

@@ -1,6 +1,7 @@
 import { analyzeRouteParcels, chooseUserParcel } from './parcel-analysis.js';
 import { createHandoff, validateDemoParticipant, normalizeDemoPhone } from './handoff.js';
 import { DEMO_METERS_PER_TILE } from './cost-model.js';
+import { createSettlementController } from './settlement-controller.js';
 
 /** Local analysis and an explicit call-request boundary. No direct network or contact storage. */
 export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{}}) {
@@ -23,10 +24,11 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   const sessionId=`map-${window.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,12)}`}`;
   let snapshot=null,analysis=null,userParcelId=null,priorUserParcelId=null,selectedParcelId=null;
   let participant=null,handler=null,pending=null,activeHandoff=null,revision=0,callRequested=false,lastDemoReady=false;
+  const settlement=createSettlementController({getHandoff});
   el['demo-workspace'].dataset.analysisOpen='false';
 
   function feedback(id,message,kind='') {write(id,message);el[id].className=`analysis-feedback${kind?` ${kind}`:''}`;}
-  function invalidateHandoff() {revision++;activeHandoff?.abort();activeHandoff=null;pending=null;callRequested=false;}
+  function invalidateHandoff() {revision++;activeHandoff?.abort();activeHandoff=null;pending=null;callRequested=false;settlement.invalidate();}
   function isDemoReady() {return Boolean(participant);}
   function syncDemoGate() {
     const ready=isDemoReady();
@@ -239,5 +241,5 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     }
   });
   renderParticipant();el['user-alias'].focus({preventScroll:true});
-  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,isDemoReady,open,close};
+  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,isDemoReady,open,close,settlement};
 }

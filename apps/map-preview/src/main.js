@@ -191,7 +191,11 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   onUserRoleChange:()=>planner.refreshParcelRoles(),
 });
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
-window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler)});
+window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
+  getSettlementBinding:()=>analysis.settlement.getBinding(),
+  setSettlementApproval:approval=>analysis.settlement.setApproval(approval),
+  setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
+  resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result)});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),

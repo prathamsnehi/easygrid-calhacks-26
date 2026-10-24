@@ -47,16 +47,11 @@
   </aside>
   <aside id="route-panel" class="route-panel" aria-label="Transmission route comparison" hidden>
     <div class="card-heading"><span class="eyebrow">STEP 03 / 03</span><span id="route-badge" class="size-badge">DEMO</span></div>
-    <h2 id="route-title">Finding a connection</h2>
-    <p id="route-status-note" class="route-note" role="status">Comparing feasible spans between the two facilities.</p>
+    <h2 id="route-title">Calculating route</h2>
+    <p id="route-status-note" class="route-note" role="status"></p>
     <div id="route-loading" class="route-loading" hidden>
-      <div class="route-loading-heading"><span class="route-loading-orbit" aria-hidden="true"></span><span>Evaluating route options</span></div>
+      <div class="route-loading-heading"><span class="route-loading-orbit" aria-hidden="true"></span><span>Comparing routes…</span></div>
       <div class="route-loading-track" aria-hidden="true"><span></span></div>
-      <ul class="route-loading-checks" aria-label="Route evaluation criteria">
-        <li>Terrain &amp; tower foundations</li>
-        <li>Wire spans &amp; clearance</li>
-        <li>Construction &amp; land costs</li>
-      </ul>
     </div>
     <div id="route-summary" hidden>
       <div class="route-metrics"><div><span>Length</span><strong id="route-length">—</strong></div><div><span>Pylons</span><strong id="route-towers">—</strong></div><div><span>Owners</span><strong id="route-owners">—</strong></div></div>
@@ -66,20 +61,19 @@
         <button id="route-choice-2" class="route-choice" type="button" aria-pressed="false" hidden><span><b id="route-name-2"></b><small id="route-detail-2"></small></span><strong id="route-price-2"></strong></button>
       </div>
       <dl class="route-costs">
-        <div><dt>Installed wire bundle</dt><dd id="cost-line">—</dd></div>
-        <div><dt>Towers & endpoint supports</dt><dd id="cost-structures">—</dd></div>
+        <div><dt>Wire</dt><dd id="cost-line">—</dd></div>
+        <div><dt>Towers & supports</dt><dd id="cost-structures">—</dd></div>
         <div><dt>Terrain & crossings</dt><dd id="cost-impact">—</dd></div>
-        <div><dt>Engineering & management · 10%</dt><dd id="cost-engineering">—</dd></div>
-        <div><dt>Construction contingency · 30%</dt><dd id="cost-contingency">—</dd></div>
+        <div><dt>Engineering · 10%</dt><dd id="cost-engineering">—</dd></div>
+        <div><dt>Contingency · 30%</dt><dd id="cost-contingency">—</dd></div>
         <div><dt>Land compensation</dt><dd id="cost-land">—</dd></div>
         <div><dt id="cost-rent-label">Rent · 12 months</dt><dd id="cost-rent">—</dd></div>
         <div class="cost-total"><dt>Connection estimate</dt><dd id="cost-total">—</dd></div>
       </dl>
-      <p id="route-reason" class="route-reason"></p>
       <p class="route-parcels"><span>Affected parcels</span><strong id="route-parcels"></strong></p>
       <button id="open-analysis" class="primary-button analysis-entry" type="button" disabled><span>Analyze affected parcels</span><span aria-hidden="true">↗</span></button>
       <p id="analysis-entry-status" class="analysis-feedback error analysis-entry-status" role="status" hidden></p>
-      <details class="route-method"><summary>Routing criteria & demo assumptions</summary><p id="route-method-copy"></p><p id="route-rates"></p><p id="route-assumptions"></p><p>Criteria references: <a href="https://ia.cpuc.ca.gov/environment/info/ecorp/ironwood/pdfs/Appendix%20K_Routing%20Study.pdf" target="_blank" rel="noopener">Ironwood routing study</a> · <a href="https://www.pge.com/assets/pge/docs/outages-and-safety/outage-preparedness-and-support/oh-transmission-068177.pdf" target="_blank" rel="noopener">PG&E design criteria</a>. Cost reference: <a href="https://cdn.misoenergy.org/20240501%20PSC%20Item%2004%20MISO%20Transmission%20Cost%20Estimation%20Guide%20for%20MTEP24632680.pdf" target="_blank" rel="noopener">MISO MTEP24 cost guide</a>. Tower and wire benchmarks use reported table values; land, terrain and planning allowances are demo assumptions.</p></details>
+      <p class="route-note">Simulation · estimated costs.</p>
     </div>
     <p id="route-no-results" class="route-empty" hidden></p>
     <button id="recalculate-route" class="secondary-button route-recalculate" type="button" disabled>Recalculate connection</button>
@@ -122,6 +116,11 @@
           <div class="analysis-section-heading"><h3>Calling agent</h3><span id="handoff-status-badge" class="role-badge">OFFLINE</span></div>
           <button id="agent-call" class="primary-button" type="button" disabled>Agent call</button>
           <p id="handoff-result" class="analysis-feedback" role="status"></p>
+        </div>
+        <div class="handoff-box settlement-box">
+          <div class="analysis-section-heading"><h3>Settlement <small>Simulated</small></h3><span id="settlement-status" class="role-badge">Awaiting approval</span></div>
+          <button id="settle-payment" class="primary-button settlement-button" type="button" aria-describedby="settlement-status settlement-feedback" disabled>Settle</button>
+          <p id="settlement-feedback" class="analysis-feedback" role="status"></p>
         </div>
       </aside>
     </div>
