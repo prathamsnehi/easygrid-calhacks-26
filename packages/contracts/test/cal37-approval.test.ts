@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createAcceptedOwnerHandoff,createInitialOwnerHandoff,createOwnerHandoffCurrent} from '../src/owner-handoff-fixtures.ts';
 import {buildCal36FromOwnerHandoff} from '../src/cal36-shared-handoff.ts';
 import {signDemoAgreement} from '../src/cal36-easement.ts';
-import {approveCal37,settleCal37,emptyCal37State,cal37Status,cal37PublicView,settleCal37Authoritatively} from '../src/cal37-approval.ts';
+import {approveCal37,settleCal37,emptyCal37State,cal37Status,cal37PublicView,settleCal37Authoritatively,approveCal37Authoritatively} from '../src/cal37-approval.ts';
 import {settlementObligationId} from '../src/owner-handoff.ts';
 function fixture(){
  const packet=createAcceptedOwnerHandoff(),current=createOwnerHandoffCurrent(packet);
@@ -110,4 +110,18 @@ test('CAL-37 authoritative CAS rejects concurrent writes without returning paid 
   attemptedAt:'2026-10-24T11:10:00Z',outcome:'simulated_success',requestKey:'cas'}),{code:'STALE_VERSION'});
  assert.equal(commits,1);
  assert.equal(state.ledger.length,0);
+});
+
+test('CAL-37 authoritative manager approval commits only after CAS',async()=>{
+ const f=fixture();let state=emptyCal37State();
+ const store={async load(){return {...f,state}},async compareAndSwap(_id:string,expected:number,next:typeof state){
+  if(expected!==state.revision)return false;state=next;return true;
+ }};
+ const approved=await approveCal37Authoritatively(store,f.packet.sessionId,{
+  operatorAlias:'EasyGrid',managerAlias:'Operator',managerConfirmed:true,
+  approvedAt:'2026-10-24T11:00:00Z'});
+ assert.equal(approved.revision,1);assert.equal(state.approval?.simulated,true);
+ await assert.rejects(approveCal37Authoritatively(store,f.packet.sessionId,{
+  operatorAlias:'EasyGrid',managerAlias:'Operator',managerConfirmed:true,
+  approvedAt:'2026-10-24T11:01:00Z'}),{code:'BLOCKED_STATE'});
 });
