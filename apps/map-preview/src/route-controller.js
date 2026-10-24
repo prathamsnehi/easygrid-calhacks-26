@@ -9,7 +9,7 @@ export const ROUTE_REVEAL_DELAY_MS = 1600;
 export function createRouteController({THREE,scene,world,landscape,canvas,getPlacements,onOverview,onDraw,onFitRoute,onRouteChange=()=>{},canRoute=()=>true}) {
   const ids=['step-route','route-status','route-panel','route-summary','route-title','route-status-note','route-badge',
     'route-length','route-towers','route-owners','cost-line','cost-structures','cost-impact','cost-engineering','cost-contingency','cost-land','cost-rent','cost-rent-label','cost-total',
-    'route-reason','route-parcels','route-method-copy','route-rates','route-assumptions','route-no-results','route-loading','recalculate-route'];
+    'route-parcels','route-no-results','route-loading','recalculate-route'];
   for(let i=0;i<3;i++)ids.push(`route-choice-${i}`,`route-name-${i}`,`route-detail-${i}`,`route-price-${i}`);
   const elements=Object.fromEntries(ids.map(id=>[id,document.querySelector(`#${id}`)]));
   const write=(id,value)=>{if(elements[id].textContent!==String(value))elements[id].textContent=String(value);};
@@ -35,6 +35,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     updateVisibility();
     const ok=state==='ok';
     elements['route-summary'].hidden=!ok;
+    elements['route-status-note'].hidden=!ok;
     elements['route-loading'].hidden=state!=='calculating';
     elements['route-panel'].setAttribute('aria-busy',String(state==='calculating'));
     canvas.setAttribute('aria-busy',String(state==='calculating'));
@@ -45,11 +46,9 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     canvas.dataset.routeState=state;
     canvas.dataset.routeCandidateCount=String(result?.candidates?.length??0);
     if(state==='calculating'){
-      write('route-title','Finding the best connection');write('route-badge','CALCULATING');
-      write('route-status-note','Checking tower foundations, span clearance, terrain and land costs.');
+      write('route-title','Calculating route');write('route-badge','CALCULATING');
     }else if(state==='no-route'||state==='error'){
       write('route-title',state==='error'?'Connection unavailable':'No feasible connection');write('route-badge','REVIEW SITES');
-      write('route-status-note','The constraints have not been relaxed.');
       write('route-no-results',result?.reasons?.join(' ')??'The route could not be calculated. Try another site or recalculate.');
     }
   }
@@ -64,7 +63,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       const isRecommended=id===result.recommendedId;
       write('route-title',isRecommended?'Recommended connection':'Alternative connection');
       write('route-badge',isRecommended?'LOWEST MODELED COST':'COMPARING');
-      write('route-status-note',`${route.pendingConsentParcelIds.length} affected parcels still require owner consent. This route is not an approval.`);
+      write('route-status-note',`${route.pendingConsentParcelIds.length} parcels awaiting consent`);
       write('route-length',`${(route.lengthTiles*DEMO_METERS_PER_TILE/1000).toFixed(2)} km`);write('route-towers',route.metrics.towerCount);
       const owners=new Set(route.parcelIds.map(parcelId=>world.parcelById.get(parcelId)?.ownerId).filter(Boolean));write('route-owners',owners.size);
       for(let i=0;i<3;i++){
@@ -81,14 +80,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       write('cost-engineering',moneyOf(c.engineeringCents));write('cost-contingency',moneyOf(c.contingencyCents));
       write('cost-land',moneyOf(c.compensationCents));write('cost-rent',moneyOf(c.rentCents));
       write('cost-rent-label',`Rent · ${result.assumptions.rentHorizonMonths} months`);write('cost-total',moneyOf(route.totalCostCents));
-      const reasons=[isRecommended?'Lowest total cost across all feasible paths in this demo tower network.':'This alternative uses a different routing objective and is priced with the same cost model.',
-        `${route.metrics.waterSpans} water / bank spans; ${route.metrics.agricultureLengthTiles.toFixed(1)} tiles of farmland crossed.`,
-        'Every pylon has a checked foundation; conductors stay above the modeled terrain.'];
-      write('route-reason',reasons.join(' '));write('route-parcels',route.parcelIds.join(' · '));
-      const assumptions=result.assumptions,r=assumptions.rates;
-      write('route-method-copy',`The recommendation minimizes line, structure, terrain, crossing and land costs on a validated network of ${assumptions.graphNodeCount} support sites. Shortest and lower-impact paths are compared using that same total. ${result.candidates.length<3?'Identical alternatives are shown only once.':''}`);
-      write('route-rates',`230 kV single circuit · MISO MTEP24 benchmark. Installed tower allowance ${moneyOf(r.towerCents)} each; endpoint support ${moneyOf(r.terminalCents)} each; installed wire bundle ≈${compactMoney.format(r.linePerTileCents*1000/DEMO_METERS_PER_TILE/100)}/route km. Wire includes three phase conductors, OPGW, shield wire and 4% sag/waste. Planning allowances: 10% engineering and 30% contingency on construction plus engineering. Land compensation and ${assumptions.rentHorizonMonths}-month rent use fictional parcel rates.`);
-      write('route-assumptions',`Synthetic horizontal scale: ${DEMO_METERS_PER_TILE} m/tile; spans up to ${assumptions.maxSpanTiles*DEMO_METERS_PER_TILE} m. Heights and foundations are stylized. Estimate covers the connection only; excludes substation equipment, data center construction, financing and taxes. Source benchmarks are not a current California quote. This is the least-cost path in the modeled network, not a construction-ready engineering design.`);
+      write('route-parcels',route.parcelIds.join(' · '));
       canvas.dataset.routeId=route.id;canvas.dataset.routeTowerCount=String(route.metrics.towerCount);
       canvas.dataset.routeParcelIds=route.parcelIds.join(',');canvas.dataset.routeTotalCents=String(route.totalCostCents);
       canvas.dataset.routeMinClearance=String(diagnostics.minClearance);
