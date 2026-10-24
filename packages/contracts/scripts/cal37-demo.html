@@ -10,14 +10,14 @@ let model=null;
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n/100);
 const byId=id=>document.getElementById(id);
 async function refresh(){const r=await fetch('/api/status');model=await r.json();render();}
-function render(){byId('status').textContent=model.approval+' · revision '+model.owners.length+' owners / session '+model.sessionId;
+function render(){byId('status').textContent=model.approval+' · revision '+model.revision+' · '+model.owners.length+' owners / session '+model.sessionId;
  byId('rows').replaceChildren();
  for(const o of model.owners){const p=model.payments.find(p=>p.parcelId===o.parcelId);const tr=document.createElement('tr');
  for(const v of [o.alias+' / '+o.parcelId,money(o.compensationCents),money(o.contract20Cents),(p?.status??'not attempted')+' · '+(p?.recipientDisplay??'mock destination pending')]){const td=document.createElement('td');td.textContent=v;tr.append(td);}byId('rows').append(tr);}
  byId('approve').disabled=model.approval==='approved';byId('pay').disabled=model.approval!=='approved'||model.paid===model.owners.length;
  byId('fail').disabled=byId('pay').disabled;
 }
-async function post(path,body){try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,sessionId:model.sessionId,expectedRevision:model.revision??(model.approval==='approved'?1:0)})});const data=await r.json();if(!r.ok)throw Error(data.error);if(data.receipts?.length)byId('receipts').textContent=JSON.stringify(data.receipts,null,2);byId('message').textContent='SIMULATED operation saved. NO REAL FUNDS TRANSFERRED.';await refresh();}catch(e){byId('message').textContent='Error: '+e.message;byId('message').className='error';await refresh();}}
+async function post(path,body){try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,sessionId:model.sessionId,expectedRevision:model.revision})});const data=await r.json();if(!r.ok)throw Error(data.error);if(data.receipts?.length)byId('receipts').textContent=JSON.stringify(data.receipts,null,2);byId('message').textContent='SIMULATED operation saved. NO REAL FUNDS TRANSFERRED.';await refresh();}catch(e){byId('message').textContent='Error: '+e.message;byId('message').className='error';await refresh();}}
 byId('approve').onclick=()=>{if(!byId('confirm').checked){alert('Explicit approval required');return;}post('/api/approve',{managerConfirmed:true,managerAlias:byId('manager').value});};
 for(const [id,outcome] of [['pay','simulated_success'],['fail','simulated_failure']])byId(id).onclick=()=>{if(!byId('payment-confirm').checked){alert('Confirm simulated-only payment');return;}post('/api/pay',{confirmSimulated:true,outcome,requestKey:crypto.randomUUID()});};
 refresh().catch(e=>byId('status').textContent=e.message);
