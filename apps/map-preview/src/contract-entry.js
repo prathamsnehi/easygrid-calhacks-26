@@ -5,7 +5,7 @@ import {settlementBinding} from './settlement-controller.js';
 /** Fixture-only integration hook. The final authoritative negotiation schema is intentionally deferred. */
 export function createContractEntry({getHandoff}) {
   const button = document.querySelector('#contract-proceed'), status = document.querySelector('#contract-entry-status');
-  let approved = null, workspace = null;
+  let approved = null, workspace = null, constructionHandler = null;
   const binding = () => settlementBinding(getHandoff());
   const matching = () => approved && JSON.stringify(approved.mapBinding) === JSON.stringify(binding());
   function invalidate() { approved = null; button.disabled = true; status.textContent = 'Awaiting approved negotiation'; workspace?.invalidate(); }
@@ -23,9 +23,18 @@ export function createContractEntry({getHandoff}) {
   button.addEventListener('click', () => {
     if (!matching()) { invalidate(); return; }
     let storage; try { storage = window.localStorage; } catch { storage = null; }
-    workspace ??= createContractWorkspace({storage, isCurrent: () => Boolean(matching())});
+    if (!workspace) {
+      workspace = createContractWorkspace({storage, isCurrent: () => Boolean(matching())});
+      workspace.setConstructionHandler(constructionHandler);
+    }
     workspace.open(approved.input);
   });
   invalidate();
-  return {getBinding: binding, setNegotiation, invalidate};
+  return {getBinding: binding, setNegotiation, invalidate,
+    setConstructionHandler(handler) {
+      if (handler !== null && typeof handler !== 'function') throw new Error('Construction handler must be a function or null.');
+      constructionHandler = handler; workspace?.setConstructionHandler(handler);
+    },
+    reportConstructionComplete: result => workspace ? workspace.reportConstructionComplete(result) : Promise.reject(new Error('Open the current contract package first.')),
+    close: () => workspace?.close()};
 }

@@ -9,4 +9,6 @@ document.querySelector('#cg-example-status').addEventListener('change', event =>
 window.easygridContractDemo = Object.freeze({
   /** Temporary fixture boundary; deliberately rejects non-fixture sources. */
   setExample: input => workspace.setSource(input),
+  setConstructionHandler: handler => workspace.setConstructionHandler(handler),
+  reportConstructionComplete: result => workspace.reportConstructionComplete(result),
 });

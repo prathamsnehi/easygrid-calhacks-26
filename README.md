@@ -1,6 +1,8 @@
 # easygrid-calhacks-26
 
-Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → simulated compensation and rent reconciliation.
+Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → simulated initial payment → construction → simulated completion balance.
+
+The current payment demo excludes monthly rent. Confirmed initial 20% payments start construction; THEO supplies its animation and explicit completion signal, which unlocks a separate exact-balance payment. See [construction and payment integration](docs/CONSTRUCTION_PAYMENTS.md) for the development preview, host callback and shared-service boundaries.
 
 The repository contains the [shared contract and TypeScript client](packages/contracts/README.md), the [owner handoff and development samples](docs/OWNER_HANDOFF.md) (CAL-27), and the [interactive map planner](apps/map-preview/README.md) (CAL-26). The planner supports A/B placement, transmission route comparison, affected-parcel analysis and a consented user roleplay handoff for Pratham's voice integration.
 

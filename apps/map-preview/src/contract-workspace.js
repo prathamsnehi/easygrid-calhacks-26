@@ -3,11 +3,13 @@ import {createContractAPIClient} from './contract-api-client.js';
 
 /** Shared document editor, used by the map host and the explicitly labeled fixture preview. */
 export function createContractWorkspace({storage, onClose = () => {}, isCurrent = () => true, api = createContractAPIClient()} = {}) {
-  const ids = ['contract-workspace','cg-close','cg-demo-controls','cg-example-status','cg-package-state','cg-gate','cg-gate-title','cg-gate-copy','cg-proceed','cg-gate-error','cg-approved-tag','cg-project-name','cg-route-name','cg-owner-count','cg-total','cg-initial','cg-balance','cg-monthly','cg-editor','cg-draft-state','cg-parcel','cg-owner-caption','cg-form','cg-developer','cg-date','cg-access','cg-notes','cg-save','cg-download','cg-feedback','cg-parcel-total','cg-parcel-initial','cg-parcel-balance','cg-parcel-monthly','cg-preview','cg-version','cg-stale'];
+  const ids = ['contract-workspace','cg-close','cg-demo-controls','cg-example-status','cg-package-state','cg-gate','cg-gate-title','cg-gate-copy','cg-proceed','cg-gate-error','cg-approved-tag','cg-project-name','cg-route-name','cg-owner-count','cg-total','cg-initial','cg-balance','cg-editor','cg-draft-state','cg-parcel','cg-owner-caption','cg-form','cg-developer','cg-date','cg-access','cg-notes','cg-save','cg-download','cg-feedback','cg-parcel-total','cg-parcel-initial','cg-parcel-balance','cg-preview','cg-version','cg-stale'];
   ids.push('cg-sign-utility','cg-sign-landowner','cg-utility-signature-status','cg-landowner-signature-status','cg-submit','cg-reconcile','cg-reject','cg-execution-status','cg-provider-mode','cg-scenario-wrap','cg-finance-scenario','cg-audit-panel','cg-payment-state','cg-payment-summary','cg-audit-list','cg-journal-summary');
+  ids.push('cg-construction-status','cg-pay-balance','cg-balance-status','cg-balance-reconcile','cg-balance-reject','cg-preview-completion');
   const el = Object.fromEntries(ids.map(id => [id, document.querySelector(`#${id}`)]));
   const store = createContractDraftStore(storage), drafts = new Map();
   let source = null, sourceKey = null, selected = null, invalidated = false, restoreFocus = null, previousInert = false, generation = 0, busy = false, demoMode = false;
+  let constructionHandler = null, constructionAbort = new AbortController(), notifiedRun = null;
   const write = (id, value) => { el[id].textContent = String(value); };
   const fields = () => ({developerName: el['cg-developer'].value, agreementDate: el['cg-date'].value, accessTerms: el['cg-access'].value, specialConditions: el['cg-notes'].value});
   const entry = () => drafts.get(selected);
@@ -18,9 +20,36 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     const value = entry();
     return {...value.draft, version: value.draft.version + (dirty(value) ? 1 : 0), fields: {...value.fields}};
   }
+  function resetConstructionHost() { constructionAbort.abort(); constructionAbort = new AbortController(); notifiedRun = null; }
+  function applyExecution(value, result) {
+    value.execution = result;
+    for (const other of drafts.values()) if (other.execution) other.execution.construction = result.construction;
+  }
+  function notifyConstruction() {
+    const construction = entry()?.execution?.construction;
+    if (!current() || !constructionHandler || construction?.status !== 'in-progress' || notifiedRun === construction.constructionId) return;
+    const signal = constructionAbort.signal, binding = {...construction};
+    notifiedRun = construction.constructionId;
+    // Handler return/resolution never establishes completion. THEO reports it explicitly.
+    try { Promise.resolve(constructionHandler({construction: binding, signal, onComplete: () => signal.aborted ? Promise.reject(new Error('The construction context changed.')) : reportConstructionComplete(binding)})).catch(() => {
+      if (!signal.aborted) feedback('The construction animation could not be started. The completion payment remains locked.', true);
+    }); } catch { feedback('The construction animation could not be started. The completion payment remains locked.', true); }
+  }
+  function setConstructionHandler(handler) {
+    if (handler !== null && typeof handler !== 'function') throw new Error('Construction handler must be a function or null.');
+    if (handler === constructionHandler) return;
+    resetConstructionHost(); constructionHandler = handler; notifyConstruction();
+  }
+  async function reportConstructionComplete(binding) {
+    if (!current() || !entry()) throw new Error('The current construction context is unavailable.');
+    const construction = entry().execution?.construction;
+    if (!construction || !['constructionId','packageHash','sessionId','routeId','routeVersion'].every(key => binding?.[key] === construction[key])) throw new Error('Completion does not match the current construction run.');
+    return perform('construction-complete', {extra: {completion: {...binding, eventId: `completed-${binding.constructionId}`}}});
+  }
   function renderExecution() {
     const value = entry(); if (!value) return;
     const execution = value.execution, payment = execution?.payment;
+    const balance = execution?.balancePayment, construction = execution?.construction;
     const valid = current() && validateContractDraft(candidate(), source).valid;
     const locked = Boolean(payment && payment.status !== 'held');
     const both = Boolean(execution?.signatures?.utility && execution?.signatures?.landowner);
@@ -28,10 +57,20 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
       el[`cg-sign-${side}`].disabled = !valid || busy || locked || Boolean(execution?.signatures?.[side]);
       write(`cg-${side}-signature-status`, execution?.signatures?.[side] ? '✓ Signed' : 'Sign ↗');
     }
-    el['cg-submit'].disabled = !valid || busy || !both || locked;
+    el['cg-submit'].disabled = !valid || busy || !both || !execution?.packageReady || locked;
+    el['cg-submit'].textContent = payment?.status === 'paid' ? 'Initial 20% paid · simulated' : 'Pay initial 20% · simulated';
     el['cg-reconcile'].hidden = !['submitted','processing','unknown','review-required'].includes(payment?.status);
     el['cg-reconcile'].disabled = busy || !valid;
     el['cg-reject'].hidden = payment?.status !== 'held'; el['cg-reject'].disabled = busy || !valid;
+    el['cg-pay-balance'].disabled = !valid || busy || !both || payment?.status !== 'paid' || construction?.status !== 'completed' || Boolean(balance && balance.status !== 'held');
+    el['cg-pay-balance'].textContent = balance?.status === 'paid' ? 'Completion balance paid · simulated' : 'Pay completion balance · simulated';
+    el['cg-balance-reconcile'].hidden = !['submitted','processing','unknown','review-required'].includes(balance?.status);
+    el['cg-balance-reconcile'].disabled = busy || !valid;
+    el['cg-balance-reject'].hidden = balance?.status !== 'held'; el['cg-balance-reject'].disabled = busy || !valid;
+    el['cg-preview-completion'].hidden = !demoMode || execution?.bankMode !== 'simulation';
+    el['cg-preview-completion'].disabled = !valid || busy || construction?.status !== 'in-progress';
+    write('cg-construction-status', construction?.status === 'completed' ? (balance?.status === 'paid' ? 'Construction complete. This parcel\'s compensation is fully paid.' : 'Construction complete. The completion balance is ready for payment.') : construction?.status === 'in-progress' ? 'Construction in progress. Waiting for the construction host to report completion.' : `Construction starts after all initial payments are confirmed (${construction?.paidCount ?? 0}/${construction?.parcelCount ?? source.parcels.length}).`);
+    write('cg-balance-status', balance ? `${money(balance.amountCents)} · ${balance.reason}` : 'The remaining compensation unlocks after recorded construction completion.');
     for (const id of ['cg-developer','cg-date','cg-access','cg-notes']) el[id].disabled = locked || busy || invalidated;
     el['cg-parcel'].disabled = busy || invalidated;
     el['cg-finance-scenario'].disabled = busy || locked;
@@ -39,18 +78,18 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     write('cg-provider-mode', execution ? `${execution.bankMode === 'simulation' ? 'Local simulation' : 'Nessie sandbox'} · rule-based finance worker · simulated role identities` : 'Local development service · click signatures are simulated');
     if (busy) write('cg-execution-status', 'Checking the contract workflow…');
     else if (payment) write('cg-execution-status', `${payment.status === 'paid' ? (execution.bankMode === 'simulation' ? 'Simulated 20% payment complete. ' : 'Sandbox 20% payment confirmed. ') : ''}${payment.reason}`);
-    else write('cg-execution-status', both ? 'Both signatures are recorded. Submit to request the exact 20% payment.' : 'Both signatures are required before submission.');
+    else write('cg-execution-status', both ? (execution?.packageReady ? 'The full package is signed. Pay the initial 20% to fund construction.' : 'Sign every final-route contract before paying any initial amount.') : 'Both signatures are required before payment.');
     el['cg-audit-panel'].hidden = !execution?.audit?.length;
     if (execution?.audit?.length) {
-      write('cg-payment-state', payment?.status ?? 'Awaiting submission');
-      write('cg-payment-summary', payment ? `${money(payment.amountCents)} · ${payment.reason}` : 'The utility approver, landowner and payment worker have distinct simulated identities.');
+      write('cg-payment-state', balance?.status === 'paid' ? 'Compensation paid' : payment?.status ?? 'Awaiting payment');
+      write('cg-payment-summary', payment ? `Initial: ${money(payment.amountCents)} · ${payment.status}. Completion: ${balance ? `${money(balance.amountCents)} · ${balance.status}` : 'awaiting completion'}. All payments are simulated.` : 'The utility approver, landowner and payment worker have distinct simulated identities.');
       el['cg-audit-list'].replaceChildren(...execution.audit.map(event => {
         const item = document.createElement('li'), title = document.createElement('strong'), detail = document.createElement('span');
         title.textContent = event.action.replaceAll('-', ' '); detail.textContent = `${event.reason} (${event.actorId})`;
         item.appendChild(title); item.appendChild(detail); return item;
       }));
       const journal = execution.journal ?? [];
-      write('cg-journal-summary', journal.length ? `Balanced demo journal: debit ${money(journal[0].debitCents)} land-use advance / credit ${money(journal[0].creditCents)} cash.` : 'No completed-payment journal entry has been posted.');
+      write('cg-journal-summary', journal.length ? `Balanced demo journal: ${journal.length} entries · debit ${money(journal.reduce((sum, row) => sum + row.debitCents, 0))} / credit ${money(journal.reduce((sum, row) => sum + row.creditCents, 0))}.` : 'No completed-payment journal entry has been posted.');
     }
   }
   function renderDraft() {
@@ -87,7 +126,7 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     write('cg-owner-caption', `${parcel.ownerName} · approved terms v${parcel.termsVersion}`);
     const split = compensationSplit(parcel.compensationCents);
     write('cg-parcel-total', money(split.totalCents)); write('cg-parcel-initial', money(split.initialCents));
-    write('cg-parcel-balance', money(split.completionCents)); write('cg-parcel-monthly', `${money(parcel.monthlyFeeCents)} / month`);
+    write('cg-parcel-balance', money(split.completionCents));
     feedback(notice); renderDraft();
     perform('state', {saveFirst:false, quiet:true});
   }
@@ -101,14 +140,15 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     write('cg-project-name', input?.project?.name ?? 'Project details pending'); write('cg-route-name', input?.route?.name ?? 'Final route pending');
     const rows = Array.isArray(input?.parcels) ? input.parcels : [];
     write('cg-owner-count', rows.length);
-    const totals = rows.reduce((sum, p) => ({total: sum.total + (Number.isSafeInteger(p.compensationCents) ? p.compensationCents : 0), monthly: sum.monthly + (Number.isSafeInteger(p.monthlyFeeCents) ? p.monthlyFeeCents : 0), initial: sum.initial + (Number.isSafeInteger(p.compensationCents) && p.compensationCents >= 0 ? compensationSplit(p.compensationCents).initialCents : 0)}), {total: 0, monthly: 0, initial: 0});
+    const totals = rows.reduce((sum, p) => ({total: sum.total + (Number.isSafeInteger(p.compensationCents) ? p.compensationCents : 0), initial: sum.initial + (Number.isSafeInteger(p.compensationCents) && p.compensationCents >= 0 ? compensationSplit(p.compensationCents).initialCents : 0)}), {total: 0, initial: 0});
     write('cg-total', approved ? money(totals.total) : '—'); write('cg-initial', approved ? money(totals.initial) : '—');
-    write('cg-balance', approved ? money(totals.total - totals.initial) : '—'); write('cg-monthly', approved ? `${money(totals.monthly)} / month` : '—');
+    write('cg-balance', approved ? money(totals.total - totals.initial) : '—');
     el['cg-proceed'].disabled = !approved; write('cg-gate-error', approved ? '' : validation.errors[0]);
   }
   function setSource(input) {
     const validation = validateContractSource(input), nextKey = validation.valid ? contractSourceKey(input) : null;
     if (nextKey && nextKey === sourceKey && !invalidated) return;
+    resetConstructionHost();
     source = validation.valid ? normalizeContractSource(input) : null; sourceKey = nextKey; selected = null; invalidated = false; drafts.clear(); generation++; busy = false;
     el['cg-gate'].hidden = false; el['cg-editor'].hidden = true; el['cg-stale'].hidden = true;
     for (const id of ['cg-developer','cg-date','cg-access','cg-notes','cg-parcel']) el[id].disabled = false;
@@ -130,14 +170,15 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     restoreFocus?.focus?.({preventScroll: true}); onClose();
   }
   function invalidate() {
+    resetConstructionHost();
     generation++; busy = false;
     invalidated = true; el['cg-proceed'].disabled = true; el['cg-save'].disabled = true; el['cg-download'].disabled = true;
     for (const id of ['cg-developer','cg-date','cg-access','cg-notes','cg-parcel']) el[id].disabled = true;
     el['cg-stale'].hidden = false; write('cg-package-state', 'Approval changed'); feedback('The source approval changed. This draft is locked.', true);
     if (entry()) renderExecution();
   }
-  async function perform(operation, {saveFirst = true, quiet = false} = {}) {
-    if (busy || !current() || !entry()) return;
+  async function perform(operation, {saveFirst = true, quiet = false, extra = {}} = {}) {
+    if ((busy && operation !== 'construction-complete') || !current() || !entry()) return;
     const value = entry();
     if (!validateContractDraft(candidate(), source).valid) return;
     if (saveFirst) {
@@ -148,14 +189,16 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     }
     const ticket = ++generation; busy = true; renderDraft();
     try {
-      const result = await api(operation, candidate(), operation === 'submit' ? {scenario:el['cg-finance-scenario'].value || 'normal'} : {});
+      const result = await api(operation, candidate(), {...(operation === 'submit' ? {scenario:el['cg-finance-scenario'].value || 'normal'} : {}), ...extra});
       if (ticket !== generation || !current() || entry() !== value) return;
-      value.execution = result;
+      applyExecution(value, result);
+      return result;
     } catch (error) {
       if (ticket !== generation) return;
       if (!quiet) feedback(error.message, true);
+      if (operation === 'construction-complete') throw error;
     } finally {
-      if (ticket === generation) { busy = false; renderDraft(); }
+      if (ticket === generation) { busy = false; renderDraft(); notifyConstruction(); }
     }
   }
   el['cg-proceed'].addEventListener('click', () => {
@@ -194,6 +237,10 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
   el['cg-submit'].addEventListener('click', () => perform('submit'));
   el['cg-reconcile'].addEventListener('click', () => perform('reconcile'));
   el['cg-reject'].addEventListener('click', () => perform('reject'));
+  el['cg-pay-balance'].addEventListener('click', () => perform('submit', {extra: {stage: 'balance'}}));
+  el['cg-balance-reconcile'].addEventListener('click', () => perform('reconcile', {extra: {stage: 'balance'}}));
+  el['cg-balance-reject'].addEventListener('click', () => perform('reject', {extra: {stage: 'balance'}}));
+  el['cg-preview-completion'].addEventListener('click', () => reportConstructionComplete(entry()?.execution?.construction).catch(error => feedback(error.message, true)));
   el['contract-workspace'].addEventListener('keydown', event => {
     if (event.key === 'Escape' && !el['cg-close'].hidden) { event.preventDefault(); event.stopPropagation(); close(); }
     if (event.key !== 'Tab') return;
@@ -201,5 +248,5 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     const first = nodes[0], last = nodes.at(-1);
     if (nodes.length && ((event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last))) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
   });
-  return {open, close, setSource, invalidate};
+  return {open, close, setSource, invalidate, setConstructionHandler, reportConstructionComplete};
 }

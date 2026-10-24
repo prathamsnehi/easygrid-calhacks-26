@@ -201,7 +201,10 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
   resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
   getContractBinding:()=>contracts.getBinding(),
-  setContractNegotiation:value=>contracts.setNegotiation(value)});
+  setContractNegotiation:value=>contracts.setNegotiation(value),
+  setConstructionHandler:handler=>contracts.setConstructionHandler(handler),
+  reportConstructionComplete:result=>contracts.reportConstructionComplete(result),
+  closeContracts:()=>contracts.close()});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),

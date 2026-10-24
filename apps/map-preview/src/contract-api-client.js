@@ -1,7 +1,7 @@
 /** Same-origin development adapter. Replace this boundary when the shared service is ready. */
 export function createContractAPIClient({fetcher = globalThis.fetch} = {}) {
   return async (operation, draft, extra = {}) => {
-    if (!['state','sign/utility','sign/landowner','submit','reconcile','reject'].includes(operation)) throw new Error('Unknown contract operation.');
+    if (!['state','sign/utility','sign/landowner','submit','reconcile','reject','construction-complete'].includes(operation)) throw new Error('Unknown contract operation.');
     let response;
     try { response = await fetcher(`/api/contracts/${operation}`, {method:'POST', headers:{'content-type':'application/json','x-easygrid-demo':'1'},
       body:JSON.stringify({draft, ...extra})}); }

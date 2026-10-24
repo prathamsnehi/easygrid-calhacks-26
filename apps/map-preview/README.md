@@ -80,3 +80,11 @@ After both sites are placed, calculation begins promptly and the result is revea
 `npm test` builds the actual standalone output, then tests parcel coverage, placement and persistence, English-only output, weighted-path optimality against exhaustive small graphs, span/foundation constraints, route and parcel cost reconciliation, user assignment, handoff contract compatibility and contact redaction, conductor geometry/continuity/disposal, and UI state flows in a Node VM with real Three.js and a stub renderer. Those UI tests are behavioral checks; they do not establish browser layout, GPU performance or actual WebGL rendering.
 
 Three.js 0.180.0 is vendored from the official npm package, with its MIT license, so the generated preview needs no external assets or runtime installation. All map objects are procedural geometry. This preview does not modify the shared contract package. Development follows the repository's [Linear/GitHub workflow](../../AGENTS.md); generated `dist/` files and private participant details must not be committed.
+
+## Initial payment and construction completion
+
+The existing contract workspace now follows the CAL-38 journey: simulated initial
+20% payment, construction, explicit host completion, then a separately requested
+exact completion balance. Monthly rent is outside the current demo scope. Read
+[the construction/payment handoff](../../docs/CONSTRUCTION_PAYMENTS.md) for THEO's
+animation callback and the local-development/shared-state boundaries.
