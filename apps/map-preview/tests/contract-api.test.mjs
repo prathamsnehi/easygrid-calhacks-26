@@ -114,3 +114,40 @@ test('the new standalone demo preserves an earlier staged-payment fixture ledger
     assert.deepEqual(JSON.parse(await readFile(join(directory,'full-contract-ledger.json'),'utf8')).obligations,{});
   } finally {await rm(directory,{recursive:true,force:true});}
 });
+
+test('a new Nessie full fixture cannot bypass any legacy attempted or uncertain payment', async () => {
+  const directory = await mkdtemp(join(tmpdir(),'easygrid-nessie-migration-'));
+  try {
+    let requests = 0;
+    const environment = {EASYGRID_PAYMENT_PROVIDER:'nessie',NESSIE_API_ORIGIN:'https://prod-api.nessieisreal.com',NESSIE_API_KEY:'test-key',
+      NESSIE_PAYER_ACCOUNT_ID:'test-payer',NESSIE_ALLOW_SANDBOX_TRANSFERS:'yes',
+      NESSIE_OWNER_RECIPIENTS:JSON.stringify({'OWNER-DEMO-004':{accountId:'test-payee',customerId:'test-customer'}})};
+    const options = {environment,stateURL:pathToFileURL(join(directory,'state.json')),fetcher:async () => {requests++;throw new Error('No provider request expected.');}};
+    // A pre-existing new ledger must not hide a legacy one discovered on restart.
+    const api = await createContractAPI(options), draft = createContractDraft(createContractExample(),'P-004',{id:'new-nessie-full'});
+    await call(api,'/api/contracts/state',{draft});
+    const fullPath = join(directory,'nessie-full-contract-ledger.json'), full = await readFile(fullPath,'utf8');
+    const legacyPath = join(directory,'nessie-contract-ledger.json');
+    const examples = ['checking','processing','unknown','submitted','paid','review-required'].map(status => ({status}));
+    examples.push({status:'held',transactionRef:'previous-transfer'},{status:'rejected',transactionRef:'previous-transfer'});
+    for (const stage of ['initial','balance']) for (const example of examples) {
+      const legacy = JSON.stringify({schemaVersion:1,documents:{},obligations:{'old-obligation':{id:'old-obligation',stage,parcelId:'P-004',amountCents:240000,...example}},audit:[],journal:[]});
+      await writeFile(legacyPath,legacy);
+      await assert.rejects(createContractAPI(options),/legacy Nessie fixture has a payment attempt/);
+      assert.equal(await readFile(legacyPath,'utf8'),legacy);
+      assert.equal(await readFile(fullPath,'utf8'),full);
+    }
+    const journalOnly = JSON.stringify({schemaVersion:1,documents:{},obligations:{},audit:[],journal:[{obligationId:'orphaned-initial',debitCents:240000,creditCents:240000}]});
+    await writeFile(legacyPath,journalOnly);
+    await assert.rejects(createContractAPI(options),/legacy Nessie fixture has a payment attempt/);
+    assert.equal(await readFile(legacyPath,'utf8'),journalOnly);
+    await writeFile(legacyPath,'{broken');
+    await assert.rejects(createContractAPI(options),/legacy Nessie ledger could not be loaded/);
+    const unattempted = JSON.stringify({schemaVersion:1,documents:{},obligations:{'old-hold':{id:'old-hold',stage:'initial',parcelId:'P-004',status:'held',amountCents:240000}},audit:[],journal:[]});
+    await writeFile(legacyPath,unattempted);
+    const restored = await createContractAPI(options), state = await call(restored,'/api/contracts/state',{draft});
+    assert.equal(state.status,200);assert.equal(state.body.payment,null);assert.deepEqual(state.body.signatures,{});
+    assert.equal(await readFile(legacyPath,'utf8'),unattempted);
+    assert.equal(requests,0);
+  } finally {await rm(directory,{recursive:true,force:true});}
+});

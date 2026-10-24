@@ -222,3 +222,16 @@ test('legacy unattempted holds remain preserved while freshly signed full terms 
   assert.equal(paid.payment.status,'paid');assert.equal(paid.payment.amountCents,1200000);
   assert.equal(restored.transfers,1);assert.deepEqual(restored.flow.snapshot().obligations[id],previous);
 });
+
+test('a copied partial or inconsistent attempted record is never accepted as a full payment', async () => {
+  const original = setup();await signBoth(original);
+  const paid = await original.flow.submit(original.draft,DEMO_ACTORS.requester), id = paid.payment.obligationId;
+  for (const change of [{amountCents:240000},{stage:'initial'},{id:'another-obligation'},{parcelId:'another-parcel'},{status:'held'},{status:'rejected'}]) {
+    const state = original.flow.snapshot();Object.assign(state.obligations[id],change);
+    const restored = setup({initialState:state});
+    await assert.rejects(restored.flow.inspect(original.draft),/does not establish this full compensation|legacy staged-payment attempt/);
+    await assert.rejects(restored.flow.submit(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
+    await assert.rejects(restored.flow.reconcile(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
+    assert.equal(restored.transfers,0);assert.deepEqual(restored.flow.snapshot(),state);
+  }
+});

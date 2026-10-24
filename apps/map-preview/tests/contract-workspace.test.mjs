@@ -30,7 +30,7 @@ function boot({saved = new Map(), workflow = null, apiOverride = null, paymentsE
     if (operation === 'reconcile') return flow.reconcile(draft,DEMO_ACTORS.requester,extra);
     return flow.reject(draft,DEMO_ACTORS.utility,extra);
   };
-  const app = createContractWorkspace({storage:{getItem:key => saved.get(key) ?? null,setItem:(key,value) => saved.set(key,value)},api:async (...args) => ({...await (apiOverride ?? api)(...args), ...(paymentsEnabled === undefined ? {} : {paymentsEnabled})})});
+  const app = createContractWorkspace({storage:{getItem:key => saved.get(key) ?? null,setItem:(key,value) => saved.set(key,value)},api:async (operation,draft,extra = {}) => ({...await (apiOverride ? apiOverride(operation,draft,extra,api) : api(operation,draft,extra)), ...(paymentsEnabled === undefined ? {} : {paymentsEnabled})})});
   return {app,nodes,saved,flow,restore:() => {globalThis.document=original;},flush:() => new Promise(done => setImmediate(done)),
     click:async id => {if(!nodes.get(id).disabled)await nodes.get(id).emit('click');}};
 }
@@ -145,6 +145,72 @@ test('disabled Nessie writes keep a signed full payment locked and explain the m
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-submit');
     assert.equal(transferCount,0);
+  } finally {ui.restore();}
+});
+
+test('a lost payment response stays locked until a status check recovers the existing full payment', async () => {
+  const calls = [];
+  let transfers = 0, stateUnavailable = false, bankEvidence = null;
+  const bank = {...createDemoBank(), mode:'nessie-sandbox',
+    inspect:async input => ({recipientMatches:true,balanceCents:10000000,existingEvidence:bankEvidence?.obligationId === input.obligationId ? bankEvidence : null}),
+    transfer:async input => {
+      transfers++;
+      return bankEvidence = {...input,recipientMatches:true,status:'pending',transactionRef:'nessie-lost-response-fixture'};
+    },
+  };
+  const ui = boot({workflow:createContractWorkflow({source:createContractExample(),bank}),apiOverride:async (operation,draft,extra,api) => {
+    calls.push(operation);
+    if (operation === 'state' && stateUnavailable) throw new Error('The service is unavailable.');
+    const result = await api(operation,draft,extra);
+    if (operation === 'submit') throw new Error('The payment response was lost.');
+    return result;
+  }});
+  try {
+    ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
+    await signEveryAgreement(ui);
+    await ui.click('cg-submit');
+    assert.equal(transfers,1);
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Outcome unknown');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.nodes.get('cg-reconcile').hidden,false);
+    assert.match(ui.nodes.get('cg-payout-help').textContent,/Check transfer status/);
+    assert.equal(ui.flow.snapshot().journal.length,0);
+    await ui.nodes.get('cg-submit').emit('click');
+    assert.equal(calls.filter(operation => operation === 'submit').length,1,'a lost response cannot enable a replacement request');
+    stateUnavailable = true; await ui.click('cg-reconcile');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Outcome unknown');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    bankEvidence.status = 'completed';
+    stateUnavailable = false; await ui.click('cg-reconcile');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Paid');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Paid in full · $12,000.00');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.flow.snapshot().journal.length,1);
+    assert.deepEqual(calls.slice(-2),['state','reconcile']);
+    assert.equal(ui.nodes.get('cg-feedback').textContent,'');
+    assert.equal(transfers,1);
+  } finally {ui.restore();}
+});
+
+test('a status check finding no attempted payment unlocks only a new explicit payment click', async () => {
+  const demoBank = createDemoBank();
+  let requestReachedServer = false, transfers = 0;
+  const bank = {...demoBank,transfer:async input => {transfers++;return demoBank.transfer(input);}};
+  const ui = boot({workflow:createContractWorkflow({source:createContractExample(),bank}),apiOverride:async (operation,draft,extra,api) => {
+    if (operation === 'submit' && !requestReachedServer) throw new Error('The request could not reach the service.');
+    return api(operation,draft,extra);
+  }});
+  try {
+    ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
+    await signEveryAgreement(ui); await ui.click('cg-submit');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    await ui.click('cg-reconcile');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Ready to send');
+    assert.equal(ui.nodes.get('cg-submit').disabled,false);
+    assert.equal(transfers,0,'checking a missing obligation never creates a transfer');
+    requestReachedServer = true; await ui.click('cg-submit');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Paid in full · $12,000.00');
+    assert.equal(transfers,1);
   } finally {ui.restore();}
 });
 

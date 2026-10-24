@@ -1,6 +1,6 @@
 import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
 import {createContractExample} from '../src/contract-fixtures.js';
-import {createContractWorkflow, createWorkflowState, createDemoBank, DEMO_ACTORS} from './contract-workflow.mjs';
+import {createContractWorkflow, createWorkflowState, createDemoBank, paymentMayHaveBeenAttempted, DEMO_ACTORS} from './contract-workflow.mjs';
 import {createNessieSandboxBank} from './nessie-sandbox.mjs';
 import {createMapContractService} from './map-contracts.mjs';
 
@@ -17,6 +17,19 @@ export async function createContractAPI({environment = process.env, stateURL = n
   } else bank = createDemoBank();
   // Providers use separate ledgers so a local simulated payment cannot be mistaken for Nessie evidence.
   const target = new URL(provider === 'nessie' ? 'nessie-full-contract-ledger.json' : 'full-contract-ledger.json', stateURL);
+  if (provider === 'nessie') {
+    // The full-payment fixture has a new session ID. Changing its filename must
+    // never conceal an earlier external side effect for these same demo owners.
+    let legacy;
+    try { legacy = JSON.parse(await readFile(new URL('nessie-contract-ledger.json',stateURL),'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw new Error('The legacy Nessie ledger could not be loaded. Preserve it for review before using full payments.'); }
+    if (legacy !== undefined) {
+      if (!legacy || legacy.schemaVersion !== 1 || !legacy.obligations || typeof legacy.obligations !== 'object' || Array.isArray(legacy.obligations) || !Array.isArray(legacy.journal)) throw new Error('The legacy Nessie ledger is invalid. Preserve it for review before using full payments.');
+      if (legacy.journal.length || Object.entries(legacy.obligations).some(([id,payment]) => !payment || paymentMayHaveBeenAttempted({...payment,id:payment.id ?? id},legacy.journal))) {
+        throw new Error('The legacy Nessie fixture has a payment attempt. Preserve and reconcile that ledger before starting full compensation payments.');
+      }
+    }
+  }
   let initialState;
   try { initialState = JSON.parse(await readFile(target, 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw new Error('The local development ledger could not be loaded. Preserve it for review.'); initialState = createWorkflowState(); }

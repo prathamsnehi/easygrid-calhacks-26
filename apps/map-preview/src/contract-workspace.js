@@ -25,6 +25,7 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
   function resetConstructionHost() { constructionAbort.abort(); constructionAbort = new AbortController(); notifiedRun = null; }
   function applyExecution(value, result) {
     value.execution = result;
+    value.submissionUnconfirmed = false;
     for (const other of drafts.values()) if (other.execution) other.execution.construction = result.construction;
   }
   function notifyConstruction() {
@@ -50,7 +51,11 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
   }
   function renderExecution() {
     const value = entry(); if (!value) return;
-    const execution = value.execution, payment = execution?.payment;
+    const execution = value.execution;
+    const owner = source.parcels.find(p => p.parcelId === selected);
+    const amount = compensationPayment(owner.compensationCents);
+    const payment = value.submissionUnconfirmed ? {status:'unknown', amountCents:amount.paymentCents,
+      reason:'The payment response was not received. Check transfer status before sending again.'} : execution?.payment;
     const valid = current() && validateContractDraft(candidate(), source).valid;
     const locked = Boolean(payment && payment.status !== 'held');
     const both = Boolean(execution?.signatures?.utility && execution?.signatures?.landowner);
@@ -58,8 +63,6 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     const provider = nessie ? 'Nessie sandbox' : execution?.bankMode === 'simulation' ? 'Local simulation' : 'Bank connection pending';
     const paymentsEnabled = execution?.paymentsEnabled !== false;
     el['cg-payment-panel'].hidden = !both && !payment;
-    const owner = source.parcels.find(p => p.parcelId === selected);
-    const amount = compensationPayment(owner.compensationCents);
     write('cg-demo-provider', nessie ? 'Nessie sandbox' : 'Simulation');
     write('cg-payout-provider', provider);
     write('cg-payout-recipient', `To ${owner.ownerName}`);
@@ -189,6 +192,7 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
   async function perform(operation, {saveFirst = true, quiet = false, extra = {}} = {}) {
     if ((busy && operation !== 'construction-complete') || !current() || !entry()) return;
     const value = entry();
+    if (operation === 'submit' && (value.submissionUnconfirmed || value.execution?.payment && value.execution.payment.status !== 'held')) return;
     if (!validateContractDraft(candidate(), source).valid) return;
     if (saveFirst) {
       try {
@@ -198,12 +202,23 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     }
     const ticket = ++generation; busy = true; paymentAction = operation === 'submit' ? extra.stage ?? 'full' : null; renderDraft();
     try {
-      const result = await api(operation, candidate(), {...(operation === 'submit' ? {scenario:el['cg-finance-scenario'].value || 'normal'} : {}), ...extra});
+      const requestDraft = candidate();
+      const recoveringSubmission = operation === 'reconcile' && value.submissionUnconfirmed;
+      let result;
+      if (recoveringSubmission) {
+        // A lost HTTP response cannot establish whether the server attempted a transfer.
+        // Recover the recorded obligation before asking the bank to reconcile it.
+        result = await api('state', requestDraft);
+        if (ticket !== generation || !current() || entry() !== value) return;
+        if (['submitted','processing','unknown','review-required'].includes(result.payment?.status)) result = await api('reconcile', requestDraft, extra);
+      } else result = await api(operation, requestDraft, {...(operation === 'submit' ? {scenario:el['cg-finance-scenario'].value || 'normal'} : {}), ...extra});
       if (ticket !== generation || !current() || entry() !== value) return;
       applyExecution(value, result);
+      if (recoveringSubmission) feedback();
       return result;
     } catch (error) {
       if (ticket !== generation) return;
+      if (operation === 'submit') value.submissionUnconfirmed = true;
       if (!quiet) feedback(error.message, true);
       if (operation === 'construction-complete') throw error;
     } finally {
