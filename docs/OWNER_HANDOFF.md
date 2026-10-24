@@ -36,11 +36,13 @@ The two-owner shared-package scenario is deliberately small and independent of t
 - Session/project/route IDs, route version and revision, plus `referenceBinding` indicating local fixture IDs or canonical host references.
 - Original fictional owners, opaque contact references, registration status and call consent.
 - Owner-linked `banking` records: mock recipient reference, simulated mode, holder alias, bank display and masked account display. There are no real bank account or routing numbers.
-- Every affected parcel's geometry, owner ID, tower touches, wire length, offer cap and terms/version.
+- Every affected parcel's geometry, owner ID, tower touches, wire length, offer cap and terms/version. Current map packets also include `offerPolicy` with the fixed recommendation and 120% limit rule.
 - Explicit proposed/pending/counteroffer/refused/accepted outcomes, confirmation reference and separate land-access consent.
 - Construction cost, budget and common rent-comparison horizon; the original user role can remain historical after a reroute.
 
 The map preserves its exact allocated `comparisonRentTotalCents`. Its rounded `monthlyRentCents` may be marked `monthlyRentIsApproximate`; that estimate cannot become accepted terms. Pratham must record an exact agreed monthly amount and recalculate the comparison cost before the agreement-ready check succeeds.
+
+The [offer policy](OFFER_POLICY.md) fixes the recommendation separately from negotiated compensation. For policy-bearing packets, `assertAgreementReady` requires matching authoritative `currentState.offerPolicies`; missing, stripped or changed policies block readiness. `createVoiceHandoff` copies each policy and includes `simulationChecksPassed`, without banking data. The standalone scenario pack below retains legacy policy-free packets for compatibility; the generated map example exercises the current policy.
 
 ### Theo → Pratham
 

@@ -59,6 +59,10 @@ test('selected route parcel costs reconcile exactly without mutating fixtures or
       assert(parcel.email.endsWith('@example.com'));
       assert.equal(parcel.monthlyRentIsApproximate,parcel.monthlyRentCents*analysis.rentHorizonMonths!==parcel.rentTotalCents);
       assert.equal(parcel.withinOfferCap,parcel.upfrontCents<=parcel.offerCapCents);
+      assert.equal(parcel.recommendedOfferCents,parcel.upfrontCents);
+      assert.equal(parcel.offerCapCents,Number(BigInt(parcel.recommendedOfferCents)*6n/5n));
+      assert.equal(parcel.compensationBreakdown.lineCents+parcel.compensationBreakdown.foundationCents,parcel.recommendedOfferCents);
+      assert.equal(parcel.offerPolicy.recommendedOfferCents,parcel.recommendedOfferCents);
       assert(!('dialTarget' in parcel));
     }
     const isolated=analysis.parcels[0];isolated.towerIds.push('test-change');isolated.ownerAlias='Changed';
@@ -74,11 +78,23 @@ test('diagonal corner corridor parcels remain visible with zero centerline cost'
     const parcel=analysis.parcels.find(p=>p.parcelId===id);
     assert.equal(parcel.corridorOnly,true);assert.equal(parcel.lineLengthTiles,0);
     assert.equal(parcel.upfrontCents,0);assert.equal(parcel.rentTotalCents,0);
+    assert.equal(parcel.offerCapCents,0);
+    assert.equal(parcel.recommendationStatus,'review-required');
     assert.deepEqual(parcel.affectReasons,['line-corridor']);
   }
   assert.equal(analysis.totals.upfrontCents,Math.round(Math.sqrt(8)*101+Math.sqrt(8)*104));
   assert.equal(analysis.totals.rentTotalCents,route.costBreakdown.rentCents);
   assert.equal(analysis.parcels.reduce((n,p)=>n+p.upfrontCents,0),analysis.totals.upfrontCents);
+});
+
+test('route recommendation and cap ignore the unrelated whole-parcel reference price',()=>{
+  const fixture=quadrants(),route=makeRoute(fixture,[[-6,0],[0,0],[6,0]]);
+  const before=analyzeRouteParcels(fixture,route);
+  for(const parcel of fixture.parcels){parcel.compensation.initialOfferCents=999999999;parcel.compensation.offerCapCents=0;}
+  const after=analyzeRouteParcels(fixture,route);
+  assert.deepEqual(after,before);
+  assert(after.parcels.some(p=>p.recommendedOfferCents>0));
+  for(const parcel of after.parcels)assert.equal(parcel.offerCapCents,Math.floor(parcel.recommendedOfferCents*1.2));
 });
 
 test('boundary foundations allocate each tile once and count shared towers explicitly',()=>{

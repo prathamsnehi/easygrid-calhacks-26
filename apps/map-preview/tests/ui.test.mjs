@@ -552,6 +552,7 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.equal(app.elements.get('analysis-parcel-list').children.length,route.parcelIds.length);
   assert.equal(app.elements.get('analysis-count').textContent,String(route.parcelIds.length));
   assert.equal(app.elements.get('analysis-upfront').textContent,usd(route.upfrontCompensationCents));
+  assert.equal(app.elements.get('analysis-upfront-label').textContent,handoff.parcelAnalysis.some(row=>row.recommendationStatus==='review-required')?'Priced subtotal':'Recommended total');
   assert.equal(app.elements.get('analysis-rent').textContent,usd(route.recurringRentTotalCents));
   assert.equal(handoff.parcelAnalysis.filter(row=>row.userRole).length,1);
   assert(route.parcelIds.includes(handoff.userRole.parcelId));
@@ -564,6 +565,18 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   app.click('focus-user-parcel');
   assert.equal(app.elements.get('analysis-owner').textContent,privateUser.alias);
   assert.match(app.elements.get('analysis-parcel-copy').textContent,new RegExp(handoff.userRole.parcelId));
+  const selected=handoff.parcelAnalysis.find(row=>row.parcelId===handoff.userRole.parcelId);
+  assert.equal(app.elements.get('analysis-offer').textContent,usd(selected.upfrontCents));
+  assert.equal(app.elements.get('analysis-limit').textContent,usd(selected.offerCapCents));
+  assert.equal(app.elements.get('analysis-parcel-rent').textContent,`${selected.monthlyRentIsApproximate?'≈ ':''}${usd(selected.monthlyRentEquivalentCents)}`);
+  assert.equal(app.elements.get('analysis-parcel-rent-label').textContent,'Monthly fee');
+  assert.match(app.elements.get('analysis-line-length').textContent,/ m$/);
+  assert.equal(app.elements.get('analysis-negotiation').textContent,'Pending');
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'OFFLINE');
+  assert.match(markup,/<details class="analysis-breakdown"><summary>View breakdown<\/summary>/);
+  for(const id of ['analysis-email','analysis-contact','user-contact-status','user-role-note','handoff-budget-note','registered-participant-consent']){
+    assert.equal(app.elements.has(id),false,`${id} should not duplicate information in the compact panel`);
+  }
   assert.equal(app.scene().getObjectByName('Selected fictional parcel').visible,true);
   app.click('close-analysis');
   assert.equal(app.elements.get('analysis-panel').hidden,true);

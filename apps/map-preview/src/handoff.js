@@ -1,5 +1,6 @@
 import { chooseUserParcel } from './parcel-analysis.js';
 import { DEMO_METERS_PER_TILE, DEMO_BUDGET_CENTS, COST_KEYS, DEMO_COST_MODEL } from './cost-model.js';
+import { negotiationLimitCents, createOfferPolicy } from './offer-policy.js';
 
 /** Synthetic coordinates exist only to exercise the team's GeoJSON API contract. */
 export const DEMO_COORDINATE_TRANSFORM = Object.freeze({
@@ -86,7 +87,13 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     const parcel=world.parcelById.get(row.parcelId),owner=parcel&&world.ownerById.get(parcel.ownerId);
     if(!parcel?.synthetic||!owner?.synthetic||row.ownerId!==owner.id||!ACCESS.has(row.accessConsent)||!NEGOTIATION.has(row.negotiationStatus))throw new Error('Parcel ownership or status is inconsistent with the fixture.');
     const cap=integer(row.offerCapCents,'Parcel offer cap');
-    if(cap!==parcel.compensation?.offerCapCents||row.withinOfferCap!==(row.upfrontCents<=cap))throw new Error('Parcel offer-cap analysis is inconsistent.');
+    if(row.recommendedOfferCents!==row.upfrontCents||cap!==negotiationLimitCents(row.recommendedOfferCents)||row.withinOfferCap!==(row.upfrontCents<=cap))throw new Error('Parcel offer-cap analysis is inconsistent.');
+    const breakdown=row.compensationBreakdown;
+    if(!breakdown||integer(breakdown.lineCents,'Line compensation')+integer(breakdown.foundationCents,'Foundation compensation')!==row.recommendedOfferCents)throw new Error('Parcel recommendation breakdown does not reconcile.');
+    const towerCount=integer(row.towerCount,'Parcel tower count');
+    // Match the parcel analysis tolerance and derive review status from priced impact.
+    const corridorOnly=finite(row.lineLengthTiles,'Parcel crossed length')<=1e-7&&towerCount===0;
+    if(row.corridorOnly!==corridorOnly||row.recommendationStatus!==(corridorOnly?'review-required':'estimated'))throw new Error('Parcel recommendation status is inconsistent.');
     if(row.accessConsent!==parcel.accessConsent||row.negotiationStatus!==parcel.negotiationStatus)throw new Error('Parcel consent analysis is stale.');
     const area=finite(parcel.areaTiles,'Parcel area',Number.MIN_VALUE);
     if(parcel.geometry?.coordinateSystem!=='local-demo-grid'||parcel.geometry?.type!=='Polygon'||!Array.isArray(parcel.geometry.rings))throw new Error('Parcel geometry must use the local demo grid.');
@@ -99,11 +106,13 @@ export function createHandoff({world,route,analysis,placements,participant=null,
       synthetic:true,landUse:parcel.landUse,areaSqM:area*DEMO_COORDINATE_TRANSFORM.metersPerTile**2,
       offerCapCents:cap,accessConsent:row.accessConsent,negotiationStatus:row.negotiationStatus};
   });
-  const eligible=analysis.parcels.every(row=>row.withinOfferCap&&row.accessConsent!=='refused'&&row.negotiationStatus!=='refused')&&modeledTotal<=budgetCents;
+  const recommendationsComplete=analysis.parcels.every(row=>row.recommendationStatus==='estimated');
+  const eligible=recommendationsComplete&&analysis.parcels.every(row=>row.withinOfferCap&&row.accessConsent!=='refused'&&row.negotiationStatus!=='refused')&&modeledTotal<=budgetCents;
   const reasons=['Synthetic geometry and pricing; owner consent and regulatory checks are not complete.'];
   if(analysis.parcels.some(row=>!row.withinOfferCap))reasons.push('An affected parcel exceeds its fictional upfront offer cap.');
   if(analysis.parcels.some(row=>row.accessConsent==='refused'||row.negotiationStatus==='refused'))reasons.push('An affected parcel has refused access.');
   if(modeledTotal>budgetCents)reasons.push('The selected route exceeds the fictional handoff budget.');
+  if(!recommendationsComplete)reasons.push('A corridor-only parcel needs compensation review before negotiation.');
   const candidate={...meta,id:route.id,projectId,version:routeVersion,
     geometry:{type:'LineString',coordinates:route.nodes.map(node=>localPointToGeoJSON(node.x,node.z).coordinates)},
     parcelIds:[...route.parcelIds],lengthMeters:route.lengthTiles*DEMO_COORDINATE_TRANSFORM.metersPerTile,
@@ -124,6 +133,8 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     landUse:row.landUse,areaTiles:row.areaTiles,lineLengthTiles:row.lineLengthTiles,
     towerCount:row.towerCount,towerIds:[...row.towerIds],foundationAreaTiles:row.foundationAreaTiles,
     upfrontCents:row.upfrontCents,rentTotalCents:row.rentTotalCents,
+    recommendedOfferCents:row.recommendedOfferCents,offerPolicy:createOfferPolicy(row.recommendedOfferCents),
+    compensationBreakdown:{...row.compensationBreakdown},recommendationStatus:row.recommendationStatus,
     monthlyRentEquivalentCents:row.monthlyRentCents,monthlyRentIsApproximate:row.monthlyRentIsApproximate,
     offerCapCents:row.offerCapCents,withinOfferCap:row.withinOfferCap,
     accessConsent:row.accessConsent,negotiationStatus:row.negotiationStatus,
@@ -136,7 +147,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     schemaVersion:1,kind:'easygrid-owner-handoff',sourceMode:'fixture',
     sessionId,projectId,routeId:route.id,routeVersion,revision:0,referenceBinding:'local-fixture',
     currency:'USD',routeStatus:'selected_for_negotiation',rentHorizonMonths,
-    constructionCents:candidate.constructionCents,budgetCents,simulationChecksPassed:true,
+    constructionCents:candidate.constructionCents,budgetCents,simulationChecksPassed:recommendationsComplete,
     owners:[...owners.values()].map(owner=>{
       const original=world.ownerById.get(owner.id),banking=original.banking;
       if(!banking||banking.ownerId!==owner.id||banking.mode!=='simulated'||
@@ -160,7 +171,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
       return {parcelId:row.parcelId,ownerId:row.ownerId,landUse:row.landUse,
         geometry:{type:'Polygon',coordinates:parcel.geometry.coordinates.map(ring=>ring.map(point=>[...point]))},areaSqM:parcel.areaSqM,
         impact:{towerCount:row.towerCount,wireLengthMeters:row.lineLengthTiles*DEMO_COORDINATE_TRANSFORM.metersPerTile},
-        offerCapCents:row.offerCapCents,
+        offerCapCents:row.offerCapCents,offerPolicy:createOfferPolicy(row.recommendedOfferCents),
         terms:{termsVersion:1,
           // Fixture status alone is not an explicit negotiated acceptance.
           outcome:row.negotiationStatus==='accepted'?'pending':row.negotiationStatus,
@@ -185,7 +196,8 @@ export function createHandoff({world,route,analysis,placements,participant=null,
       assignmentMode:'demo-roleplay-overlay',note:'A consenting participant plays this fictional owner. The base parcel and owner are unchanged.'},
     callPreparation:{status:!eligible?'review-required':validation.valid?'ready-for-host-adapter':'participant-required',
       canStartCall:false,backendBindingRequired:true,contactRegistered:false,
-      proposedTerms:{upfrontCents:userRow.upfrontCents,offerCapCents:userRow.offerCapCents,
+      proposedTerms:{upfrontCents:userRow.upfrontCents,recommendedOfferCents:userRow.recommendedOfferCents,
+        offerCapCents:userRow.offerCapCents,offerPolicy:createOfferPolicy(userRow.recommendedOfferCents),
         rentTotalCents:userRow.rentTotalCents,monthlyRentEquivalentCents:userRow.monthlyRentCents,
         monthlyRentIsApproximate:userRow.monthlyRentIsApproximate,termMonths:rentHorizonMonths,depositCents:0},
       note:'This is an offline fixture handoff. The host must import it, bind canonical backend IDs and revisions, privately register the consented participant, and confirm any call action. Call consent does not grant land access. Monthly rent is a rounded equivalent, not negotiated terms.',

@@ -135,20 +135,56 @@ test('stale route analysis, moved facilities, malformed versions and inconsisten
   assert.throws(()=>createHandoff({...input,analysis:{...analysis,parcels:[]}}),/match/);
 });
 
-test('offer caps and fictional budget prevent handoff readiness without fabricating approval',()=>{
+test('route-specific caps and fictional budget are validated without fabricating approval',()=>{
   const budgetPacket=createHandoff({...input,budgetCents:route.totalCostCents-1});
   assert.equal(budgetPacket.snapshot.routes[0].eligible,false);
   assert.equal(budgetPacket.callPreparation.status,'review-required');
-  const ownerParcel=world.parcelById.get(analysis.parcels[0].parcelId);
-  const cap=ownerParcel.compensation.offerCapCents;
-  try{
-    ownerParcel.compensation.offerCapCents=0;
-    const updated=analyzeRouteParcels(world,route,result.assumptions);
-    const packet=createHandoff({...input,analysis:updated});
-    assert.equal(packet.snapshot.routes[0].eligible,false);
-    assert.equal(packet.snapshot.routes[0].readyToApprove,false);
-    assert.equal(packet.callPreparation.status,'review-required');
-  }finally{ownerParcel.compensation.offerCapCents=cap;}
+  const changed=clone(analysis);changed.parcels[0].offerCapCents++;
+  assert.throws(()=>createHandoff({...input,analysis:changed}),/offer-cap/);
+  const packet=createHandoff(input);
+  for(const row of packet.parcelAnalysis){
+    assert.equal(row.recommendedOfferCents,row.upfrontCents);
+    assert.equal(row.offerCapCents,Number(BigInt(row.recommendedOfferCents)*6n/5n));
+    const shared=packet.ownerHandoff.parcels.find(p=>p.parcelId===row.parcelId);
+    assert.equal(shared.offerCapCents,row.offerCapCents);
+    assert.equal(shared.offerPolicy.recommendedOfferCents,row.recommendedOfferCents);
+    assert.equal(shared.terms.compensationCents,row.recommendedOfferCents);
+    assert.equal(packet.snapshot.parcels.find(p=>p.id===row.parcelId).offerCapCents,row.offerCapCents);
+  }
+  assert.equal(packet.callPreparation.proposedTerms.offerPolicy.recommendedOfferCents,packet.callPreparation.proposedTerms.upfrontCents);
+  assert.equal(packet.snapshot.routes[0].readyToApprove,false);
+});
+
+test('corridor-only impact blocks readiness and cannot be relabeled as a completed valuation',()=>{
+  const corridorPlacements={substation,datacenter:createPlacement(world,'datacenter',43,35,{substation})};
+  const corridorResult=computeTransmissionRoutes(world,corridorPlacements);
+  assert.equal(corridorResult.status,'ok');
+  const corridorRoute=corridorResult.candidates.find(candidate=>candidate.id==='low-impact');
+  assert(corridorRoute);
+  const corridorAnalysis=analyzeRouteParcels(world,corridorRoute,corridorResult.assumptions);
+  const parcel=corridorAnalysis.parcels.find(row=>row.parcelId==='L008');
+  assert(parcel);
+  assert.equal(parcel.lineLengthTiles,0);assert.equal(parcel.towerCount,0);
+  assert.equal(parcel.corridorOnly,true);assert.equal(parcel.recommendationStatus,'review-required');
+  const corridorInput={...input,placements:corridorPlacements,route:corridorRoute,analysis:corridorAnalysis};
+  const packet=createHandoff(corridorInput);
+  assert.equal(packet.snapshot.routes[0].eligible,false);
+  assert.equal(packet.ownerHandoff.simulationChecksPassed,false);
+  assert.equal(packet.callPreparation.status,'review-required');
+  for(const changes of [
+    {corridorOnly:false},
+    {recommendationStatus:'estimated'},
+    {corridorOnly:false,recommendationStatus:'estimated'},
+  ]){
+    const changed=clone(corridorAnalysis);
+    Object.assign(changed.parcels.find(row=>row.parcelId===parcel.parcelId),changes);
+    assert.throws(()=>createHandoff({...corridorInput,analysis:changed}),/recommendation status/);
+  }
+  for(const towerCount of [-1,.5,NaN,undefined]){
+    const changed=clone(corridorAnalysis);
+    changed.parcels.find(row=>row.parcelId===parcel.parcelId).towerCount=towerCount;
+    assert.throws(()=>createHandoff({...corridorInput,analysis:changed}),/tower count/);
+  }
 });
 
 test('call requests require explicit backend binding, current versions, consent and idempotency',()=>{

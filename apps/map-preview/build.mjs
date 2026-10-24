@@ -8,7 +8,7 @@ import { analyzeRouteParcels } from './src/parcel-analysis.js';
 import { createHandoff } from './src/handoff.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
-const names=['cost-model.js','parcels.js','world.js','landscape.js','facility-models.js','placement.js','routing.js','parcel-analysis.js','handoff.js','transmission-models.js','planner.js','route-controller.js','analysis-controller.js','main.js'];
+const names=['cost-model.js','offer-policy.js','parcels.js','world.js','landscape.js','facility-models.js','placement.js','routing.js','parcel-analysis.js','handoff.js','transmission-models.js','planner.js','route-controller.js','analysis-controller.js','main.js'];
 const [vendor,template,styles,...sources]=await Promise.all([
   readFile(join(root,'vendor/three.cjs'),'utf8'),
   readFile(join(root,'src/index.html'),'utf8'),

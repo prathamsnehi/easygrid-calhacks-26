@@ -86,52 +86,40 @@
   </aside>
   <section id="analysis-panel" class="analysis-panel" aria-labelledby="analysis-title" hidden>
     <header class="analysis-header">
-      <div><span class="eyebrow">ROUTE → LANDOWNER CONTACT</span><h2 id="analysis-title">Land &amp; people</h2><p id="analysis-route-note">Choose a route to review its affected parcels.</p></div>
+      <div><h2 id="analysis-title">Land &amp; compensation</h2><p id="analysis-route-note">Choose a route.</p></div>
       <button id="close-analysis" class="quiet-button" type="button" aria-label="Close parcel analysis">Back to map <span aria-hidden="true">×</span></button>
     </header>
     <div class="analysis-overview">
-      <div><span>Affected parcels</span><strong id="analysis-count">—</strong></div>
-      <div><span>Land compensation</span><strong id="analysis-upfront">—</strong></div>
-      <div><span id="analysis-rent-label">Rent · 12 months</span><strong id="analysis-rent">—</strong></div>
+      <div><span>Parcels</span><strong id="analysis-count">—</strong></div>
+      <div><span id="analysis-upfront-label">Recommended total</span><strong id="analysis-upfront">—</strong></div>
+      <div><span id="analysis-rent-label">Fees · 12 months</span><strong id="analysis-rent">—</strong></div>
     </div>
     <div class="analysis-content">
       <div class="analysis-land">
-        <div class="analysis-section-heading"><h3>Along this connection</h3><span id="analysis-consent-note">Consent pending</span></div>
+        <div class="analysis-section-heading"><h3>Landowners</h3><span id="analysis-consent-note">Pending</span></div>
+        <p class="analysis-list-key">Recommended offer – negotiation limit</p>
         <div id="analysis-parcel-list" class="analysis-parcel-list" role="group" aria-label="Affected parcels"></div>
         <article id="analysis-parcel-detail" class="analysis-parcel-detail" aria-labelledby="analysis-parcel-title">
-          <div class="analysis-section-heading analysis-detail-heading"><div><h3 id="analysis-parcel-title">Parcel details</h3><span id="analysis-parcel-badge" class="role-badge">FICTIONAL OWNER</span></div><button id="focus-analysis-parcel" class="quiet-button" type="button" disabled>Show on map</button></div>
-          <p id="analysis-parcel-copy" class="analysis-detail-copy"></p>
+          <div class="analysis-section-heading analysis-detail-heading"><div><h3 id="analysis-parcel-title">Parcel details</h3><span id="analysis-parcel-badge" class="role-badge" hidden>DEMO ROLE</span></div><button id="focus-analysis-parcel" class="quiet-button" type="button" disabled>Show on map</button></div>
           <dl class="analysis-facts">
-            <div><dt>Owner role</dt><dd id="analysis-owner"></dd></div>
-            <div><dt>Contact</dt><dd id="analysis-contact"></dd></div>
-            <div><dt>Email</dt><dd id="analysis-email"></dd></div>
+            <div><dt>Owner</dt><dd id="analysis-owner"></dd></div>
             <div><dt>Land use</dt><dd id="analysis-land-use"></dd></div>
-            <div><dt>Line length</dt><dd id="analysis-line-length"></dd></div>
-            <div><dt>Pylons / pad area</dt><dd id="analysis-foundation"></dd></div>
-            <div><dt>Upfront / offer cap</dt><dd id="analysis-offer"></dd></div>
-            <div><dt id="analysis-parcel-rent-label">Rent · 12 months</dt><dd id="analysis-parcel-rent"></dd></div>
-            <div><dt>Access / negotiation</dt><dd id="analysis-negotiation"></dd></div>
+            <div><dt>Towers</dt><dd id="analysis-foundation"></dd></div>
+            <div><dt>Wire length</dt><dd id="analysis-line-length"></dd></div>
+            <div class="analysis-recommended"><dt>Recommended offer</dt><dd id="analysis-offer"></dd></div>
+            <div><dt>Negotiation limit</dt><dd id="analysis-limit"></dd></div>
+            <div><dt id="analysis-parcel-rent-label">Monthly fee</dt><dd id="analysis-parcel-rent"></dd></div>
+            <div><dt>Status</dt><dd id="analysis-negotiation"></dd></div>
           </dl>
-          <p id="analysis-parcel-impact" class="analysis-footnote"></p>
+          <details class="analysis-breakdown"><summary>View breakdown</summary><p id="analysis-parcel-impact"></p><p id="analysis-parcel-copy"></p><p>Distances use the demo scale of 25 m/tile. Monthly fees shown with ≈ are rounded equivalents. Call consent does not grant land access.</p></details>
         </article>
-        <p class="analysis-footnote">Fictional land and illustrative USD amounts. Lengths use demo tiles. Compensation covers centerline length and pylon pads; corridor-only parcels still need review.</p>
+        <p class="analysis-footnote">Simulation · estimated USD amounts, not an appraisal.</p>
       </div>
-      <aside class="analysis-handoff" aria-label="User and calling agent">
-        <div class="user-heading"><span class="user-symbol" aria-hidden="true">U</span><div><span class="eyebrow">YOUR DEMO PROPERTY</span><h3>User</h3></div></div>
-        <p class="user-copy">One affected parcel is reserved for your landowner role. It follows the selected route.</p>
-        <button id="focus-user-parcel" class="user-assignment" type="button"><span><small>Assigned parcel</small><strong id="user-parcel-label">—</strong></span><span id="user-contact-status" class="role-badge">CONTACT NEEDED</span></button>
-        <p id="user-role-note" class="analysis-footnote">A role in this fictional simulation, not a claim of real ownership.</p>
-        <div class="registered-participant">
-          <span class="eyebrow">REGISTERED FOR THIS DEMO</span>
-          <strong id="registered-participant-name">Participant</strong>
-          <span id="registered-participant-contact">Contact required</span>
-          <p id="registered-participant-consent">AI roleplay call consent required.</p>
-          <button id="edit-analysis-participant" class="quiet-button" type="button">Edit participant</button>
-        </div>
+      <aside class="analysis-handoff" aria-label="Demo call target">
+        <div class="analysis-section-heading"><h3>Demo call target</h3><button id="edit-analysis-participant" class="quiet-button" type="button">Edit</button></div>
+        <button id="focus-user-parcel" class="user-assignment" type="button" aria-label="Show the demo call target on the map"><span><strong id="registered-participant-name">Participant</strong><small id="registered-participant-contact">Contact required</small></span><strong id="user-parcel-label">—</strong></button>
         <div class="handoff-box">
-          <div class="analysis-section-heading"><h3>Calling agent</h3><span id="handoff-status-badge" class="role-badge">NOT CONNECTED</span></div>
-          <p id="handoff-connection-note">Calling agent is not connected.</p>
-          <p id="handoff-budget-note" class="analysis-footnote">Fixture budget: $5,000,000.00. This is a demo limit, not an approved project budget.</p>
+          <div class="analysis-section-heading"><h3>Calling agent</h3><span id="handoff-status-badge" class="role-badge">OFFLINE</span></div>
           <button id="agent-call" class="primary-button" type="button" disabled>Agent call</button>
           <p id="handoff-result" class="analysis-feedback" role="status"></p>
         </div>
