@@ -49,9 +49,9 @@ export type Audit = { action: string; actor: string; at: string; reason: string;
 export class FinanceError extends Error {
   constructor(public readonly code: string, message: string) { super(message); this.name = 'FinanceError'; }
 }
-const assert = (ok: unknown, code: string, message: string): asserts ok => {
+function assert(ok: unknown, code: string, message: string): asserts ok {
   if (!ok) throw new FinanceError(code, message);
-};
+}
 const cents = (n: number): boolean => Number.isSafeInteger(n) && n >= 0;
 const nonblank = (s: string): boolean => typeof s === 'string' && s.trim().length > 0;
 const hash = (x: unknown): string => 'sha256:' + createHash('sha256').update(JSON.stringify(x)).digest('hex');
