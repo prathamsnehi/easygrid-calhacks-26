@@ -32,7 +32,7 @@ export async function verifyNessieSandboxAccount(input:{
  fetcher:typeof fetch;
 }):Promise<{provider:'capital-one-nessie';verified:boolean;accountId:string;simulated:true}>{
  const {baseUrl,apiKey,sandboxAccountId,fetcher}=input;
- if(!/^https:\/\//.test(baseUrl)||!apiKey||!sandboxAccountId||
+ if(!/^https:\/\//.test(baseUrl)||new URL(baseUrl).hostname!=='api.nessieisreal.com'&&new URL(baseUrl).hostname!=='api.reimaginebanking.com'||!apiKey||!sandboxAccountId||
  !/^[a-zA-Z0-9_-]+$/.test(sandboxAccountId))
  throw new EasementError('INVALID_INPUT','Valid HTTPS Nessie sandbox configuration required');
  const url=new URL(baseUrl.replace(/\/$/,'')+'/accounts/'+encodeURIComponent(sandboxAccountId));
@@ -40,7 +40,7 @@ export async function verifyNessieSandboxAccount(input:{
  const response=await fetcher(url.toString(),{method:'GET',redirect:'error'});
  if(!response.ok)throw new EasementError('BLOCKED_STATE','Nessie sandbox account lookup failed');
  const data:unknown=await response.json();
- if(!data||typeof data!=='object'||!(' _id' in data||'_id' in data)||
+ if(!data||typeof data!=='object'||!('_id' in data)||
  (data as {_id?:unknown})._id!==sandboxAccountId)
  throw new EasementError('BLOCKED_STATE','Nessie response account ID mismatch');
  return {provider:'capital-one-nessie',verified:true,accountId:sandboxAccountId,simulated:true};
