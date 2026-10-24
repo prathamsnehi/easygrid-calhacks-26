@@ -262,3 +262,47 @@ export async function approveCal37Authoritatively(
   fail('STALE_VERSION','Atomic manager approval commit rejected a concurrent update');
  return next;
 }
+
+/**
+ * CAL-37 approved payout handoff for downstream CAL-38/39 consumers.
+ * Reuse the same owner and synthetic destination; never generate a new bank binding.
+ * Downstream stages remain owned by their separate Linear tasks.
+ */
+export function cal37ApprovedRecipientHandoff(packet:OwnerHandoff,current:CurrentHandoffState,
+ signed:DemoAgreementPackage,state:Cal37State){
+ checkUnique(state);
+ if(!state.approval)fail('BLOCKED_STATE','Manager approval required for recipient handoff');
+ const approval=state.approval;
+ assertCurrentApproval(packet,current,approval);
+ if(signed.packageHash!==approval.packageHash)fail('STALE_VERSION','Signed package changed after approval');
+ const rebuilt=buildCal36FromOwnerHandoff(packet,current,approval.operatorAlias);
+ if(rebuilt.packageHash!==approval.packageHash||
+ signed.agreements.length!==packet.parcels.length)fail('STALE_VERSION','Current complete package required');
+ const agreements=new Map(signed.agreements.map(a=>[a.id,a]));
+ if(agreements.size!==packet.parcels.length)fail('BLOCKED_STATE','Duplicate or incomplete contracts');
+ return packet.parcels.map(parcel=>{
+  const owner=packet.owners.find(o=>o.ownerId===parcel.ownerId);
+  const expected=rebuilt.agreementPackage.agreements.find(a=>a.parcelId===parcel.parcelId);
+  const agreement=expected&&agreements.get(expected.id);
+  if(!owner||!expected||!agreement||
+   agreement.status!=='demo_signed'||agreement.signature?.simulated!==true||
+   agreement.signature.contentHash!==expected.contentHash||
+   agreement.contentHash!==expected.contentHash||
+   agreement.paymentRecipientRef!==owner.banking.paymentRecipientRef||
+   agreement.ownerId!==owner.ownerId||
+   approval.contractVersions[agreement.id]!==agreement.contractVersion||
+   approval.termsVersions[parcel.parcelId]!==parcel.terms.termsVersion||
+   owner.banking.mode!=='simulated'||!/^\*{4}\d{4}$/.test(owner.banking.accountDisplay))
+   fail('STALE_VERSION','Current signed owner/destination linkage is invalid');
+  return {sessionId:packet.sessionId,projectId:packet.projectId,routeId:packet.routeId,
+   routeVersion:packet.routeVersion,approvalId:approval.approvalId,packageHash:approval.packageHash,
+   parcelId:parcel.parcelId,ownerId:owner.ownerId,contractId:agreement.id,
+   contractVersion:agreement.contractVersion,termsVersion:parcel.terms.termsVersion,
+   paymentRecipientRef:owner.banking.paymentRecipientRef,
+   recipientDisplay:owner.banking.bankDisplay+' '+owner.banking.accountDisplay,
+   compensationCents:agreement.compensationCents,monthlyRentCents:agreement.monthlyRentCents,
+   contractTrancheObligationId:settlementObligationId(packet.sessionId,parcel.parcelId,'contract_tranche'),
+   completionBalanceObligationId:settlementObligationId(packet.sessionId,parcel.parcelId,'completion_balance'),
+   simulated:true as const,label:'SIMULATED RECIPIENT — NO REAL FUNDS TRANSFERRED' as const};
+ });
+}
