@@ -62,3 +62,13 @@ test('draft cannot be signed before entering awaiting state', () => {
   const draft = createEasementDraft(input).contract!;
   assert.throws(() => demoSign(draft, 'Synthetic Owner', '2026-10-24T10:00:00Z'));
 });
+
+test('stale route and terms versions are rejected', () => {
+  assert.throws(() => createEasementDraft({ ...input, currentRouteVersion: 2 }), { code: 'STALE_VERSION' });
+  assert.throws(() => createEasementDraft({ ...input, currentTermsVersion: 2 }), { code: 'STALE_VERSION' });
+});
+test('repeated supersession of an already superseded contract is blocked', () => {
+  const prior = createEasementDraft(input).contract!;
+  const superseded = createEasementDraft({ ...input, id: 'contract-2', contractVersion: 2, priorContract: prior }).supersededContract!;
+  assert.throws(() => createEasementDraft({ ...input, id: 'contract-2', contractVersion: 2, priorContract: superseded }), { code: 'BLOCKED_STATE' });
+});
