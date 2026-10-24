@@ -83,3 +83,38 @@ export function planFinanceAgent(first:Cal37State,later:LaterState,nessie?:Nessi
   severity:view.discrepantCents>0?'blocked':actions.some(a=>a.kind!=='archive_receipt')?'review':'clear',
   actions,evidence:{firstRevision:first.revision,laterRevision:later.revision,sandboxVerified:nessie?.accountVerified===true}};
 }
+
+/**
+ * Explicit sandbox transaction matching. Never match merely by similar amounts:
+ * an operator must supply a one-to-one external-ID / stable-obligation-ID mapping.
+ * Discrepancies are advisory and cannot mark authoritative ledger entries paid.
+ */
+export function reconcileNessieEvidence(
+ evidence:NessieEvidence,
+ expected:{obligationId:string;amountCents:number}[],
+ links:{obligationId:string;transactionId:string}[]
+):{matched:{obligationId:string;transactionId:string}[];unmatched:string[];discrepant:{obligationId:string;reason:string}[];simulated:true}{
+ const obligations=new Map<string,number>();
+ for(const o of expected){
+  if(!o.obligationId||!cents(o.amountCents)||obligations.has(o.obligationId))
+   throw new EasementError('INVALID_INPUT','Invalid or duplicate obligations');
+  obligations.set(o.obligationId,o.amountCents);
+ }
+ const tx=new Map(evidence.transactions.map(t=>[t.id,t]));
+ if(tx.size!==evidence.transactions.length||new Set(links.map(x=>x.transactionId)).size!==links.length||
+ new Set(links.map(x=>x.obligationId)).size!==links.length)
+  throw new EasementError('INVALID_INPUT','Each sandbox transaction/obligation can be linked only once');
+ const matched:{obligationId:string;transactionId:string}[]=[],discrepant:{obligationId:string;reason:string}[]=[];
+ for(const link of links){
+  if(!obligations.has(link.obligationId))throw new EasementError('INVALID_INPUT','Unknown settlement obligation link');
+  const row=tx.get(link.transactionId);
+  if(!row){discrepant.push({obligationId:link.obligationId,reason:'Linked sandbox transaction is unavailable'});continue}
+  if(row.type!=='withdrawal'||row.status!=='completed'||row.amountCents!==obligations.get(link.obligationId)){
+   discrepant.push({obligationId:link.obligationId,reason:'Sandbox transaction direction, status or amount mismatch'});
+   continue;
+  }
+  matched.push(link);
+ }
+ const linked=new Set(links.map(l=>l.obligationId));
+ return {matched,unmatched:[...obligations.keys()].filter(id=>!linked.has(id)),discrepant,simulated:true};
+}
