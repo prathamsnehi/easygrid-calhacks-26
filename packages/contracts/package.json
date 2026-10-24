@@ -24,8 +24,7 @@
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "generate": "node --experimental-strip-types scripts/generate.ts",
     "check:generated": "node --experimental-strip-types scripts/generate.ts --check",
-    "check": "npm run typecheck && npm test && npm run check:generated && npm run build",
-    "demo:cal37": "node --experimental-strip-types scripts/cal37-demo-server.ts"
+    "check": "npm run typecheck && npm test && npm run check:generated && npm run build"
   },
   "dependencies": {
     "zod": "4.6.7"
