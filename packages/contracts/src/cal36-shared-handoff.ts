@@ -86,3 +86,49 @@ export function buildCal36ApprovalPackage(input:unknown):Cal36ApprovalPackage {
     simulated:true
   };
 }
+
+/**
+ * Canonical CAL-27 integration: consume Theo's actual OwnerHandoff packet and
+ * independently sourced current-state binding, not a second invented wire schema.
+ * The host is responsible for loading authoritative current state.
+ */
+import { assertAgreementReady, type CurrentHandoffState } from './owner-handoff.ts';
+export function buildCal36FromOwnerHandoff(
+  packetInput: unknown,
+  currentStateInput: CurrentHandoffState,
+  operatorAlias: string,
+): Cal36ApprovalPackage {
+  // Includes strict schema validation, exact current session/route/revision/
+  // terms versions, accepted consent, budget/cap and simulation readiness.
+  const packet=assertAgreementReady(packetInput,currentStateInput);
+  if (!operatorAlias.trim()) throw new EasementError('INVALID_INPUT','Operator alias required');
+  const owners=new Map(packet.owners.map(o=>[o.ownerId,o]));
+  const route:FinalRoute={
+    sessionId:packet.sessionId,projectId:packet.projectId,routeId:packet.routeId,
+    routeVersion:packet.routeVersion,status:'ready_for_agreements',
+    operatorAlias,parcelIds:packet.parcels.map(p=>p.parcelId),
+    terms:packet.parcels.map(p=>{
+      const owner=owners.get(p.ownerId);
+      if(!owner) throw new EasementError('MISSING_TERMS','Missing owner');
+      return {
+        parcelId:p.parcelId,ownerId:p.ownerId,ownerAlias:owner.alias,
+        termsVersion:p.terms.termsVersion,outcome:'accepted' as const,
+        explicitConfirmation:p.terms.explicitConfirmation,
+        evidenceRefs:p.terms.confirmationRef?[p.terms.confirmationRef]:[],
+        confirmationRef:p.terms.confirmationRef??undefined,
+        paymentRecipientRef:owner.banking.paymentRecipientRef,
+        compensationCents:p.terms.compensationCents,
+        monthlyRentCents:p.terms.monthlyRentCents,
+        corridorDescription:p.landUse+'; '+p.impact.towerCount+' tower(s), '+p.impact.wireLengthMeters+'m wire',
+        accessConditions:['Owner accepted access', 'Affected parcel '+p.parcelId],
+      };
+    }),
+  };
+  const agreementPackage=createDemoAgreements(route);
+  return {agreementPackage,packageHash:agreementPackage.packageHash,
+    readyForApproval:false,simulated:true,
+    ownerRecipients:packet.parcels.map(p=>({
+      parcelId:p.parcelId,ownerId:p.ownerId,
+      paymentRecipientRef:owners.get(p.ownerId)!.banking.paymentRecipientRef
+    }))};
+}
