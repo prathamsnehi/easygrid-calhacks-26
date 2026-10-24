@@ -9,10 +9,10 @@ node --experimental-strip-types apps/finance-demo/server.ts
 
 Then open **http://127.0.0.1:4173/** in a browser. The HTTP adapter calls the actual CAL-37 approval/20% functions and CAL-38/39 completion, 80%, and monthly reconciliation reducers. A server-side, synthetic signed agreement fixture is used; no UI-side financial decision is authoritative. The server listens on loopback only and never moves real funds.
 
-The adapter is intentionally in-memory and resets on server restart. It is **not** the team's CAL-29 SpacetimeDB state service. No shared application files were changed. See `packages/contracts/test/finance-demo-server.test.ts` for the domain-connected regression walkthrough. To run the test:
+The adapter is intentionally in-memory and resets on server restart. It is **not** the team's CAL-29 SpacetimeDB state service. No shared application files were changed. See `apps/finance-demo/server.test.ts` for the domain-connected regression walkthrough. To run the test:
 
 ```bash
-cd packages/contracts && npm test
+cd apps/finance-demo && npm test
 ```
 
 The original `index.html` is the earlier UI-only fixture; **connected.html** is the server-rendered browser interface served at `/`. Full refresh/restart persistence and CAL-41 mounting remain pending.
