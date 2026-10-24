@@ -41,3 +41,24 @@ test('regeneration supersedes prior version', () => {
   assert.equal(next.supersededContract?.status, 'superseded');
   assert.equal(next.contract?.contractVersion, 2);
 });
+
+test('end date must match negotiated full calendar months', () => {
+  const result = createEasementDraft({ ...input, effectiveEndDate: '2027-01-31' });
+  assert.equal(result.contract, null);
+  assert.ok(result.missingFields.includes('termDateMismatch'));
+});
+test('invalid calendar dates block contract readiness', () => {
+  const result = createEasementDraft({ ...input, effectiveStartDate: '2026-13-01' });
+  assert.equal(result.contract, null);
+  assert.ok(result.missingFields.includes('effectiveDates'));
+});
+test('unaccepted negotiation cannot create a signable contract', () => {
+  const refused = NegotiationResult.parse({ ...negotiation, outcome: 'refused', accessConsent: 'refused', explicitConfirmation: false });
+  const result = createEasementDraft({ ...input, negotiation: refused });
+  assert.equal(result.contract, null);
+  assert.ok(result.missingFields.includes('acceptedNegotiation'));
+});
+test('draft cannot be signed before entering awaiting state', () => {
+  const draft = createEasementDraft(input).contract!;
+  assert.throws(() => demoSign(draft, 'Synthetic Owner', '2026-10-24T10:00:00Z'));
+});
