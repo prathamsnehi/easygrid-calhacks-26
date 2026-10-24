@@ -91,17 +91,34 @@ test('synthetic coordinate conversion declares origin, scale and orientation and
   assert.deepEqual(localPointToGeoJSON(0,0),{type:'Point',coordinates:[-120.5,37]});
   const east=localPointToGeoJSON(1,0).coordinates,south=localPointToGeoJSON(0,1).coordinates;
   assert(east[0]>-120.5);assert.equal(east[1],37);assert.equal(south[0],-120.5);assert(south[1]<37);
-  assert.equal(DEMO_COORDINATE_TRANSFORM.metersPerTile,100);
+  assert.equal(DEMO_COORDINATE_TRANSFORM.metersPerTile,25);
+  assert.equal(DEMO_COORDINATE_TRANSFORM.id,'california-valley-synthetic-wgs84-v2');
   const packet=createHandoff(input);
-  assert.equal(packet.snapshot.routes[0].lengthMeters,route.lengthTiles*100);
+  assert.equal(packet.snapshot.routes[0].lengthMeters,route.lengthTiles*25);
   for(const parcel of packet.snapshot.parcels){
-    assert.equal(parcel.areaSqM,world.parcelById.get(parcel.id).areaTiles*10000);
+    assert.equal(parcel.areaSqM,world.parcelById.get(parcel.id).areaTiles*625);
     for(const ring of parcel.geometry.coordinates)assert.deepEqual(ring[0],ring.at(-1));
   }
   assert.deepEqual(packet.snapshot.project.endpointA.coordinates,packet.snapshot.routes[0].geometry.coordinates[0]);
   assert.deepEqual(packet.snapshot.project.endpointB.coordinates,packet.snapshot.routes[0].geometry.coordinates.at(-1));
   assert.throws(()=>localPointToGeoJSON(Infinity,0),/finite/);
   assert.throws(()=>localPointToGeoJSON(0,1e9),/WGS84/);
+});
+
+test('handoff records the effective construction rates when an integration overrides the defaults',()=>{
+  const custom=computeTransmissionRoutes(world,placements,{rates:{towerCents:1}});
+  const customRoute=custom.candidates[0];
+  const packet=createHandoff({...input,route:customRoute,analysis:analyzeRouteParcels(world,customRoute,custom.assumptions)});
+  assert.equal(packet.costModel.towerCents,1);
+  assert.equal(packet.costModel.effectiveRates.towerCents,1);
+  assert.equal(packet.costModel.rateSource,'custom-demo-rates');
+  assert.deepEqual(packet.costModel.rateOverrides,['towerCents']);
+  assert.equal(customRoute.costBreakdown.towerCents,customRoute.metrics.towerCount);
+  packet.costModel.effectiveRates.towerCents=2;
+  assert.equal(customRoute.costModel.effectiveRates.towerCents,1,'handoff metadata is an independent snapshot');
+  const standard=createHandoff(input);
+  assert.equal(standard.costModel.rateSource,'miso-benchmark-with-demo-allowances');
+  assert.equal(standard.ownerHandoff.constructionCents,route.totalCostCents-route.costBreakdown.compensationCents-route.costBreakdown.rentCents);
 });
 
 test('stale route analysis, moved facilities, malformed versions and inconsistent costs block handoff',()=>{

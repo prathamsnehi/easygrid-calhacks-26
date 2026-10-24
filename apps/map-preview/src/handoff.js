@@ -1,17 +1,17 @@
 import { chooseUserParcel } from './parcel-analysis.js';
+import { DEMO_METERS_PER_TILE, DEMO_BUDGET_CENTS, COST_KEYS, DEMO_COST_MODEL } from './cost-model.js';
 
 /** Synthetic coordinates exist only to exercise the team's GeoJSON API contract. */
 export const DEMO_COORDINATE_TRANSFORM = Object.freeze({
-  id:'california-valley-synthetic-wgs84-v1',sourceMode:'fixture',
+  id:'california-valley-synthetic-wgs84-v2',sourceMode:'fixture',
   localCoordinateSystem:'local-demo-grid',outputCoordinateSystem:'WGS84',
-  originLongitude:-120.5,originLatitude:37,metersPerTile:100,earthRadiusMeters:6371008.8,
+  originLongitude:-120.5,originLatitude:37,metersPerTile:DEMO_METERS_PER_TILE,earthRadiusMeters:6371008.8,
   xAxis:'east',zAxis:'south',
   method:'Local equirectangular approximation at the declared origin latitude.',
   note:'Invented location and scale for API interoperability. Not surveyed land, measured distances or construction dimensions.',
 });
 
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const COST_KEYS=['lineCents','towerCents','terminalCents','terrainCents','waterCents','agricultureCents','vegetationCents','roadCents','compensationCents','rentCents'];
 const ACCESS=new Set(['unknown','allowed','refused']);
 const NEGOTIATION=new Set(['pending','accepted','refused','counteroffer','review_required']);
 function requireId(value,label,max=128){if(typeof value!=='string'||value.length>max||!ID.test(value))throw new Error(`${label} must be a valid identifier.`);return value;}
@@ -55,7 +55,7 @@ export function localPointToGeoJSON(x,z) {
  * register a phone number, grant land access or start a call.
  */
 export function createHandoff({world,route,analysis,placements,participant=null,userParcelId=null,
-  sessionId,routeVersion,budgetCents=100000000}={}) {
+  sessionId,routeVersion,budgetCents=DEMO_BUDGET_CENTS}={}) {
   requireId(sessionId,'Demo session ID',96);integer(routeVersion,'Route version',1);integer(budgetCents,'Demo budget');
   if(!world?.parcelById||!world?.ownerById||!route||!analysis)throw new Error('A selected route and its parcel analysis are required.');
   requireId(route.id,'Route ID');
@@ -176,6 +176,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
   return {
     schemaVersion:2,kind:'easygrid-map-handoff',sourceMode:'fixture',sessionId,routeVersion,
     coordinateTransform:{...DEMO_COORDINATE_TRANSFORM},
+    costModel:JSON.parse(JSON.stringify(route.costModel??DEMO_COST_MODEL)),
     snapshot:{project,owners:[...owners.values()],parcels,routes:[candidate],negotiations:[],easements:[],approvals:[],payments:[],reconciliations:[],events:[]},
     parcelAnalysis,ownerHandoff,
     userRole:{parcelId:selectedUserParcel,ownerId:userRow.ownerId,originalOwnerAlias:userRow.ownerAlias,
@@ -188,7 +189,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
         rentTotalCents:userRow.rentTotalCents,monthlyRentEquivalentCents:userRow.monthlyRentCents,
         monthlyRentIsApproximate:userRow.monthlyRentIsApproximate,termMonths:rentHorizonMonths,depositCents:0},
       note:'This is an offline fixture handoff. The host must import it, bind canonical backend IDs and revisions, privately register the consented participant, and confirm any call action. Call consent does not grant land access. Monthly rent is a rounded equivalent, not negotiated terms.',
-      budgetNote:'The default USD 1,000,000 budget is fictional and is not an approved project budget.'},
+      budgetNote:'The default USD 5,000,000 budget is fictional and is not an approved project budget.'},
   };
 }
 

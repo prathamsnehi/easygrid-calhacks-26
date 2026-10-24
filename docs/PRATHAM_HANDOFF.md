@@ -4,7 +4,7 @@ Baseline tracked in [CAL-26](https://linear.app/easygrid-calhacks-2026/issue/CAL
 
 For the normalized owner/parcel/contact-reference/terms/banking packet and executable development samples, see [Owner handoff](OWNER_HANDOFF.md). The `ownerHandoff` field extends the existing map envelope; the legacy snapshot and API v1 call request remain compatible.
 
-This slice collects a consented demo participant before planning, then prepares the selected transmission route and the fictional landowner that participant will play. Registration on **Start demo** is local page state. It does not dial a phone, import a project into a backend, register a server contact, record land access, or create an agreement. The map, parcel data and cost assumptions are synthetic.
+This slice collects a consented demo participant before planning, then prepares the selected transmission route and the fictional landowner that participant will play. Registration on **Start demo** is local page state. It does not dial a phone, import a project into a backend, register a server contact, record land access, or create an agreement. The map and parcel data are synthetic. Construction estimates combine MISO MTEP24 component benchmarks with explicit demo allowances.
 
 ## Operator flow
 
@@ -49,6 +49,7 @@ The callback is a same-page integration seam. It does not automatically cross an
 | `sessionId`, `routeVersion` | Local demo identity and version. They are not canonical server project or route versions. |
 | `snapshot` | A snapshot that passes the shared `Snapshot` Zod schema. Owners and parcels remain fictional; no negotiations, agreements, approvals or payments are fabricated. |
 | `ownerHandoff` | Additive CAL-27 packet joining original owners, contact references, mock banking recipients, affected parcel impacts and proposed terms. Validate with `OwnerHandoff`; use `createVoiceHandoff` for the bank-free voice view. Local contact references remain unregistered. |
+| `costModel` | Additive map-envelope metadata describing the construction benchmark and demo allowances; the legacy snapshot and owner-handoff schema versions are unchanged. |
 | `parcelAnalysis` | Per-parcel length, foundations, exact allocated upfront/rent cents, cap, pending status, fictional contacts, and display-role overlay. |
 | `userRole` | One affected `parcelId`, original fictional owner, generic `displayAlias: "User participant"`, local opaque contact reference, and participant readiness. The entered participant alias is not exported. |
 | `coordinateTransform` | Explicit, invented local-grid-to-WGS84 conversion described below. |
@@ -56,14 +57,14 @@ The callback is a same-page integration seam. It does not automatically cross an
 
 The local `userRole.participantContactRef` is a correlation identifier. **It is not a registered dial destination.** It must not be submitted directly to the live call service. The host needs to register the private participant and obtain a server-owned contact reference.
 
-The snapshot preserves `accessConsent: "unknown"` and `negotiationStatus: "pending"` from the fixture, and `readyToApprove: false`. Parcel cap or budget failures set `eligible: false` and `callPreparation.status: "review-required"`. The handoff's default USD 1,000,000 budget is a fictional fixture parameter, configurable through `createHandoff({ ..., budgetCents })`; it is not the user's approval of a real budget.
+The snapshot preserves `accessConsent: "unknown"` and `negotiationStatus: "pending"` from the fixture, and `readyToApprove: false`. Parcel cap or budget failures set `eligible: false` and `callPreparation.status: "review-required"`. The handoff's default USD 5,000,000 budget is a fictional fixture parameter, configurable through `createHandoff({ ..., budgetCents })`; it is not the user's approval of a real budget.
 
 ## Coordinate and money interpretation
 
 The map uses local x/z tiles. To exercise the team's existing GeoJSON/meters contract, the exported snapshot uses an explicit synthetic transform:
 
 - Origin: longitude **−120.5**, latitude **37.0**.
-- Scale: **100 meters per tile**, invented for this adapter.
+- Scale: **25 meters per tile**, shared with route pricing; adapter ID `california-valley-synthetic-wgs84-v2`. Earlier v1 packets used 100 m/tile: read each packet's declared transform rather than hard-coding a scale.
 - x increases east; z increases south.
 - Conversion: local equirectangular approximation at origin latitude, spherical Earth radius **6,371,008.8 m**.
 - `lengthMeters = lengthTiles × 100`; `areaSqM = areaTiles × 100²`.

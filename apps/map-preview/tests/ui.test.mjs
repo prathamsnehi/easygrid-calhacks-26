@@ -149,6 +149,17 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
     resize:rect=>{viewport={...rect};window.emit('resize');},
     pendingTimers:()=>timers.size,
     pendingCallbacks:()=>[...timers.values()].map(job=>()=>job.callback(...job.args)),
+    async runTimersFor(ms){
+      const deadline=clock+ms;let runs=0;
+      while(timers.size){
+        const [id,job]=[...timers].sort((a,b)=>a[1].at-b[1].at)[0];
+        if(job.at>deadline)break;
+        assert(runs++<50,'timer queue must settle');
+        timers.delete(id);clock=Math.max(clock,job.at);
+        await job.callback(...job.args);await Promise.resolve();
+      }
+      clock=Math.max(clock,deadline);
+    },
     async flushTimers(){
       let runs=0;
       while(timers.size){
@@ -239,7 +250,7 @@ test('A/B completion automatically selects and renders the lowest modeled cost r
   assert.equal(app.canvas.dataset.routeTotalCents,String(route.totalCostCents));
   assert.equal(app.elements.get('cost-total').textContent,usd(route.totalCostCents));
   assert.equal(app.elements.get('route-parcels').textContent,route.parcelIds.join(' · '));
-  const amounts=['cost-line','cost-structures','cost-impact','cost-land','cost-rent'].map(id=>Math.round(Number(app.elements.get(id).textContent.replace(/[^\d.]/g,''))*100));
+  const amounts=['cost-line','cost-structures','cost-impact','cost-engineering','cost-contingency','cost-land','cost-rent'].map(id=>Math.round(Number(app.elements.get(id).textContent.replace(/[^\d.]/g,''))*100));
   assert.equal(amounts.reduce((sum,value)=>sum+value,0),route.totalCostCents);
   assert.equal(app.elements.get('route-choice-0').attributes.get('aria-pressed'),'true');
   assert.match(app.elements.get('route-status-note').textContent,/not an approval/i);
@@ -263,6 +274,66 @@ test('manual route comparison updates physical geometry, prices and the selected
   app.click('inspect-parcels');assert.equal(app.elements.get('route-panel').hidden,true);
   app.click('step-route');assert.equal(app.elements.get('route-panel').hidden,false);
   assert.equal(app.canvas.dataset.routeId,routes[1].id,'opening the route panel preserves the comparison');
+});
+
+test('A/B route analysis stays visible for 1.6 seconds before revealing geometry, costs or handoff',async()=>{
+  const app=boot();placePair(app);
+  assert.equal(app.elements.get('route-loading').hidden,false);
+  assert.equal(app.elements.get('route-panel').getAttribute('aria-busy'),'true');
+  assert.equal(app.canvas.getAttribute('aria-busy'),'true');
+  assert.equal(app.elements.get('route-summary').hidden,true);
+  assert.equal(app.elements.get('recalculate-route').disabled,true);
+  await app.runTimersFor(16); // The actual solver runs on the first yielded task.
+  assert.equal(app.pendingTimers(),1,'only the result reveal remains queued');
+  assert.equal(app.canvas.dataset.routeState,'calculating');
+  assert.equal(app.canvas.dataset.routeCandidateCount,'0');
+  assert.equal(networkOf(app).children.length,0);
+  assert.equal(app.window.easygridDemo.getHandoff(),null);
+  assert.equal(app.elements.get('open-analysis').disabled,true);
+  app.click('step-route'); // Returning to the panel must not restart the delay.
+  await app.runTimersFor(1583);
+  assert.equal(app.canvas.dataset.routeState,'calculating','no result at 1599 ms');
+  assert.equal(app.canvas.dataset.routeTotalCents,'');
+  assert.equal(networkOf(app).children.length,0);
+  await app.runTimersFor(1);
+  assert.equal(app.canvas.dataset.routeState,'ok','result appears at 1600 ms');
+  assert.equal(app.pendingTimers(),0);
+  assert.equal(app.elements.get('route-loading').hidden,true);
+  assert.equal(app.elements.get('route-summary').hidden,false);
+  assert.equal(app.elements.get('route-panel').getAttribute('aria-busy'),'false');
+  assert.equal(app.canvas.getAttribute('aria-busy'),'false');
+  assert(networkOf(app).getObjectByName('Three-phase conductors'));
+  assert(app.window.easygridDemo.getHandoff());
+  assert.deepEqual(app.errors,[]);
+});
+
+test('computed but unrevealed routes cannot survive a site change, reset or participant edit',async()=>{
+  const app=boot();placePair(app);await app.runTimersFor(16);
+  const [oldReveal]=app.pendingCallbacks();
+  app.click('step-a');app.click('next-site');app.click('confirm-placement');
+  await oldReveal();
+  assert.equal(app.canvas.dataset.routeState,'calculating');
+  assert.equal(networkOf(app).children.length,0);
+  assert.equal(app.pendingTimers(),1,'a stale callback cannot discard the newer calculation');
+  await app.runTimersFor(1599);
+  assert.equal(networkOf(app).children.length,0);
+  await app.runTimersFor(1);
+  const expected=expectedRoutes(app);
+  assert.equal(app.canvas.dataset.routeId,expected.recommendedId);
+
+  for(const action of ['reset-plan','edit-participant']){
+    const pending=boot();placePair(pending);await pending.runTimersFor(16);
+    const [reveal]=pending.pendingCallbacks();
+    pending.click(action);
+    assert.equal(pending.pendingTimers(),0);
+    await reveal();await pending.flushTimers();
+    assert.equal(pending.canvas.dataset.routeState,'incomplete');
+    assert.equal(pending.elements.get('route-loading').hidden,true);
+    assert.equal(pending.canvas.getAttribute('aria-busy'),'false');
+    assert.equal(networkOf(pending).children.length,0);
+    assert.equal(pending.window.easygridDemo.getHandoff(),null);
+    assert.deepEqual(pending.errors,[]);
+  }
 });
 
 test('moving a facility invalidates the route immediately and reset defeats stale queued work',async()=>{

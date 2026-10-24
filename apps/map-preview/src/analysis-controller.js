@@ -1,5 +1,6 @@
 import { analyzeRouteParcels, chooseUserParcel } from './parcel-analysis.js';
 import { createHandoff, validateDemoParticipant, normalizeDemoPhone } from './handoff.js';
+import { DEMO_BUDGET_CENTS } from './cost-model.js';
 
 /** Local analysis and an explicit call-request boundary. No direct network or contact storage. */
 export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{}}) {
@@ -55,7 +56,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     write('handoff-connection-note',handler?
       'Sends your number and selected parcel to the calling agent.':
       'Calling agent is not connected.');
-    write('handoff-budget-note',`Fixture budget: ${moneyOf(current?.snapshot.project.budgetCents??100000000)}. This is a demo limit, not an approved project budget.`);
+    write('handoff-budget-note',`Fixture budget: ${moneyOf(current?.snapshot.project.budgetCents??DEMO_BUDGET_CENTS)}. This is a demo limit, not an approved project budget.`);
     if(current?.callPreparation.status==='review-required')feedback('handoff-result','Review the route budget, offer limits or refused access before requesting a call.','error');
   }
   function renderDetail() {

@@ -1,14 +1,19 @@
+import { DEMO_COST_MODEL, COST_KEYS, emptyRouteCosts, applyConstructionAllowances, terminalConstructionCosts } from './cost-model.js';
+
 /** Deterministic routing on a finite demo support-site graph, not an engineering design. */
 export const ROUTING_ASSUMPTIONS = Object.freeze({
-  version:'valley-routing-v1',coordinateSystem:'local-demo-grid',sourceMode:'fixture',
+  version:'valley-routing-v2',coordinateSystem:'local-demo-grid',sourceMode:'fixture',costModel:DEMO_COST_MODEL,
   gridStep:3,maxSpanTiles:15,foundationWidthTiles:2,corridorHalfWidthTiles:.8,
   supportHeightTiles:10,sagTiles:1.1,conductorRadiusTiles:.045,minClearanceTiles:2,rentHorizonMonths:12,
-  rates:Object.freeze({linePerTileCents:120000,towerCents:1800000,terminalCents:250000,
+  rates:Object.freeze({linePerTileCents:DEMO_COST_MODEL.linePerTileCents,towerCents:DEMO_COST_MODEL.towerCents,terminalCents:DEMO_COST_MODEL.terminalCents,
     elevatedTerrainPerTileCents:18000,elevationChangePerTileCents:60000,
     waterPerTileCents:150000,agriculturePerTileCents:35000,vegetationPerTileCents:50000,
     roadPerTileCents:45000,foundationClearingPerTileCents:120000}),
   notes:Object.freeze([
-    'All dimensions are demo grid units; all USD rates are fictional.',
+    'Horizontal distance uses 25 meters per tile; vertical heights and facility dimensions remain stylized demo geometry.',
+    'Line and support allowances use MISO MTEP24 230 kV single-circuit table values, without escalation; terrain premiums and land/rent rates remain fictional.',
+    'Line pricing includes three phase conductors, one optical ground wire, one shield wire and 4% sag/waste; rendered wires do not multiply this price.',
+    'Construction adds 10% engineering/PM then 30% contingency on construction plus engineering; land compensation and rent receive no markup.',
     'Balanced routing minimizes additive modeled cost on the declared support-site graph.',
     'The graph uses a 3-tile support lattice, two facility terminals and spans of at most 15 tiles.',
     'Each tower needs a flat 2 × 2 foundation; water, roads, buildings, trees and rocks cannot hold towers.',
@@ -19,11 +24,10 @@ export const ROUTING_ASSUMPTIONS = Object.freeze({
   ]),
 });
 
-const COST_KEYS=['lineCents','towerCents','terminalCents','terrainCents','waterCents','agricultureCents','vegetationCents','roadCents','compensationCents','rentCents'];
 const STRUCTURES=new Set(['farmstead','wind-pump','fence','hay-bales','bridge']);
 const FOUNDATION_OBSTACLES=new Set([...STRUCTURES,'road','tree','orchard-tree','rock']);
 const EPS=1e-8;
-const emptyCosts=()=>Object.fromEntries(COST_KEYS.map(key=>[key,0]));
+const emptyCosts=emptyRouteCosts;
 const totalCosts=costs=>COST_KEYS.reduce((sum,key)=>sum+(costs[key]??0),0);
 function sumCosts(target,source){for(const key of COST_KEYS)target[key]+=source[key]??0;return target;}
 function rectOverlap(a,b){return a.x0<b.x1-EPS&&a.x1>b.x0+EPS&&a.z0<b.z1-EPS&&a.z1>b.z0+EPS;}
@@ -121,6 +125,7 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
   costs.agricultureCents=Math.round(metrics.agricultureLengthTiles*rates.agriculturePerTileCents);
   costs.vegetationCents=Math.round(metrics.vegetationLengthTiles*rates.vegetationPerTileCents);
   costs.roadCents=Math.round(metrics.roadLengthTiles*rates.roadPerTileCents);
+  applyConstructionAllowances(costs);
   return {lengthTiles,costs,metrics,parcelIds:[...parcelIds].filter(Boolean).sort(),touchedCells};
 }
 
@@ -142,6 +147,7 @@ export function evaluateTowerSite(world,x,z,placements,config=ROUTING_ASSUMPTION
   }
   costs.towerCents=config.rates.towerCents;
   costs.agricultureCents=cropCells*config.rates.foundationClearingPerTileCents;
+  applyConstructionAllowances(costs);
   return {x,z,groundY,height:config.supportHeightTiles,kind:'tower',foundation,parcelIds:[...parcelIds].filter(Boolean).sort(),costs,cropCells};
 }
 
@@ -239,11 +245,16 @@ function routeFromPath(graph,path,profile,world){
     if(edge.metrics.roadLengthTiles>EPS)metrics.roadSpans++;
     return {from:nodes[index].id,to:nodes[index+1].id,lengthTiles:edge.lengthTiles,sag:graph.config.sagTiles,parcelIds:[...edge.parcelIds]};
   });
-  costBreakdown.terminalCents=2*graph.config.rates.terminalCents;
+  sumCosts(costBreakdown,terminalConstructionCosts(graph.config.rates.terminalCents));
   const ids=[...parcelIds].sort(),pendingConsentParcelIds=ids.filter(id=>world.parcelById?.get(id)?.accessConsent!=='allowed');
   metrics.parcelCount=ids.length;
   const label={balanced:'Lowest modeled cost',shortest:'Shortest connection','low-impact':'Lower-impact alternative'}[profile];
+  const rateOverrides=Object.keys(graph.config.rates).filter(key=>graph.config.rates[key]!==ROUTING_ASSUMPTIONS.rates[key]);
+  const costModel={...DEMO_COST_MODEL,effectiveRates:{...graph.config.rates},rateOverrides,
+    rateSource:rateOverrides.length?'custom-demo-rates':'miso-benchmark-with-demo-allowances',
+    linePerTileCents:graph.config.rates.linePerTileCents,towerCents:graph.config.rates.towerCents,terminalCents:graph.config.rates.terminalCents};
   return {id:profile,label,profile,nodes,spans,parcelIds:ids,pendingConsentParcelIds,lengthTiles,costBreakdown,
+    costModel,
     totalCostCents:totalCosts(costBreakdown),metrics,sourceMode:'fixture',coordinateSystem:'local-demo-grid',readyToApprove:false,
     objectiveCost:path.objectiveCost,reasons:[
       `${metrics.towerCount} towers and ${metrics.terminalCount} facility terminals connect ${lengthTiles.toFixed(1)} grid units.`,

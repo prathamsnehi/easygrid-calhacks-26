@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createWorld} from '../src/world.js';
 import {createPlacement} from '../src/placement.js';
+import {terminalConstructionCosts} from '../src/cost-model.js';
 import {ROUTING_ASSUMPTIONS,computeTransmissionRoutes,buildTransmissionGraph,shortestTransmissionPath,
   evaluateTowerSite,evaluateTransmissionSpan,traceSpanCells,segmentRectInterval} from '../src/routing.js';
 
@@ -127,7 +128,7 @@ test('normal routes reconcile costs, hit endpoints and never violate their span 
   }
   const best=result.candidates[0];
   assert(result.candidates.every(route=>best.totalCostCents<=route.totalCostCents));
-  assert.equal(best.totalCostCents,best.objectiveCost+2*ROUTING_ASSUMPTIONS.rates.terminalCents);
+  assert.equal(best.totalCostCents,best.objectiveCost+Object.values(terminalConstructionCosts()).reduce((sum,n)=>sum+n,0));
   const again=computeTransmissionRoutes(world,placements);
   assert.deepEqual(again.candidates.map(r=>[r.id,r.totalCostCents,r.nodes.map(n=>n.id)]),result.candidates.map(r=>[r.id,r.totalCostCents,r.nodes.map(n=>n.id)]));
 });
