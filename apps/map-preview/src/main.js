@@ -193,7 +193,7 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   onUserRoleChange:()=>planner.refreshParcelRoles(),
   onContextInvalidated:()=>contracts?.invalidate(),
 });
-contracts=createContractEntry({getHandoff:()=>analysis.getHandoff()});
+contracts=createContractEntry({getHandoff:()=>analysis.getHandoff(),getPlacements:()=>planner.getPlacements()});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
   getSettlementBinding:()=>analysis.settlement.getBinding(),
@@ -202,13 +202,14 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
   resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
   getContractBinding:()=>contracts.getBinding(),
   setContractNegotiation:value=>contracts.setNegotiation(value),
+  setContractAgreement:value=>contracts.setAgreement(value),
   setConstructionHandler:handler=>contracts.setConstructionHandler(handler),
   reportConstructionComplete:result=>contracts.reportConstructionComplete(result),
   closeContracts:()=>contracts.close()});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),
-  onRouteChange:snapshot=>analysis.setRoute(snapshot),
+  onRouteChange:snapshot=>{analysis.setRoute(snapshot);contracts.refresh();},
   onFitRoute:(_route,diagnostics)=>{
     rebuildViewBounds(diagnostics.maxY+1);resetCamera();
     if(width>900)pan(-Math.min(width*.12,160),0);

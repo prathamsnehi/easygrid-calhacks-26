@@ -85,6 +85,8 @@ Three.js 0.180.0 is vendored from the official npm package, with its MIT license
 
 The [contract authoring guide](../../docs/CONTRACT_AUTHORING.md) explains the fixture-driven agreement editor at `/contracts.html`, two simulated click signatures, and signature-gated initial 20% settlement. [Finance track evidence](../../docs/FINANCE_TRACKS.md) maps the implementation to the Hyphenate brief and optional Nessie sandbox, including verification limits.
 
+The full local journey starts at `/`: register, place both facilities, calculate a route, open **Analyze affected parcels**, explicitly choose **Simulate approved negotiation**, then **Proceed to contract**. The same affected parcels, fictional owners and compensation amounts carry into contracts and both payment stages. This action makes no call. The map approval requires the local server; offline authoring hooks remain available. See [map-to-contract integration](../../docs/MAP_CONTRACT_HANDOFF.md) for package isolation, privacy, server validation and the remaining voice/DB/animation boundaries.
+
 ## Initial payment and construction completion
 
 The existing contract workspace now follows the CAL-38 journey: simulated initial

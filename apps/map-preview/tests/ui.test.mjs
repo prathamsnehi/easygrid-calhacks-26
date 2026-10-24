@@ -8,6 +8,9 @@ import * as THREE from '../vendor/three.cjs';
 import { createWorld } from '../src/world.js';
 import { PLAN_STORAGE_KEY, createPlacement } from '../src/placement.js';
 import { computeTransmissionRoutes } from '../src/routing.js';
+import { reconstructMapProposal } from '../server/map-contracts.mjs';
+import { simulatedMapAgreement, contractSourceFromAgreement } from '../src/contract-handoff.js';
+import { settlementBinding } from '../src/settlement-controller.js';
 
 const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
 const markup=html.slice(0,html.indexOf('<script>'));
@@ -23,7 +26,7 @@ const compiled=new vm.Script(embedded
 const expectedWorld=createWorld();
 const privateUser={alias:'Test User',phone:'+12025550123'};
 
-function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,panelRects={},rect={left:37,top:100,width:1100,height:700}}={}) {
+function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,fetcher,panelRects={},rect={left:37,top:100,width:1100,height:700}}={}) {
   const errors=[],elements=new Map();
   let currentScene,currentCamera,clock=1000;
   let timerSequence=0;
@@ -122,7 +125,7 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
   }
   class ClockDate extends Date {static now(){return clock;}}
   const context=vm.createContext({
-    document,window,TestRenderer,prepareWorld,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
+    document,window,TestRenderer,prepareWorld,fetch:fetcher,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
     matchMedia:()=>({matches:true,addEventListener(){}}),
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},
     setTimeout:(callback,delay=0,...args)=>{const id=++timerSequence;timers.set(id,{callback,args,at:clock+delay});return id;},
@@ -217,6 +220,41 @@ function placePair(app) {
   app.click('next-site');app.click('confirm-placement');
   app.click('next-site');app.click('confirm-placement');
 }
+
+test('compiled map approval carries the selected owners into contracts and discards a late approval after reset',async()=>{
+  const requests=[];let release;
+  const app=boot({fetcher:async(url,options)=>{
+    assert.equal(url,'/api/contracts/approve-map');
+    const context=JSON.parse(options.body).context;
+    assert(!options.body.includes(privateUser.alias));assert(!options.body.includes(privateUser.phone));
+    const handoff=reconstructMapProposal(context),agreement=simulatedMapAgreement(handoff,{
+      negotiationId:'neg-ui-bridge',approvedAt:'2026-10-24T12:00:00.000Z',
+    });
+    const result={packageId:`map-contract-${'a'.repeat(40)}`,simulated:true,agreement,
+      input:contractSourceFromAgreement(agreement,handoff),mapBinding:settlementBinding(handoff)};
+    requests.push(result);
+    if(requests.length===2)await new Promise(resolve=>{release=resolve;});
+    return{ok:true,json:async()=>result};
+  }});
+  placePair(app);await app.flushTimers();app.click('open-analysis');
+  assert.equal(app.elements.get('contract-proceed').disabled,true);
+  assert.equal(app.elements.get('contract-simulate-approval').disabled,false);
+  app.click('contract-simulate-approval');await new Promise(setImmediate);
+  assert.equal(requests.length,1,'the compiled bundle must export the async approval client');
+  assert.equal(app.elements.get('contract-proceed').disabled,false,app.elements.get('contract-entry-status').textContent);
+  app.click('contract-proceed');
+  assert.equal(app.elements.get('contract-workspace').hidden,false);
+  assert.equal(Number(app.elements.get('cg-owner-count').textContent),requests[0].input.parcels.length);
+  app.click('cg-proceed');
+  assert.deepEqual(Array.from(app.elements.get('cg-parcel').children,option=>option.value),requests[0].input.parcels.map(p=>p.parcelId));
+  assert.equal(app.elements.get('cg-submit').disabled,true);
+  app.click('cg-close');app.click('contract-simulate-approval');
+  assert.equal(requests.length,2);app.click('reset-plan');release();await new Promise(setImmediate);
+  assert.equal(app.elements.get('contract-proceed').disabled,true);
+  assert.equal(app.elements.get('cg-proceed').disabled,true);
+  assert.match(app.elements.get('contract-entry-status').textContent,/Awaiting approved/);
+  assert.deepEqual(app.errors,[]);
+});
 function expectedRoutes(app) {
   const saved=app.storage();
   const substation=createPlacement(expectedWorld,'substation',saved.substation.x,saved.substation.z);

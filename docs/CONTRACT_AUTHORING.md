@@ -45,7 +45,7 @@ An unattempted hold can be retried after the simulated underlying issue is corre
 
 `src/contract-fixtures.js` defines the examples; `src/contract-authoring.js` validates and normalizes them. The normalization allowlist excludes transcripts, participant contact and bank data. It requires an approved negotiation and accepted, versioned terms for every final-route parcel.
 
-The shared map adds a disabled **Proceed to contract** entry. A development host can project a matching fixture approval:
+The shared map now connects selected routes through **Simulate approved negotiation** and **Proceed to contract**. See [the CAL-41 bridge](MAP_CONTRACT_HANDOFF.md) for the full journey and server reconstruction. A development host can also project a matching fixture approval:
 
 ```js
 window.easygridDemo.setContractNegotiation({
@@ -54,7 +54,7 @@ window.easygridDemo.setContractNegotiation({
 });
 ```
 
-The host must verify that its fixture corresponds to the exact displayed proposal before providing this value. Route/participant/context changes revoke readiness. This is a presentation boundary, not authenticated authorization. The included HTTP service accepts the fixed development example only; it must not be used as an authoritative adapter for arbitrary map proposals.
+The host must verify that its fixture corresponds to the exact displayed proposal before providing this value. Route/participant/context changes revoke readiness. This is a presentation boundary, not authenticated authorization. The HTTP service retains the fixed standalone example and now separately registers validated local map packages. Its development approval endpoint reconstructs proposals from trusted geometry and owner fixtures; it is not a live negotiation or property-consent service.
 
 `createContractWorkspace({api})` accepts an injected operation adapter. The current adapter uses same-origin `/api/contracts/*`; replace it with the agreed shared service when canonical session/route/owner/terms mapping is ready.
 

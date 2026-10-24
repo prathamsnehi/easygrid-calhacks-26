@@ -2,6 +2,7 @@ import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
 import {createContractExample} from '../src/contract-fixtures.js';
 import {createContractWorkflow, createWorkflowState, createDemoBank, DEMO_ACTORS} from './contract-workflow.mjs';
 import {createNessieSandboxBank} from './nessie-sandbox.mjs';
+import {createMapContractService} from './map-contracts.mjs';
 
 export async function createContractAPI({environment = process.env, stateURL = new URL('../.local/contract-ledger.json', import.meta.url)} = {}) {
   const port = Number(environment.EASYGRID_PREVIEW_PORT ?? 4177);
@@ -25,6 +26,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
     await writeFile(temporary, JSON.stringify(state, null, 2) + '\n', {mode:0o600});
     await rename(temporary, target);
   }});
+  const mapService = bank.mode === 'simulation' ? await createMapContractService({stateURL:new URL('map-contracts.json',stateURL)}) : null;
   const reply = (res, status, data) => res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}).end(JSON.stringify(data));
   return async (req, res, pathname) => {
     if (!pathname.startsWith('/api/contracts/')) return false;
@@ -37,22 +39,32 @@ export async function createContractAPI({environment = process.env, stateURL = n
     let input;
     try {
       const chunks = []; let size = 0;
-      for await (const chunk of req) { size += chunk.length; if (size > 64000) throw new Error('Too large.'); chunks.push(chunk); }
+      for await (const chunk of req) { size += chunk.length; if (size > 256000) throw new Error('Too large.'); chunks.push(chunk); }
       input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     } catch { reply(res,400,{error:'Invalid contract request.'}); return true; }
     try {
-      let result;
-      if (pathname === '/api/contracts/state') result = await workflow.inspect(input.draft);
-      else if (pathname === '/api/contracts/sign/utility') result = await workflow.sign(input.draft, 'utility', DEMO_ACTORS.utility);
-      else if (pathname === '/api/contracts/sign/landowner') result = await workflow.sign(input.draft, 'landowner', DEMO_ACTORS.landowner);
-      else if (pathname === '/api/contracts/submit') {
-        if (!['normal','recipient-changed','bank-mismatch','insufficient-funds'].includes(input.scenario ?? 'normal')) throw new Error('Unknown development scenario.');
-        result = await workflow.submit(input.draft, DEMO_ACTORS.requester, {scenario:input.scenario ?? 'normal', stage:input.stage ?? 'initial'});
+      if (pathname === '/api/contracts/approve-map') {
+        if (!mapService) throw new Error('Map development approval requires local simulation mode.');
+        const approved = await mapService.approve(input.context); reply(res,200,approved); return true;
       }
-      else if (pathname === '/api/contracts/construction-complete') result = await workflow.completeConstruction(input.draft, input.completion, DEMO_ACTORS.construction);
-      else if (pathname === '/api/contracts/reconcile') result = await workflow.reconcile(input.draft, DEMO_ACTORS.requester, {stage:input.stage ?? 'initial'});
-      else if (pathname === '/api/contracts/reject') result = await workflow.reject(input.draft, DEMO_ACTORS.utility, {stage:input.stage ?? 'initial'});
-      else { reply(res,404,{error:'Unknown contract operation.'}); return true; }
+      const dispatch = async workflow => {
+        let result;
+        if (pathname === '/api/contracts/state') result = await workflow.inspect(input.draft);
+        else if (pathname === '/api/contracts/sign/utility') result = await workflow.sign(input.draft, 'utility', DEMO_ACTORS.utility);
+        else if (pathname === '/api/contracts/sign/landowner') result = await workflow.sign(input.draft, 'landowner', DEMO_ACTORS.landowner);
+        else if (pathname === '/api/contracts/submit') {
+          if (!['normal','recipient-changed','bank-mismatch','insufficient-funds'].includes(input.scenario ?? 'normal')) throw new Error('Unknown development scenario.');
+          result = await workflow.submit(input.draft, DEMO_ACTORS.requester, {scenario:input.scenario ?? 'normal', stage:input.stage ?? 'initial'});
+        }
+        else if (pathname === '/api/contracts/construction-complete') result = await workflow.completeConstruction(input.draft, input.completion, DEMO_ACTORS.construction);
+        else if (pathname === '/api/contracts/reconcile') result = await workflow.reconcile(input.draft, DEMO_ACTORS.requester, {stage:input.stage ?? 'initial'});
+        else if (pathname === '/api/contracts/reject') result = await workflow.reject(input.draft, DEMO_ACTORS.utility, {stage:input.stage ?? 'initial'});
+        else throw new Error('Unknown contract operation.');
+        return result;
+      };
+      if (input.packageId !== undefined && (typeof input.packageId !== 'string' || !/^map-contract-[a-f0-9]{40}$/.test(input.packageId))) throw new Error('Invalid approved map package.');
+      if (input.packageId && !mapService) throw new Error('Map payments require local simulation mode.');
+      const result = input.packageId ? await mapService.execute(input.packageId,dispatch) : await dispatch(workflow);
       reply(res,200,result);
     } catch (error) {
       // Only our own validation messages are returned; upstream keys, URLs and raw payloads never cross this boundary.
