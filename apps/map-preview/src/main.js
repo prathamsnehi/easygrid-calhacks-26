@@ -264,7 +264,7 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
   resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
   getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
-  setNegotiationSource:source=>{refusalDemoActive=false;analysis.settlement.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
+  setNegotiationSource:source=>{refusalDemoActive=false;analysis.settlement.invalidate();contracts.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
   getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{refusalDemoActive=true;return negotiation.runRefusalDemo();}});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,

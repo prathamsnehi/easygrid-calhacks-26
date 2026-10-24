@@ -745,6 +745,9 @@ test('refusal demo bypasses the original owner, simulates all new-route agreemen
   assert.equal(app.elements.get('simulate-refusal').disabled,true);
   assert(after.ownerHandoff.parcels.every(p=>p.terms.outcome==='pending'),'original map estimate stays separate from simulated agreements');
   for(const secret of Object.values(privateUser))assert(!JSON.stringify(agreed).includes(secret));
+  api.setNegotiationSource(null);
+  assert.equal(app.elements.get('cg-proceed').disabled,true,'changing negotiation sources revokes contract readiness');
+  assert.equal(app.elements.get('cg-stale').hidden,false);
   app.click('close-analysis');app.click('recalculate-route');
   assert.equal(api.getNegotiatedHandoff(),null,'old-route agreement is revoked immediately');
   assert.equal(app.elements.get('overview-settlement').disabled,true);
