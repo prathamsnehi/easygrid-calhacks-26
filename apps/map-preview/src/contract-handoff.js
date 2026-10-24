@@ -27,7 +27,7 @@ export function contractSourceFromAgreement(agreement, handoff) {
   const proposal = handoff.ownerHandoff;
   requireState(['sessionId','projectId','routeId','routeVersion'].every(key => packet[key] === proposal[key]) && packet.parcels.length === proposal.parcels.length && new Set(packet.parcels.map(p => p.parcelId)).size === proposal.parcels.length, 'The agreement must cover exactly the current route parcels.');
   const source = {sourceMode:'fixture', sessionId:packet.sessionId,
-    project:{name:'Valley transmission project',developerName:'QuickGrid Demo Development'},
+    project:{name:'Valley transmission project',developerName:'Cal Power',signerName:'Ethan Cole'},
     route:{id:packet.routeId,version:packet.routeVersion,name:`Selected corridor / ${packet.routeId}`},
     negotiation:{id:agreement.negotiationId,version:agreement.negotiationVersion,status:'approved',approvedAt:agreement.approvedAt},
     parcels:packet.parcels.map(parcel => {

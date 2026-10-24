@@ -48,6 +48,29 @@ test('changed fields or versions invalidate signatures and stale revisions canno
   await signBoth(app,edited); assert.equal((await app.flow.submit(edited,DEMO_ACTORS.requester)).payment.status,'paid');
 });
 
+test('persisted signatures from an older approval cannot satisfy the new representative package', async () => {
+  const source = createContractExample(), bank = createDemoBank();
+  const original = createContractWorkflow({source,bank,now:() => now});
+  for (const parcel of source.parcels) {
+    const draft = createContractDraft(source,parcel.parcelId,{now,id:`old-${parcel.parcelId}`});
+    await original.sign(draft,'utility',DEMO_ACTORS.utility);
+    await original.sign(draft,'landowner',DEMO_ACTORS.landowner);
+  }
+  const changed = structuredClone(source); changed.project.signerName = 'New Representative';
+  for (const legacy of [false,true]) {
+    const initialState = original.snapshot();
+    if (legacy) Object.values(initialState.documents).forEach(doc => delete doc.sourceHash);
+    const flow = createContractWorkflow({source:changed,bank,initialState,now:() => now});
+    const first = createContractDraft(changed,'P-004',{now,id:'new-004'});
+    await flow.sign(first,'utility',DEMO_ACTORS.utility);
+    assert.equal((await flow.sign(first,'landowner',DEMO_ACTORS.landowner)).packageReady,false);
+    await assert.rejects(flow.submit(first,DEMO_ACTORS.requester), /Every final-route/);
+    const second = createContractDraft(changed,'P-009',{now,id:'new-009'});
+    await flow.sign(second,'utility',DEMO_ACTORS.utility);
+    assert.equal((await flow.sign(second,'landowner',DEMO_ACTORS.landowner)).packageReady,true);
+  }
+});
+
 test('concurrent submissions, repeated clicks and a new draft ID cannot pay the same obligation twice', async () => {
   const app = setup(); await signBoth(app);
   const results = await Promise.all([app.flow.submit(app.draft,DEMO_ACTORS.requester),app.flow.submit(app.draft,DEMO_ACTORS.requester)]);

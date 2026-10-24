@@ -56,8 +56,9 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     const both = Boolean(execution?.signatures?.utility && execution?.signatures?.landowner);
     el['cg-payment-panel'].hidden = !both && !payment;
     el['cg-completion-panel'].hidden = payment?.status !== 'paid';
-    write('cg-signer-developer', value.fields.developerName);
-    write('cg-signer-owner', source.parcels.find(p => p.parcelId === selected).ownerName);
+    const owner = source.parcels.find(p => p.parcelId === selected);
+    write('cg-signer-developer', source.project.signerName ? `${source.project.signerName} · ${value.fields.developerName}` : value.fields.developerName);
+    write('cg-signer-owner', owner.signerName || owner.ownerName);
     for (const side of ['utility','landowner']) {
       el[`cg-sign-${side}`].disabled = !valid || busy || locked || Boolean(execution?.signatures?.[side]);
       write(`cg-${side}-signature-status`, execution?.signatures?.[side] ? '✓ Signed' : 'Sign ↗');

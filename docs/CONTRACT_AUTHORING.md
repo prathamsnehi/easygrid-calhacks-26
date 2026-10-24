@@ -81,3 +81,9 @@ UI-controller/VM tests verify behavior, not actual browser layout, WebGL or visu
 The main document shows parties, parcel, date, approved access terms, exact milestone amounts and signature status. Identical draft/approved access descriptions are shown once; reviewer notes appear only when present. Source IDs and versions remain available under **Approval reference & versions**.
 
 The right column prioritizes confirmed compensation and two simulated signatures. The initial-payment panel appears after both selected-contract signatures; execution still requires every final-route contract to be signed. Construction controls appear only after the selected initial payment is confirmed. Money, owners, source bindings and server validation are unchanged.
+
+## Named sample signatures
+
+The approved local example uses **Cal Power**, represented by fictional **Ethan Cole**; **Olivia Bennett** represents Willow Creek Orchard and **Daniel Brooks** represents Meadow Ridge Farm. The integrated map also uses Cal Power / Ethan Cole and retains each original synthetic owner alias. Optional `project.signerName` and `parcels[].signerName` values are validated, allowlisted and bound to the source key and document hash. Changing a representative invalidates the prior draft and signatures. Sources without representative names retain their existing canonical shape.
+
+Handwritten-style names appear only after the service records each simulated signature. The document and standalone HTML export include the signer name, organization, date and simulation label. Unsigned agreements retain an empty signature line. This example has a separate session ID so previous demo signatures and payment records are not reused.

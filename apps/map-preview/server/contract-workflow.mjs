@@ -17,6 +17,7 @@ export function createWorkflowState() { return {schemaVersion: 1, documents: {},
 /** Event-driven AP worker. Rules, actor capabilities and evidence control execution, not browser state. */
 export function createContractWorkflow({source, bank, initialState = createWorkflowState(), persist = async () => {}, now = () => new Date().toISOString()}) {
   const approvedSource = normalizeContractSource(source), state = copy(initialState);
+  const sourceHash = digest(contractSourceKey(approvedSource));
   if (state.schemaVersion !== 1 || !state.documents || !state.obligations || !Array.isArray(state.audit) || !Array.isArray(state.journal)) throw new Error('Invalid development ledger.');
   if (state.construction && (state.construction.sessionId !== approvedSource.sessionId || state.construction.routeId !== approvedSource.route.id || state.construction.routeVersion !== approvedSource.route.version)) throw new Error('The construction ledger belongs to another session or route version.');
   let queue = Promise.resolve();
@@ -39,6 +40,8 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       if (other.parcelId === draft.parcelId && other.id !== draft.id && other.hash !== hash) other.signatures = {};
     }
     if (!existing || existing.hash !== hash) state.documents[draft.id] = {id: draft.id, parcelId: draft.parcelId, hash, version: draft.version, signatures: {}};
+    // Older ledger entries become eligible only after their draft is checked against this source.
+    state.documents[draft.id].sourceHash = sourceHash;
     return state.documents[draft.id];
   }
   function constructionState() {
@@ -46,7 +49,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     return state.construction ? copy(state.construction) : {status: 'awaiting-initial-payments', paidCount: initial.filter(payment => payment?.status === 'paid').length, parcelCount: initial.length};
   }
   function packageReady() {
-    return approvedSource.parcels.every(parcel => Object.values(state.documents).some(doc => doc.parcelId === parcel.parcelId &&
+    return approvedSource.parcels.every(parcel => Object.values(state.documents).some(doc => doc.parcelId === parcel.parcelId && doc.sourceHash === sourceHash &&
       doc.signatures.utility?.documentHash === doc.hash && doc.signatures.landowner?.documentHash === doc.hash &&
       (!state.obligations[obligationId(parcel)] || state.obligations[obligationId(parcel)].documentHash === doc.hash)));
   }

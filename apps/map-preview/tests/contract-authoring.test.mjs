@@ -68,6 +68,42 @@ test('the review document shows confirmed terms once and omits empty reviewer no
   for (const value of [source.project.name,source.parcels[0].ownerName,'P-004','Oct 24, 2026','$12,000.00','$2,400.00','$9,600.00']) assert(html.includes(value));
 });
 
+test('representative names are approved inputs and signatures appear only after simulated signing', () => {
+  const source = createContractExample(), draft = create(source), doc = contractDocument(draft, source);
+  assert.equal(doc.developerName, 'Cal Power');
+  assert.equal(doc.developerSignerName, 'Ethan Cole');
+  assert.equal(doc.ownerSignerName, 'Olivia Bennett');
+  assert(!renderContractDocument(draft, source).includes('class="cg-autograph '));
+  const execution = {signatures:{utility:{simulated:true,signedAt:now}}};
+  const html = renderContractDocument(draft, source, execution);
+  assert(html.includes('Simulated signature by Ethan Cole'));
+  assert(!html.includes('Simulated signature by Olivia Bennett'));
+  assert(exportContractHTML(draft, source, execution).includes('.cg-autograph{'));
+  for (const mutate of [s => s.project.signerName = 'Different representative', s => s.parcels[0].signerName = 'Different owner']) {
+    const changed = createContractExample(); mutate(changed);
+    assert.equal(validateContractDraft(draft, changed).valid, false);
+  }
+  for (const mutate of [s => s.project.signerName = '', s => s.parcels[0].signerName = 42]) {
+    const invalid = createContractExample(); mutate(invalid);
+    assert.equal(validateContractSource(invalid).valid, false);
+  }
+  source.project.signerName = '<img src=x onerror=alert(1)>';
+  const escaped = renderContractDocument(create(source), source, execution);
+  assert(!escaped.includes('<img'));
+  assert(escaped.includes('&lt;img src=x onerror=alert(1)&gt;'));
+});
+
+test('sources without representatives preserve their canonical document fields', () => {
+  const source = createContractExample();
+  delete source.project.signerName;
+  source.parcels.forEach(p => delete p.signerName);
+  const normalized = normalizeContractSource(source), doc = contractDocument(create(source), source);
+  assert(!Object.hasOwn(normalized.project, 'signerName'));
+  assert(!Object.hasOwn(normalized.parcels[0], 'signerName'));
+  assert(!Object.hasOwn(doc, 'developerSignerName'));
+  assert(!Object.hasOwn(doc, 'ownerSignerName'));
+});
+
 test('saved drafts restore per parcel and reject stale, corrupt, mismatched or unavailable storage', () => {
   const data = new Map(), storage = {getItem:k => data.get(k) ?? null, setItem:(k,v) => data.set(k,v)}, store = createContractDraftStore(storage);
   const source = createContractExample(), draft = create(source);
