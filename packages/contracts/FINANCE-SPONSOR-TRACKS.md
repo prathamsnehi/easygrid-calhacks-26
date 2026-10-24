@@ -32,6 +32,15 @@ console.log(evidence.transactions.length, evidence.accountVerified); // no keys,
 
 The sandbox account is **NOT** an EasyGrid owner bank reference; do not automatically link evidence to settlement or count unrelated deposits as proof of a payment. Do not use real banking credentials or add the key to a URL visible to the browser. **Real Nessie credentials, a live sandbox call, and a demonstrable use of Nessie inside the submitted project are still required** to credibly claim this sponsor category.
 
+For a **live read-only sandbox smoke test** (in a trusted terminal with provider credentials, never in a browser):
+
+```sh
+cd packages/contracts
+NESSIE_API_KEY='YOUR_SANDBOX_KEY' NESSIE_SANDBOX_ACCOUNT_ID='YOUR_SANDBOX_ACCOUNT' node --experimental-strip-types scripts/nessie-smoke.ts
+```
+
+This command only prints whether sandbox verification succeeded and transaction count. It does not claim any EasyGrid obligation was paid. Run only with your own sandbox test credentials; do not paste the secret into chat, GitHub or CI.
+
 ## Hyphenate: The Hyphenated Enterprise — Autonomous Systems for Finance
 
 `planFinanceAgent` autonomously categorizes finance exceptions, proposes evidence/retry/reconciliation actions and requires human approval before any action is executed. Every recommendation is `autoExecute:false`, preventing an AI decision from mutating compensation or fabricating transfers. Source-of-truth inputs are authoritative CAL-37/38/39 state from the host, with optional Nessie sandbox evidence. The reason trace is deterministic and inspectable.
