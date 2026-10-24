@@ -207,4 +207,13 @@ Connecting GitHub and Linear separately to a coding assistant does not configure
 
 Record the reviewed pull request, tested commit, commands and actual results in the issue. Keep contributor access checks in the team workspace.
 
-Verify the intended integration branch separately from individual component branches. Provider requests, backend provisioning and live calling each need their own evidence before they are marked complete.
+For CAL-28, verify the setup baseline on `main` after merging its setup PR.
+The service workflow runs on pull requests and pushes to `main`, using a fresh
+GitHub runner, Node.js 24 and the committed package lockfiles. It runs Cartesia's
+mocked tests and both packages' typecheck/build commands without provider secrets.
+
+CAL-41 owns assembly and verification of the combined map/contracts/backend
+application; CAL-42 owns the complete demo runs. Those checks require the
+implementation work that follows CAL-28. Completing setup does not establish
+that future application integration. Provider requests, backend provisioning
+and live calling each need their own evidence before they are marked complete.
