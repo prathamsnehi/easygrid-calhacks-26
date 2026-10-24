@@ -1,6 +1,7 @@
 import { analyzeRouteParcels, chooseUserParcel } from './parcel-analysis.js';
 import { createHandoff, validateDemoParticipant, normalizeDemoPhone } from './handoff.js';
 import { DEMO_METERS_PER_TILE } from './cost-model.js';
+import { createNegotiationResultController } from './negotiation-result-controller.js';
 import { createSettlementController } from './settlement-controller.js';
 
 /** Local analysis and an explicit call-request boundary. No direct network or contact storage. */
@@ -28,6 +29,10 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   let negotiationDisplay=new Map();
   let participant=null,handler=null,pending=null,activeHandoff=null,revision=0,callRequested=false,lastDemoReady=false;
   const settlement=createSettlementController({getHandoff});
+  const negotiationResults=createNegotiationResultController({getHandoff,onChange:state=>{
+    if(state.view?.phase!=='finished'||state.view.summary?.disposition!=='successful')settlement.invalidate();
+    renderHandoff();
+  }});
   el['demo-workspace'].dataset.analysisOpen='false';
 
   function feedback(id,message,kind='') {write(id,message);el[id].className=`analysis-feedback${kind?` ${kind}`:''}`;}
@@ -92,6 +97,14 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   }
   function renderHandoff() {
     const current=getHandoff(),ready=current?.callPreparation.status==='ready-for-host-adapter';
+    const saved=negotiationResults.getState(),result=saved.view;
+    if(result||saved.unavailable){
+      el['agent-call'].disabled=true;
+      const label=saved.unavailable&&result?.phase!=='finished'?'STATE UNAVAILABLE':result.phase==='finished'?{successful:'SUCCESSFUL',unsuccessful:'UNSUCCESSFUL',needs_review:'NEEDS REVIEW'}[result.summary.disposition]:result.phase==='confirming'?'CONFIRMING RESULT':'NEGOTIATING';
+      write('handoff-status-badge',`${label}${result?.mode==='simulated'?' · SIMULATED':''}${saved.unavailable&&result?.phase==='finished'?' · OFFLINE':''}`);
+      feedback('handoff-result',saved.unavailable?(result?.phase==='finished'?`${result.summary.explanation} Shared state unavailable; showing the last saved result.`:'Shared state unavailable. The result could not be confirmed as saved.'):result.phase==='finished'?result.summary.explanation:result.phase==='confirming'?'Confirming result…':'Negotiation in progress…',result?.summary?.disposition==='successful'?'success':'');
+      return;
+    }
     el['agent-call'].disabled=liveCallLocked||!ready||!handler||Boolean(pending)||callRequested;
     write('agent-call',pending?'Requesting call…':'Agent call');
     write('handoff-status-badge',liveCallLocked?'DECLINED':current?.userRole.roleOnRoute===false?'OFF ROUTE':callRequested?'REQUEST SENT':pending?'REQUESTING':!handler?'OFFLINE':ready?'READY':'REVIEW');
@@ -181,7 +194,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     el['open-analysis'].disabled=true;
     write('analysis-entry-status','');el['analysis-entry-status'].hidden=true;
     feedback('handoff-result','');
-    if(!next){close({restoreFocus:false});renderParticipant();return;}
+    if(!next){close({restoreFocus:false});renderParticipant();negotiationResults.routeChanged();return;}
     try {
       const computed=analyzeRouteParcels(world,next.route,next.assumptions);
       snapshot=next;analysis=computed;userParcelId??=chooseUserParcel(computed);
@@ -192,6 +205,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       renderConsent();
       el['open-analysis'].disabled=false;renderParticipant();
       if(!el['analysis-panel'].hidden)onFocusParcel(selectedParcelId);
+      negotiationResults.routeChanged();
     } catch {
       snapshot=null;analysis=null;selectedParcelId=null;close({restoreFocus:false});renderParticipant();
       feedback('handoff-result','The parcel analysis could not be verified against this route. Recalculate the connection.','error');
@@ -206,7 +220,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     if(focus)el['user-alias'].focus({preventScroll:true});
   }
   function resetParticipant() {
-    sessionId=newSessionId();userParcelId=null;liveCallLocked=false;snapshot=null;analysis=null;selectedParcelId=null;negotiationDisplay=new Map();
+    negotiationResults.reset();sessionId=newSessionId();userParcelId=null;liveCallLocked=false;snapshot=null;analysis=null;selectedParcelId=null;negotiationDisplay=new Map();
     clearParticipant();
   }
   function editParticipant() {
@@ -269,7 +283,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   el['reset-plan'].addEventListener('click',resetParticipant);
   window.addEventListener('pagehide',()=>clearParticipant('Participant contact cleared. Enter your details again to begin.',false));
   el['agent-call'].addEventListener('click',async()=>{
-    if(liveCallLocked||!handler||!participant||pending||callRequested)return;
+    if(negotiationResults.getState().view||negotiationResults.getState().unavailable||liveCallLocked||!handler||!participant||pending||callRequested)return;
     let handoff;
     try {handoff=getHandoff();}catch {feedback('handoff-result','The route changed. Recalculate before requesting a call.','error');return;}
     if(handoff?.callPreparation.status!=='ready-for-host-adapter')return;
@@ -279,13 +293,13 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     try {
       await handler({handoff,participant:{...participant},signal:controller.signal});
       if(ticket!==revision||controller.signal.aborted)return;
-      pending=null;callRequested=true;feedback('handoff-result','Call request sent to the agent.','success');renderHandoff();
+      pending=null;callRequested=true;if(!negotiationResults.getState().view)feedback('handoff-result','Call request sent to the agent.','success');renderHandoff();
     } catch {
       if(ticket!==revision||controller.signal.aborted)return;
-      pending=null;feedback('handoff-result','The agent could not confirm the request. Check its status before trying again.','error');renderHandoff();
+      pending=null;if(negotiationResults.getState().installed)callRequested=true;feedback('handoff-result','The agent could not confirm the request. Check its status before trying again.','error');renderHandoff();
     }
   });
   renderParticipant();el['user-alias'].focus({preventScroll:true});
   return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,isDemoReady,open,close,settlement,
-    getOriginalRole,setLiveCallLockout,getSessionId:()=>sessionId,setNegotiationDisplay};
+    getOriginalRole,setLiveCallLockout,getSessionId:()=>sessionId,setNegotiationDisplay,negotiationResults};
 }

@@ -1059,3 +1059,37 @@ test('inspection clicks lock parcel selection and frame it without hover-driven 
   }
   assert.deepEqual(app.errors,[]);
 });
+
+test('CAL-34 saved results show precise reasons, block repeat calls and do not reroute',async()=>{
+  const app=boot();placePair(app);await app.flushTimers();
+  let callbacks;
+  app.window.easygridDemo.setNegotiationResultSource(args=>{callbacks=args;args.onReady();});
+  const binding=app.window.easygridDemo.getNegotiationBinding();
+  const handoff=app.window.easygridDemo.getHandoff();const routeBefore=app.canvas.dataset.routeId;
+  const envelope={schemaVersion:1,kind:'easygrid-negotiation-result',eventId:'reviewing',revision:4,saved:true,
+    mapBinding:binding,localParcelId:handoff.userRole.parcelId,mode:'live',phase:'confirming',summary:null};
+  callbacks.onUpdate(envelope);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'CONFIRMING RESULT');
+  const explanation='Owner requested $15,000; our final offer was $12,000. Price too high.';
+  callbacks.onUpdate({...envelope,eventId:'finished',revision:5,phase:'finished',summary:{attemptId:'attempt',mode:'live',
+    disposition:'unsuccessful',reason:'PRICE_REJECTED',outcome:'refused',nextAction:'stop',explanation}});
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'UNSUCCESSFUL');
+  assert.equal(app.elements.get('handoff-result').textContent,explanation);
+  assert(app.elements.get('agent-call').disabled);assert.equal(app.canvas.dataset.routeId,routeBefore);
+  assert(app.elements.get('simulate-refusal').hidden);
+});
+
+test('CAL-34 outage preserves the last saved reason with an offline note',async()=>{
+  const app=boot();placePair(app);await app.flushTimers();let callbacks;
+  app.window.easygridDemo.setNegotiationResultSource(args=>{callbacks=args;args.onReady();});
+  const h=app.window.easygridDemo.getHandoff();
+  callbacks.onUpdate({schemaVersion:1,kind:'easygrid-negotiation-result',eventId:'saved-refusal',revision:5,saved:true,
+    mapBinding:app.window.easygridDemo.getNegotiationBinding(),localParcelId:h.userRole.parcelId,mode:'live',phase:'finished',
+    summary:{attemptId:'attempt',mode:'live',disposition:'unsuccessful',reason:'ACCESS_REFUSED',outcome:'refused',nextAction:'stop',
+      explanation:'Owner declined transmission access across their land. Not interested.'}});
+  callbacks.onUnavailable();
+  assert(app.elements.get('handoff-status-badge').textContent.includes('OFFLINE'));
+  assert(app.elements.get('handoff-result').textContent.includes('Not interested.'));
+  assert(app.elements.get('handoff-result').textContent.includes('last saved result'));
+  assert(app.elements.get('agent-call').disabled);
+});

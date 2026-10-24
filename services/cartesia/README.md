@@ -122,3 +122,23 @@ References: [API conventions](https://docs.cartesia.ai/use-the-api/api-conventio
 [outbound calling](https://docs.cartesia.ai/line/integrations/telephony/outbound-dialing),
 [call records](https://docs.cartesia.ai/api-reference/agents/calls/get-call),
 [Cartesia numbers](https://docs.cartesia.ai/line/integrations/telephony/cartesia-numbers).
+
+
+## CAL-34 decision tools and short calls
+
+`createAgent` accepts optional `toolIds` for provisioned authenticated webhook
+resources and maps them to `config.tools: [{id}]`. `call` accepts optional
+`dynamicVariables`; these are per-call data and do not change a shared prompt.
+Use shared `NEGOTIATION_VOICE_PROMPT` and `negotiationCallVariables(attempt)` after
+CAL-29 prepares/reserves the opening offer. Tool context is never authorization.
+
+`cancelCall(id)` requests provider cancellation, which is supported only for
+`started` calls. `enforceConnectedCallDeadline` checks a persisted connected
+ timestamp against a default 60-second limit; CAL-29/CAL-33 must schedule it.
+It does not install a background timer. Failed cancellation is `unknown`, not
+proof the telephone call ended. The 30–45-second prompt target is separate.
+
+Verified provider contracts: [configuration](https://docs.cartesia.ai/agents/configuration),
+[dynamic variables](https://docs.cartesia.ai/agents/dynamic-variables),
+[webhook authentication](https://docs.cartesia.ai/agents/webhook-tools), and
+[cancellation](https://docs.cartesia.ai/api-reference/agents/calls/cancel-call).

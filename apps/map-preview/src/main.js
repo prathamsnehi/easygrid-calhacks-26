@@ -194,8 +194,9 @@ analysis=createAnalysisController({world:landscape.world,canvas,
 });
 const negotiationMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
 let refusalDemoActive=false;
+let scopedNegotiationSource=false;
 function renderNegotiation(state){
-  const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=negotiation?.hasSource()??false;
+  const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=scopedNegotiationSource||(negotiation?.hasSource()??false);
   const get=id=>document.querySelector(`#${id}`),write=(id,value)=>{get(id).textContent=value;};
   get('negotiation-progress').hidden=!active;
   get('simulate-refusal').hidden=connectedSource;
@@ -260,8 +261,13 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
   setSettlementApproval:approval=>analysis.settlement.setApproval(approval),
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
   resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
+  setNegotiationResultSource:source=>{
+    scopedNegotiationSource=source!==null;refusalDemoActive=false;analysis.settlement.invalidate();
+    if(scopedNegotiationSource)negotiation.setSource(null);
+    analysis.negotiationResults.setSource(source);renderNegotiation(negotiation.getState());
+  },getNegotiationResult:()=>analysis.negotiationResults.getState(),
   getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
-  setNegotiationSource:source=>{refusalDemoActive=false;analysis.settlement.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
+  setNegotiationSource:source=>{if(source!==null&&scopedNegotiationSource)throw new Error('Disconnect the CAL-34 result source before enabling rerouting.');refusalDemoActive=false;analysis.settlement.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
   getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{refusalDemoActive=true;return negotiation.runRefusalDemo();}});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
