@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createAcceptedOwnerHandoff,createOwnerHandoffCurrent} from '../src/owner-handoff.ts';
+import {createAcceptedOwnerHandoff,createOwnerHandoffCurrent} from '../src/owner-handoff-fixtures.ts';
 import {buildCal36FromOwnerHandoff} from '../src/cal36-shared-handoff.ts';
 import {signDemoAgreement} from '../src/cal36-easement.ts';
 import {approveCal37,settleCal37,emptyCal37State} from '../src/cal37-approval.ts';
