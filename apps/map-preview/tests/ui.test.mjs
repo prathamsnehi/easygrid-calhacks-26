@@ -438,7 +438,7 @@ test('participant consent gates a private handoff while shared JSON and saved pl
   enterJudge(app,{consent:false});
   assert.equal(handoffOf(app),null);
   assert.equal(app.elements.get('prepare-handoff').disabled,true);
-  enterJudge(app,{phone:'202-555-0123'});
+  enterJudge(app,{phone:'555-0123'});
   assert.equal(handoffOf(app),null);
   enterJudge(app);await app.flushTimers();
   assert.equal(handoffOf(app).judgeRole.participantReady,true);
@@ -500,7 +500,7 @@ test('the host receives private contact only on explicit preparation and stale a
   const calls=[];let finish;
   app.window.easygridDemo.setHandoffHandler(input=>{calls.push(input);return new Promise(resolve=>{finish=resolve;});});
   app.click('prepare-handoff');assert.equal(calls.length,0);
-  enterJudge(app);
+  enterJudge(app,{phone:'(202) 555-0123'});
   assert.equal(calls.length,0,'saving participant data must never invoke the host');
   placePair(app);await app.flushTimers();
   assert.equal(calls.length,0,'placing facilities must never invoke the host');
@@ -599,7 +599,7 @@ test('changing planner mode closes analysis and parcel inspection highlights the
   assert.deepEqual(app.errors,[]);
 });
 
-test('mandatory onboarding blocks planning until name, international phone and roleplay consent are valid',async()=>{
+test('mandatory onboarding accepts a US national phone but still requires a name and roleplay consent',async()=>{
   const app=boot({autoStart:false}),modal=app.elements.get('demo-onboarding'),workspace=app.elements.get('demo-workspace');
   assert.equal(modal.hidden,false);assert.equal(workspace.inert,true);
   assert.equal(app.elements.get('judge-alias').value,'');assert.equal(app.elements.get('judge-phone').value,'');
@@ -616,14 +616,18 @@ test('mandatory onboarding blocks planning until name, international phone and r
   assert.equal(networkOf(app).children.length,0);
   const escape=app.document.emit('keydown',{key:'Escape'});
   assert.equal(escape.defaultPrevented,true);assert.equal(modal.hidden,false);
-  for(const invalid of [{alias:''},{alias:'   '},{phone:'202-555-0123'},{consent:false}]){
+  for(const invalid of [{alias:''},{alias:'   '},{phone:'555-0123'},{consent:false}]){
     enterJudge(app,invalid);
     assert.equal(modal.hidden,false);assert.equal(workspace.inert,true);
     assert.equal(handoffOf(app),null);assert.equal(app.pendingTimers(),0);
     app.elements.get('next-site').emit('click');app.elements.get('confirm-placement').emit('click');
     assert.equal(app.canvas.dataset.placementCount,'0');
   }
-  enterJudge(app);
+  enterJudge(app,{phone:'202-555-0123',consent:false});
+  assert.equal(modal.hidden,false);
+  assert.equal(app.elements.get('judge-phone').getAttribute('aria-invalid'),'false');
+  assert.equal(app.elements.get('judge-consent').getAttribute('aria-invalid'),'true');
+  enterJudge(app,{phone:'202-555-0123'});
   assert.equal(modal.hidden,true);assert.equal(workspace.inert,false);
   assert.equal(app.elements.get('judge-phone').value,privateJudge.phone);
   placePair(app);await app.flushTimers();app.click('open-analysis');

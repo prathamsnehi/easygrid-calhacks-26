@@ -15,17 +15,32 @@ const route=result.candidates[0],analysis=analyzeRouteParcels(world,route,result
 const input={world,route,analysis,placements,sessionId:'handoff-test-session',routeVersion:4};
 const clone=value=>JSON.parse(JSON.stringify(value));
 
-test('participant setup requires a name, international phone and explicit roleplay consent',()=>{
+test('participant setup requires a name, supported phone and explicit roleplay consent',()=>{
   const accepted=validateDemoParticipant({alias:'  Test participant  ',phone:'+1 (415) 555-0134',consent:true});
   assert.equal(accepted.valid,true);
   assert.deepEqual(accepted.participant,{alias:'Test participant',phoneE164:'+14155550134',consent:true});
   for(const alias of ['', '   ', null])assert.equal(validateDemoParticipant({alias,phone:'+14155550134',consent:true}).valid,false);
-  for(const phone of ['', '4155550134','+0123456789','+14155550134 ext 5','++14155550134','+1234567','+1234567890123456']){
+  for(const phone of ['', '5550134','415555013','41555501345','24155550134','+0123456789','+14155550134 ext 5','++14155550134','+1234567','+1234567890123456']){
     assert.equal(validateDemoParticipant({alias:'Test participant',phone,consent:true}).valid,false,phone);
   }
   for(const consent of [false,undefined,'true',1])assert.equal(validateDemoParticipant({alias:'Test participant',phone:'+14155550134',consent}).valid,false);
   assert.equal(validateDemoParticipant({alias:'A\nB',phone:'+14155550134',consent:true}).valid,false);
   assert.equal(validateDemoParticipant({alias:'x'.repeat(81),phone:'+14155550134',consent:true}).valid,false);
+});
+
+test('US national phone inputs normalize to +1 while explicit international prefixes are preserved',()=>{
+  const cases=[
+    ['4155550134','+14155550134'],['(415) 555-0134','+14155550134'],
+    [' 415.555.0134 ','+14155550134'],['1 (415) 555-0134','+14155550134'],
+    ['+1 415 555 0134','+14155550134'],['+82 10 0000 0000','+821000000000'],
+    ['+44 7700 900123','+447700900123'],
+  ];
+  for(const [phone,expected] of cases){
+    const result=validateDemoParticipant({alias:'Test participant',phone,consent:true});
+    assert.equal(result.valid,true,phone);
+    assert.equal(result.participant.phoneE164,expected,phone);
+    assert.equal(validateDemoParticipant({alias:'Test participant',phone:expected,consent:true}).participant.phoneE164,expected);
+  }
 });
 
 test('every selected route receives exactly one in-route judge role without changing fixture owners',()=>{

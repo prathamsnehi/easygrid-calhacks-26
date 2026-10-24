@@ -131,21 +131,19 @@
   <div class="map-tools"><button id="reset-view" class="quiet-button" type="button">↗ Fit map</button><span id="map-help">Drag to rotate · Shift-drag to pan · Scroll to zoom</span></div>
   <p id="save-note" class="save-note" role="status" hidden></p>
   </div>
-  <section id="demo-onboarding" class="demo-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="onboarding-copy">
+  <section id="demo-onboarding" class="demo-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="judge-phone-help">
     <div class="onboarding-card">
-      <div class="onboarding-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>EASYGRID</span><span class="onboarding-tag">INTERACTIVE DEMO</span></div>
-      <div class="onboarding-intro"><span class="eyebrow">BEFORE WE BEGIN</span><h1 id="onboarding-title">Your land. Our next connection.</h1><p id="onboarding-copy">Join as a landowner in a fictional California valley. After you place both facilities, one parcel along the recommended route will become your demo property.</p></div>
+      <div class="onboarding-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="onboarding-title">EASYGRID</span></div>
       <form id="judge-form" class="judge-form" autocomplete="off" novalidate>
-        <label for="judge-alias">Your name <span>required</span></label>
+        <label for="judge-alias">Name</label>
         <input id="judge-alias" type="text" maxlength="80" autocomplete="off" placeholder="Enter your name" required aria-required="true">
-        <label for="judge-phone">Phone number <span>international format</span></label>
-        <input id="judge-phone" type="tel" inputmode="tel" maxlength="32" autocomplete="off" placeholder="+1 415 555 0123" required aria-required="true" aria-describedby="judge-phone-help">
-        <p id="judge-phone-help" class="field-help">Include your country code. Your name and number stay in this page and are excluded from exported files.</p>
+        <label for="judge-phone">Phone number <span>country code optional</span></label>
+        <input id="judge-phone" type="tel" inputmode="tel" maxlength="32" autocomplete="off" placeholder="(415) 555-0123" required aria-required="true" aria-describedby="judge-phone-help">
+        <p id="judge-phone-help" class="field-help">US country code (+1) is added automatically. Contact details are excluded from exported files.</p>
         <label class="consent-label" for="judge-consent"><input id="judge-consent" type="checkbox" required aria-required="true"><span>I agree to receive an AI demo call at this number and understand that I am playing a fictional landowner.</span></label>
         <div class="judge-form-actions"><button id="save-judge" class="primary-button" type="submit">Start demo <span aria-hidden="true">→</span></button><button id="clear-judge" class="quiet-button muted" type="button">Clear</button></div>
       </form>
-      <p id="judge-form-status" class="analysis-feedback" role="status">Enter your name and phone number, then confirm consent to begin.</p>
-      <p class="onboarding-note">Starting the demo does not place a call. You can edit your details from the map at any time.</p>
+      <p id="judge-form-status" class="analysis-feedback" role="status"></p>
     </div>
   </section>
   <div id="error" role="alert" hidden>The 3D map could not be displayed. Open it in a browser with WebGL support.</div>

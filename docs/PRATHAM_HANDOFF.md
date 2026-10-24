@@ -6,7 +6,7 @@ This slice collects a consented demo participant before planning, then prepares 
 
 ## Operator flow
 
-1. On **Start demo**, enter the participant's name and international phone number, then check the explicit AI roleplay call consent box. All three are required. Select **Start demo** to validate registration and unlock planning. This does not deliver private data to the host or start a call.
+1. On **Start demo**, enter the participant's name and phone number, then check the explicit AI roleplay call consent box. All three are required. US 10-digit numbers receive `+1` automatically; an 11-digit number starting with `1` is also accepted, and explicit international prefixes are preserved. The private callback receives the normalized `phoneE164` value. Select **Start demo** to validate registration and unlock planning. This does not deliver private data to the host or start a call.
 2. Place **A · Substation** and **B · Data center**. Review the recommended connection or choose another route.
 3. The app binds the registered participant to exactly one affected parcel on the selected route, including the recommended optimal route. It retains that parcel on route changes when possible; otherwise it chooses another affected parcel deterministically. The base owner and parcel fixtures remain unchanged.
 4. Choose **Analyze affected parcels** to open **Land & people**. Each affected parcel shows its owner role, crossed centerline length, pylons/foundation area, fictional upfront compensation and rent. The participant summary uses the startup registration; there is no second participant-entry form.

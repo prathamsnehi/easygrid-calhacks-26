@@ -1,5 +1,5 @@
 import { analyzeRouteParcels, chooseJudgeParcel } from './parcel-analysis.js';
-import { createHandoff, validateDemoParticipant } from './handoff.js';
+import { createHandoff, validateDemoParticipant, normalizeDemoPhone } from './handoff.js';
 
 /** Local analysis and an explicit, contact-private integration boundary. No calls or storage. */
 export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onJudgeRoleChange=()=>{},onDemoReadyChange=()=>{}}) {
@@ -158,7 +158,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       write('analysis-entry-status','Parcel analysis is unavailable. Recalculate the connection.');el['analysis-entry-status'].hidden=false;
     }
   }
-  function clearParticipant(message='Participant contact cleared. Enter your details and confirm consent to begin.',focus=true) {
+  function clearParticipant(message='Details cleared.',focus=true) {
     invalidateHandoff();participant=null;el['judge-alias'].value='';el['judge-phone'].value='';el['judge-consent'].checked=false;
     feedback('judge-form-status',message);feedback('handoff-result','Personal contact details are excluded from the route export.');renderParticipant();
     for(const id of ['judge-alias','judge-phone','judge-consent'])el[id].setAttribute('aria-invalid','false');
@@ -198,7 +198,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   });
   for(const id of ['judge-alias','judge-phone','judge-consent'])el[id].addEventListener('input',()=>{
     invalidateHandoff();participant=null;el[id].setAttribute('aria-invalid','false');
-    feedback('judge-form-status','Enter your name and phone number, then confirm consent to begin.');
+    feedback('judge-form-status','');
     feedback('handoff-result','Start the demo before preparing a private contact handoff.');renderParticipant();
   });
   el['judge-form'].addEventListener('submit',event=>{
@@ -208,9 +208,9 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     feedback('judge-form-status',validation.valid?'Demo started. No call has been placed.':validation.errors.join(' '),validation.valid?'success':'error');
     if(participant){el['judge-alias'].value=participant.alias;el['judge-phone'].value=participant.phoneE164;}
     feedback('handoff-result','Export remains contact-free. A connected host is required to prepare the participant handoff.');renderParticipant();
-    const name=el['judge-alias'].value.trim(),phone=el['judge-phone'].value.trim().replace(/[\s().-]/g,'');
+    const name=el['judge-alias'].value.trim(),phone=normalizeDemoPhone(el['judge-phone'].value);
     const fields=[['judge-alias',Boolean(name)&&name.length<=80&&!/[\u0000-\u001f\u007f]/.test(name)],
-      ['judge-phone',/^\+[1-9]\d{7,14}$/.test(phone)],['judge-consent',el['judge-consent'].checked===true]];
+      ['judge-phone',Boolean(phone)],['judge-consent',el['judge-consent'].checked===true]];
     for(const [id,valid] of fields)el[id].setAttribute('aria-invalid',String(!valid));
     if(participant)(getPlacements().substation?canvas:el['step-a']).focus({preventScroll:true});
     else el[fields.find(([,valid])=>!valid)?.[0]??'judge-alias'].focus({preventScroll:true});

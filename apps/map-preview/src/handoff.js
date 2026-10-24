@@ -20,14 +20,22 @@ function finite(value,label,min=0){if(!Number.isFinite(value)||value<min)throw n
 function total(values,label){return integer(values.reduce((sum,value)=>sum+integer(value,label),0),label);}
 function equalIds(a,b){return a.length===b.length&&[...a].sort().every((id,index)=>id===[...b].sort()[index]);}
 
+/** Default national-format numbers to +1; explicit international prefixes are preserved. */
+export function normalizeDemoPhone(phone) {
+  if(typeof phone!=='string')return null;
+  let normalized=phone.trim().replace(/[\s().-]/g,'');
+  if(/^\d{10}$/.test(normalized))normalized=`+1${normalized}`;
+  else if(/^1\d{10}$/.test(normalized))normalized=`+${normalized}`;
+  return /^\+[1-9]\d{7,14}$/.test(normalized)?normalized:null;
+}
+
 /** No network, persistence or logging. The normalized participant is private adapter input. */
 export function validateDemoParticipant({alias='',phone='',consent=false}={}) {
   const errors=[];
   const name=typeof alias==='string'?alias.trim():'';
   if(typeof alias!=='string'||name.length===0||name.length>80||/[\u0000-\u001f\u007f]/.test(name))errors.push('Enter a participant name of 1 to 80 characters on one line.');
-  const entered=typeof phone==='string'?phone.trim():'';
-  const phoneE164=entered.replace(/[\s().-]/g,'');
-  if(!/^\+[1-9]\d{7,14}$/.test(phoneE164))errors.push('Enter an international phone number, including + and country code.');
+  const phoneE164=normalizeDemoPhone(phone);
+  if(!phoneE164)errors.push('Enter a 10-digit US number or an international number with + and country code.');
   if(consent!==true)errors.push('Confirm that this participant agreed to receive the AI roleplay demo call.');
   return {valid:errors.length===0,errors,
     participant:errors.length?null:{alias:name,phoneE164,consent:true}};
