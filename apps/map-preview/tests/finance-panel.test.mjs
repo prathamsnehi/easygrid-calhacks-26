@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {financeHandoffView,emptyFinanceState,financeAction,financeTotals} from '../src/finance-panel.js';
+import {financeHandoffView,emptyFinanceState,financeAction,financeTotals,financeContractPreview,financeMonitoring} from '../src/finance-panel.js';
 const handoff=()=>({kind:'easygrid-map-handoff',sessionId:'test-s',routeVersion:1,
  snapshot:{project:{selectedRouteId:'route-A'},routes:[{id:'route-A',parcelIds:['L001','L002']}]},
  parcelAnalysis:[{parcelId:'L001',ownerId:'O001',ownerAlias:'Morgan Reed',upfrontCents:1200000,monthlyRentEquivalentCents:30000,monthlyRentIsApproximate:false},
@@ -48,4 +48,29 @@ test('route/revision/term change blocks old signed session',()=>{
  const next=handoff();next.routeVersion=2;
  const altered=financeHandoffView(next);
  assert.throws(()=>financeAction(altered,f.s,'approve'),/Route/);
+});
+
+test('CAL-36 previews display versions and exact 20/80 split; regeneration voids simulated signatures',()=>{
+ const f=setup();apply(f,'prepare');
+ const p=financeContractPreview(f.view,f.s,'L001');
+ assert.match(p.text,/SIMULATED EASEMENT/);
+ assert.match(p.text,/2,400\.00/);
+ assert.match(p.text,/9,600\.00/);
+ assert.match(p.text,/NOT SPACETIMEDB APPROVED CONTRACT/);
+ apply(f,'sign:L001');
+ assert.equal(f.s.signatureReceipts.L001.contractVersion,1);
+ apply(f,'regenerate');
+ assert.equal(f.s.contractVersion,2);
+ assert.equal(f.s.signed.length,0);
+ assert.equal(f.s.signatureReceipts.L001,undefined);
+ assert.throws(()=>apply(f,'approve'),/sign/);
+});
+test('Hyphenate status is explicitly local rules, and failed attempt history remains visible after retry',()=>{
+ const f=setup();for(const a of ['prepare','sign:L001','sign:L002','approve','first-fail','first'])apply(f,a);
+ assert.equal(f.s.attempts.filter(x=>x.stage==='20%').length,4);
+ assert.deepEqual(f.s.attempts.map(x=>x.status),['attempted','attempted','paid','paid']);
+ const report=financeMonitoring(f.view,f.s);
+ assert.equal(report.source,'local-deterministic-rules');
+ assert.equal(report.autoExecute,false);
+ assert.match(report.issues.join(' '),/Failed payment attempts/);
 });
