@@ -12,7 +12,8 @@ const fail=(m:string):never=>{throw Error(m)};
 function verify(packet:OwnerHandoff,first:Cal37State,state:FollowupState,revision:number){
  if(revision!==state.revision)fail('Stale authoritative revision');
  const approval=first.approval;
- if(!approval||approval.sessionId!==packet.sessionId||
+ if(!approval)fail('Current manager approval required');
+ if(approval.sessionId!==packet.sessionId||
  approval.routeId!==packet.routeId||approval.routeVersion!==packet.routeVersion)
  fail('Current manager approval required');
  if(first.ledger.length!==packet.parcels.length)fail('All 20% payments required');
@@ -54,6 +55,7 @@ export function settleFollowup(packet:OwnerHandoff,first:Cal37State,state:Follow
  if(request.stage==='monthly_fee'&&state.entries.filter(e=>e.stage==='completion_balance'&&e.status==='paid').length!==packet.parcels.length)
  fail('80% balances must settle before rent');
  const completedOn=state.completedOn;
+ if(!completedOn)fail('Completion required');
  const due=request.stage==='monthly_fee'?monthlyFeeDueDate(completedOn,request.monthlyIndex!):completedOn;
  if(request.asOfDate<due)fail('Payment not yet due');
  const period=request.stage==='monthly_fee'?due.slice(0,7):null;
