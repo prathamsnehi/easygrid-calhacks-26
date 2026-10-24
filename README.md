@@ -4,6 +4,10 @@ Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → 
 
 The repository contains the [shared contract and TypeScript client](packages/contracts/README.md), the [owner handoff and development samples](docs/OWNER_HANDOFF.md) (CAL-27), and the [interactive map planner](apps/map-preview/README.md) (CAL-26). The planner supports A/B placement, transmission route comparison, affected-parcel analysis and a consented user roleplay handoff for Pratham's voice integration.
 
+The team baseline also includes the existing [Cartesia service](services/cartesia/README.md), [SpacetimeDB setup](services/spacetimedb/README.md) and [shared development setup](docs/shared-setup.md). These services still need to be connected to the map through the documented handoff.
+
+For a ready-to-open download, see [web preview instructions](apps/map-preview/PREVIEW.md).
+
 From the repository root, use Node 24 (also used by the map CI):
 
 ```sh
@@ -31,3 +35,9 @@ AI model API: **Claude**. Target shared backend: **SpacetimeDB**. Voice/telephon
 - [Project and work ownership](https://linear.app/easygrid-calhacks-2026/project/transmission-ai-agent-9897ba9eb980/issues)
 
 All product UI text is English. Fixtures use synthetic parties, illustrative parcels and mock settlement. No live calls, real signatures, payments or regulatory approvals are claimed.
+
+## Continue development
+
+Use the latest `main` as the shared starting point. Before starting a feature, fetch the repository updates and create a branch named for its Linear issue. Existing feature branches should integrate the latest `main`, preserve both sides of any conflict, and rerun their relevant checks before opening or updating a PR.
+
+Pratham's voice integration and Seohyun's agreement/settlement work can build on the map, shared contracts and owner-handoff samples here. Keep integration and end-to-end verification tasks open until their actual runtime behavior is demonstrated. Do not treat the standalone preview as a connected call or payment service.

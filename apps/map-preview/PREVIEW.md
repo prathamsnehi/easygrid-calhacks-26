@@ -3,7 +3,7 @@
 No Node.js, package installation or local server is required for the downloaded preview.
 
 1. Sign in to GitHub with an account that can access the repository.
-2. Open [PR #8](https://github.com/prathamsnehi/easygrid-calhacks-26/pull/8), then its latest successful **Map and parcel handoff** Actions run.
+2. Open [Map and parcel handoff runs on main](https://github.com/prathamsnehi/easygrid-calhacks-26/actions/workflows/map-preview.yml?query=branch%3Amain), then the latest successful run. For an unmerged change, use that PR's successful run instead.
 3. Download **easygrid-web-preview** from the run's **Artifacts** section and unzip it.
 4. Open the extracted **index.html** in a desktop browser with WebGL enabled.
 
@@ -19,10 +19,10 @@ The preview contains the CAL-30 construction-price model and minimum 1.6-second 
 
 ## Build from source instead
 
-Latest preview branch: `theo/cal-30-transmission-pricing-loading` (PR #8, not yet merged into `main`). In a fresh clone:
+Use the integrated `main` branch. In a fresh clone:
 
 ```sh
-git clone --branch theo/cal-30-transmission-pricing-loading https://github.com/prathamsnehi/easygrid-calhacks-26.git
+git clone --branch main https://github.com/prathamsnehi/easygrid-calhacks-26.git
 cd easygrid-calhacks-26
 node apps/map-preview/build.mjs
 ```
