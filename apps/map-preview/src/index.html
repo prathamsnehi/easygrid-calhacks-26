@@ -117,6 +117,11 @@
           <button id="agent-call" class="primary-button" type="button" disabled>Agent call</button>
           <p id="handoff-result" class="analysis-feedback" role="status"></p>
         </div>
+        <div class="handoff-box contract-entry-box">
+          <div class="analysis-section-heading"><h3>Contracts <small>Draft authoring</small></h3></div>
+          <button id="contract-proceed" class="primary-button" type="button" aria-describedby="contract-entry-status" disabled>Proceed to contract</button>
+          <p id="contract-entry-status" class="analysis-feedback" role="status">Awaiting approved negotiation</p>
+        </div>
         <div class="handoff-box settlement-box">
           <div class="analysis-section-heading"><h3>Settlement <small>Simulated</small></h3><span id="settlement-status" class="role-badge">Awaiting approval</span></div>
           <button id="settle-payment" class="primary-button settlement-button" type="button" aria-describedby="settlement-status settlement-feedback" disabled>Settle</button>
@@ -143,6 +148,7 @@
       <p id="user-form-status" class="analysis-feedback" role="status"></p>
     </div>
   </section>
+  <!-- CONTRACT_WORKSPACE -->
   <div id="error" role="alert" hidden>The 3D map could not be displayed. Open it in a browser with WebGL support.</div>
   <!-- APP_SCRIPT -->
 </body>

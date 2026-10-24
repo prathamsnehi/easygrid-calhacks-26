@@ -1,13 +1,17 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { createContractAPI } from './server/contract-api.mjs';
+const contractAPI=await createContractAPI();
 const resources=new Map([
   ['/', ['index.html','text/html; charset=utf-8']],
   ['/index.html', ['index.html','text/html; charset=utf-8']],
+  ['/contracts.html', ['contracts.html','text/html; charset=utf-8']],
   ['/parcel-fixtures.json', ['parcel-fixtures.json','application/json; charset=utf-8']],
   ['/demo-handoff-example.json', ['demo-handoff-example.json','application/json; charset=utf-8']],
 ]);
 createServer(async (req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
+  if(await contractAPI(req,res,path))return;
   if(path==='/favicon.ico'){res.writeHead(204).end();return;}
   const resource=resources.get(path);
   if(!resource){res.writeHead(404).end('Not found.');return;}

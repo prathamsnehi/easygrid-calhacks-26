@@ -3,6 +3,7 @@ import { createLandscape } from './landscape.js';
 import { createPlanner } from './planner.js';
 import { createRouteController } from './route-controller.js';
 import { createAnalysisController } from './analysis-controller.js';
+import { createContractEntry } from './contract-entry.js';
 
 const canvas = document.querySelector('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -67,6 +68,7 @@ let width = 1, height = 1, raf = 0;
 let planner = null;
 let routing = null;
 let analysis = null;
+let contracts = null;
 let demoReady = false;
 const pointers = new Map();
 let pinchDistance = 0;
@@ -189,13 +191,17 @@ analysis=createAnalysisController({world:landscape.world,canvas,
     planner.focusAnalysisParcel(parcelId);
   },
   onUserRoleChange:()=>planner.refreshParcelRoles(),
+  onContextInvalidated:()=>contracts?.invalidate(),
 });
+contracts=createContractEntry({getHandoff:()=>analysis.getHandoff()});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
   getSettlementBinding:()=>analysis.settlement.getBinding(),
   setSettlementApproval:approval=>analysis.settlement.setApproval(approval),
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
-  resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result)});
+  resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
+  getContractBinding:()=>contracts.getBinding(),
+  setContractNegotiation:value=>contracts.setNegotiation(value)});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),
