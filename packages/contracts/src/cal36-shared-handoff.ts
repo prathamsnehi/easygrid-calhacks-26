@@ -4,7 +4,7 @@
  * endpoint or evidence that CAL-27's authoritative revised schema is deployed.
  */
 import { z } from 'zod';
-import { createDemoAgreements, type DemoAgreementPackage, type FinalRoute, EasementError } from './cal36-easement.ts';
+import { createDemoAgreements, isAgreementPackageReady, type DemoAgreementPackage, type FinalRoute, EasementError } from './cal36-easement.ts';
 const Id=z.string().min(1).max(128);
 const Cents=z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Version=z.number().int().min(1);
@@ -131,4 +131,37 @@ export function buildCal36FromOwnerHandoff(
       parcelId:p.parcelId,ownerId:p.ownerId,
       paymentRecipientRef:owners.get(p.ownerId)!.banking.paymentRecipientRef
     }))};
+}
+
+/** CAL-36 signing boundary: only a fully signed, unchanged package can advance to CAL-37. */
+export function finalizeCal36ApprovalPackage(
+  initial: Cal36ApprovalPackage,
+  signed: DemoAgreementPackage,
+): Cal36ApprovalPackage {
+  if (initial.packageHash !== initial.agreementPackage.packageHash ||
+      signed.packageHash !== initial.packageHash ||
+      signed.sessionId !== initial.agreementPackage.sessionId ||
+      signed.projectId !== initial.agreementPackage.projectId ||
+      signed.routeId !== initial.agreementPackage.routeId ||
+      signed.routeVersion !== initial.agreementPackage.routeVersion ||
+      signed.agreements.length !== initial.agreementPackage.agreements.length) {
+    throw new EasementError('STALE_VERSION', 'Signed package does not match the issued approval package');
+  }
+  const originals = new Map(initial.agreementPackage.agreements.map(a => [a.id, a]));
+  const seen = new Set<string>();
+  for (const agreement of signed.agreements) {
+    const original = originals.get(agreement.id);
+    if (!original || seen.has(agreement.id) ||
+        original.contentHash !== agreement.contentHash ||
+        original.parcelId !== agreement.parcelId ||
+        original.ownerId !== agreement.ownerId ||
+        original.paymentRecipientRef !== agreement.paymentRecipientRef) {
+      throw new EasementError('STALE_VERSION', 'Signed agreement differs from the issued agreement');
+    }
+    seen.add(agreement.id);
+  }
+  if (!isAgreementPackageReady(signed)) {
+    throw new EasementError('BLOCKED_STATE', 'Every current agreement needs a valid simulated signature');
+  }
+  return { ...initial, agreementPackage: signed, readyForApproval: true };
 }
