@@ -9,16 +9,19 @@ const Id=z.string().min(1).max(128);
 const Cents=z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Version=z.number().int().min(1);
 const Accepted=z.strictObject({
-  parcelId:Id,ownerId:Id,ownerAlias:Id,termsVersion:Version,
+  parcelId:Id,ownerId:Id,ownerAlias:Id.optional(),termsVersion:Version,
   outcome:z.literal('accepted'),confirmationRef:Id,
   compensationCents:Cents,monthlyFeeCents:Cents,paymentRecipientRef:Id,
-  corridorDescription:Id,accessConditions:z.array(Id).min(1),
+  corridorDescription:Id.optional(),accessConditions:z.array(Id).min(1).optional(),
 });
 export const Cal36HandoffSchema=z.strictObject({
   sessionId:Id,projectId:Id,routeId:Id,routeVersion:Version,
   routeStatus:z.literal('ready_for_agreements'),
   currency:z.literal('USD'),operatorAlias:Id,
   finalParcelIds:z.array(Id).min(1),acceptedTerms:z.array(Accepted).min(1),
+  // Enrichment supplied by the authoritative parcel/owner registry, not the LLM.
+  parcelDetails:z.array(z.strictObject({parcelId:Id,ownerId:Id,ownerAlias:Id,
+    corridorDescription:Id,accessConditions:z.array(Id).min(1)})).optional(),
   totalCompensationCents:Cents,totalMonthlyFeeCents:Cents,
 });
 export type Cal36Handoff=z.infer<typeof Cal36HandoffSchema>;
@@ -44,6 +47,15 @@ export function buildCal36ApprovalPackage(input:unknown):Cal36ApprovalPackage {
   if(sum(x.acceptedTerms.map(t=>t.compensationCents))!==x.totalCompensationCents ||
      sum(x.acceptedTerms.map(t=>t.monthlyFeeCents))!==x.totalMonthlyFeeCents)
     throw new EasementError('INVALID_AMOUNT','Handoff totals disagree with accepted parcel terms');
+  const details=new Map((x.parcelDetails??[]).map(p=>[p.parcelId,p]));
+  if(details.size!==(x.parcelDetails??[]).length) throw new EasementError('INVALID_INPUT','Duplicate parcel details');
+  for(const t of x.acceptedTerms){
+    const d=details.get(t.parcelId);
+    if(d && d.ownerId!==t.ownerId) throw new EasementError('INVALID_INPUT','Parcel owner mismatch');
+    if(!(t.ownerAlias??d?.ownerAlias) || !(t.corridorDescription??d?.corridorDescription) ||
+      !(t.accessConditions??d?.accessConditions)?.length)
+      throw new EasementError('MISSING_TERMS','Parcel owner/corridor/access context required');
+  }
   const owners=new Map<string,string>();
   for(const t of x.acceptedTerms){
     const prev=owners.get(t.ownerId);
@@ -56,11 +68,12 @@ export function buildCal36ApprovalPackage(input:unknown):Cal36ApprovalPackage {
     routeVersion:x.routeVersion,status:'ready_for_agreements',operatorAlias:x.operatorAlias,
     parcelIds:x.finalParcelIds,
     terms:x.acceptedTerms.map(t=>({
-      parcelId:t.parcelId,ownerId:t.ownerId,ownerAlias:t.ownerAlias,termsVersion:t.termsVersion,
+      parcelId:t.parcelId,ownerId:t.ownerId,ownerAlias:t.ownerAlias??details.get(t.parcelId)!.ownerAlias,termsVersion:t.termsVersion,
       outcome:'accepted',explicitConfirmation:true,evidenceRefs:[t.confirmationRef],
       confirmationRef:t.confirmationRef,paymentRecipientRef:t.paymentRecipientRef,
       compensationCents:t.compensationCents,monthlyRentCents:t.monthlyFeeCents,
-      corridorDescription:t.corridorDescription,accessConditions:t.accessConditions
+      corridorDescription:t.corridorDescription??details.get(t.parcelId)!.corridorDescription,
+      accessConditions:t.accessConditions??details.get(t.parcelId)!.accessConditions
     }))
   };
   const agreementPackage=createDemoAgreements(route);
