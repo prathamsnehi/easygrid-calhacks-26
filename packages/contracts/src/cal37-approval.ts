@@ -9,7 +9,7 @@ import { type DemoAgreementPackage, EasementError } from './cal36-easement.ts';
 import { assertAgreementReady, createSettlementPlan, settlementObligationId, type CurrentHandoffState, type OwnerHandoff } from './owner-handoff.ts';
 
 export type Cal37Approval = {
-  approvalId:string; managerAlias:string; approvedAt:string; simulated:true;
+  approvalId:string; managerAlias:string; operatorAlias:string; approvedAt:string; simulated:true;
   sessionId:string; projectId:string; routeId:string; routeVersion:number;
   revision:number; packageHash:string;
   termsVersions:Record<string,number>; contractVersions:Record<string,number>;
@@ -81,7 +81,7 @@ export function approveCal37(input:{
  const contractVersions=Object.fromEntries(input.signed.agreements.map(a=>[a.id,a.contractVersion]));
  const approvalId=stableId(packet.sessionId,packet.routeId,current.revision,expected.packageHash,input.managerAlias);
  return {revision:state.revision+1,ledger:[],approval:{
-  approvalId,managerAlias:input.managerAlias,approvedAt:input.approvedAt,simulated:true,
+  approvalId,managerAlias:input.managerAlias,operatorAlias:input.operatorAlias,approvedAt:input.approvedAt,simulated:true,
   sessionId:packet.sessionId,projectId:packet.projectId,routeId:packet.routeId,
   routeVersion:packet.routeVersion,revision:current.revision,
   packageHash:expected.packageHash,termsVersions,contractVersions
@@ -100,9 +100,7 @@ export function settleCal37(input:{
  const approval=state.approval;
  assertCurrentApproval(packet,current,approval);
  if(input.signed.packageHash!==approval.packageHash)fail('STALE_VERSION','Package hash changed after approval');
- const rebuilt=buildCal36FromOwnerHandoff(packet,current,
-   // operator alias is embedded in contract previews; use immutable signed content for full check below.
-   extractOperatorAlias(input.signed));
+ const rebuilt=buildCal36FromOwnerHandoff(packet,current,approval.operatorAlias);
  if(rebuilt.packageHash!==approval.packageHash)fail('STALE_VERSION','Approved package no longer matches accepted terms');
  const original=rebuilt.agreementPackage.agreements;
  if(input.signed.agreements.length!==original.length)fail('BLOCKED_STATE','Incomplete contracts');
@@ -180,12 +178,4 @@ export function cal37Status(state:Cal37State){
   attempted:state.ledger.filter(e=>e.status==='attempted').length,
   paid:state.ledger.filter(e=>e.status==='paid').length,
   simulated:true,label:'SIMULATED LEDGER — NO REAL FUNDS TRANSFERRED'};
-}
-function extractOperatorAlias(pkg:DemoAgreementPackage):string {
- const preview=pkg.agreements[0]?.preview??'';
- const line=preview.split('\n').find(l=>l.startsWith('Parties: '));
- if(!line)fail('INVALID_INPUT','Missing operator in signed agreement');
- const alias=line.slice('Parties: '.length).split(' / ')[0]??'';
- if(!validText(alias))fail('INVALID_INPUT','Invalid operator alias');
- return alias;
 }
