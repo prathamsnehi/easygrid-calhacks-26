@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e4e6d8">
+  <title>QuickGrid · Site Planning</title>
+  <style>/* APP_STYLES */</style>
+</head>
+<body>
+  <div id="demo-workspace" inert aria-hidden="true">
+  <header class="toolbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><div><strong>QUICKGRID</strong><span>Fictional site simulation</span></div></div>
+    <nav class="steps" aria-label="Facility placement steps">
+      <button id="step-a" class="step" type="button" aria-pressed="true"><b>A</b><span>Substation<small id="a-status">Choose a site</small></span><i class="step-check" aria-hidden="true">✓</i></button>
+      <span class="step-divider" aria-hidden="true"></span>
+      <button id="step-b" class="step" type="button" aria-pressed="false" disabled><b>B</b><span>Data center<small id="b-status">Next step</small></span><i class="step-check" aria-hidden="true">✓</i></button>
+      <span class="step-divider" aria-hidden="true"></span>
+      <button id="step-route" class="step" type="button" aria-pressed="false" disabled><b>C</b><span>Transmission<small id="route-status">Place both sites</small></span><i class="step-check" aria-hidden="true">✓</i></button>
+    </nav>
+    <div class="toolbar-actions"><button id="edit-participant" class="quiet-button" type="button">Participant</button><button id="inspect-parcels" class="quiet-button" type="button" aria-pressed="false">Parcels <span id="parcel-count">24</span></button><button id="reset-plan" class="quiet-button muted" type="button" disabled>Reset plan</button></div>
+  </header>
+  <main id="viewport">
+    <canvas id="map-canvas" tabindex="0" aria-label="Fictional 3D map. Click to place a facility. Drag with one finger or the primary mouse button to pan. Drag with two fingers, Shift-drag or right-drag to rotate and tilt. Pinch or scroll to zoom. Keyboard users can use Find open site and Place here."></canvas>
+    <div class="facility-labels"><button id="label-a" class="facility-label" type="button" hidden><b>A</b>Substation <span>Move</span></button><button id="label-b" class="facility-label" type="button" hidden><b>B</b>Data center <span>Move</span></button></div>
+  </main>
+  <aside id="context-card" class="context-card" aria-label="Site selection details">
+    <div class="card-heading"><span id="card-kicker" class="eyebrow">STEP 01 / 03</span><span id="size-badge" class="size-badge">12 × 10</span></div>
+    <h1 id="card-title">Choose a site for the substation</h1>
+    <p id="card-copy">Hover over open land to preview the full footprint.</p>
+    <div id="placement-info">
+      <div id="validation" class="validation neutral" role="status"><span class="status-dot"></span><span id="validation-text">Choose a location.</span></div>
+      <div id="site-meta" class="site-meta"><span id="footprint-meta">Footprint: 120 tiles</span><span id="parcel-meta">Parcels —</span></div>
+      <div class="card-actions"><button id="next-site" class="secondary-button" type="button">Find open site</button><button id="confirm-placement" class="primary-button" type="button" disabled>Place here</button></div>
+    </div>
+    <dl id="parcel-details" class="parcel-details" hidden>
+      <div><dt>Owner</dt><dd id="owner-name"></dd></div>
+      <div><dt>Phone</dt><dd id="owner-phone"></dd></div>
+      <div><dt>Email</dt><dd id="owner-email"></dd></div>
+      <div><dt>Land cover</dt><dd id="parcel-use"></dd></div>
+      <div><dt>Area</dt><dd id="parcel-area"></dd></div>
+      <div><dt>Demo opening offer</dt><dd id="parcel-offer"></dd></div>
+      <div><dt>Negotiation</dt><dd>Not started</dd></div>
+    </dl>
+    <button id="focus-inspected-parcel" class="secondary-button inspect-focus" type="button" hidden>Show on map</button>
+    <p id="fixture-note" class="fixture-note" hidden>Owners, contacts and prices are fictional. Offers are illustrative amounts for the whole parcel.</p>
+  </aside>
+  <aside id="route-panel" class="route-panel" aria-label="Transmission route comparison" hidden>
+    <div class="card-heading"><span class="eyebrow">STEP 03 / 03</span><span id="route-badge" class="size-badge">DEMO</span></div>
+    <h2 id="route-title">Calculating route</h2>
+    <p id="route-status-note" class="route-note" role="status"></p>
+    <div id="route-loading" class="route-loading" hidden>
+      <div class="route-loading-heading"><span class="route-loading-orbit" aria-hidden="true"></span><span>Comparing routes…</span></div>
+      <div class="route-loading-track" aria-hidden="true"><span></span></div>
+    </div>
+    <section id="negotiation-progress" class="negotiation-progress" aria-label="Post-call route progress" hidden>
+      <div class="card-heading"><span id="negotiation-mode" class="eyebrow">Demo scenario</span><span id="negotiation-status" class="role-badge">Ready</span></div>
+      <div id="negotiation-result" hidden>
+        <ol id="negotiation-steps" class="negotiation-steps" aria-label="Route response steps"><li id="negotiation-step-refusal">Owner declined</li><li id="negotiation-step-route">New route</li><li id="negotiation-step-owners">Owners agreed</li></ol>
+        <p id="negotiation-reason" class="route-note" role="status"></p>
+        <dl id="negotiation-costs" class="route-costs" hidden><div><dt>Previous estimate</dt><dd id="negotiation-old-cost"></dd></div><div><dt id="negotiation-new-label">New estimate</dt><dd id="negotiation-new-cost"></dd></div><div><dt>Change</dt><dd id="negotiation-cost-change"></dd></div></dl>
+        <p id="negotiation-parcels" class="route-note"></p>
+        <p id="negotiation-old-path" class="route-legend" hidden><span class="previous-key">Previous route</span><span class="updated-key">New route</span></p>
+        <button id="overview-settlement" class="primary-button settlement-button" type="button" disabled>Continue to contract &amp; settlement</button>
+      </div>
+    </section>
+    <div id="route-summary" hidden>
+      <div class="route-metrics"><div><span>Length</span><strong id="route-length">—</strong></div><div><span>Pylons</span><strong id="route-towers">—</strong></div><div><span>Owners</span><strong id="route-owners">—</strong></div></div>
+      <div class="route-options" role="group" aria-label="Compare calculated routes">
+        <button id="route-choice-0" class="route-choice" type="button" aria-pressed="false" hidden><span><b id="route-name-0"></b><small id="route-detail-0"></small></span><strong id="route-price-0"></strong></button>
+        <button id="route-choice-1" class="route-choice" type="button" aria-pressed="false" hidden><span><b id="route-name-1"></b><small id="route-detail-1"></small></span><strong id="route-price-1"></strong></button>
+        <button id="route-choice-2" class="route-choice" type="button" aria-pressed="false" hidden><span><b id="route-name-2"></b><small id="route-detail-2"></small></span><strong id="route-price-2"></strong></button>
+      </div>
+      <dl class="route-costs">
+        <div><dt>Wire</dt><dd id="cost-line">—</dd></div>
+        <div><dt>Towers & supports</dt><dd id="cost-structures">—</dd></div>
+        <div><dt>Terrain & crossings</dt><dd id="cost-impact">—</dd></div>
+        <div><dt>Engineering · 10%</dt><dd id="cost-engineering">—</dd></div>
+        <div><dt>Contingency · 30%</dt><dd id="cost-contingency">—</dd></div>
+        <div><dt>Land compensation</dt><dd id="cost-land">—</dd></div>
+        <div><dt id="cost-rent-label">Rent · 12 months</dt><dd id="cost-rent">—</dd></div>
+        <div class="cost-total"><dt>Connection estimate</dt><dd id="cost-total">—</dd></div>
+      </dl>
+      <p class="route-parcels"><span>Affected parcels</span><strong id="route-parcels"></strong></p>
+      <button id="open-analysis" class="primary-button analysis-entry" type="button" disabled><span>Analyze affected parcels</span><span aria-hidden="true">↗</span></button>
+      <p id="analysis-entry-status" class="analysis-feedback error analysis-entry-status" role="status" hidden></p>
+      <p class="route-note">Simulation · estimated costs.</p>
+    </div>
+
+    <p id="route-no-results" class="route-empty" hidden></p>
+    <button id="recalculate-route" class="secondary-button route-recalculate" type="button" disabled>Recalculate connection</button>
+  </aside>
+  <section id="analysis-panel" class="analysis-panel" aria-labelledby="analysis-title" hidden>
+    <header class="analysis-header">
+      <div><h2 id="analysis-title">Land &amp; compensation</h2><p id="analysis-route-note">Choose a route.</p></div>
+      <button id="close-analysis" class="quiet-button" type="button" aria-label="Close parcel analysis">Back to map <span aria-hidden="true">×</span></button>
+    </header>
+    <div class="analysis-overview">
+      <div><span>Parcels</span><strong id="analysis-count">—</strong></div>
+      <div><span id="analysis-upfront-label">Recommended total</span><strong id="analysis-upfront">—</strong></div>
+      <div><span id="analysis-rent-label">Fees · 12 months</span><strong id="analysis-rent">—</strong></div>
+    </div>
+    <div class="analysis-content">
+      <div class="analysis-land">
+        <div class="analysis-section-heading"><h3>Landowners</h3><span id="analysis-consent-note">Pending</span></div>
+        <p class="analysis-list-key">Recommended offer – negotiation limit</p>
+        <div id="analysis-parcel-list" class="analysis-parcel-list" role="group" aria-label="Affected parcels"></div>
+        <article id="analysis-parcel-detail" class="analysis-parcel-detail" aria-labelledby="analysis-parcel-title">
+          <div class="analysis-section-heading analysis-detail-heading"><div><h3 id="analysis-parcel-title">Parcel details</h3><span id="analysis-parcel-badge" class="role-badge" hidden>DEMO ROLE</span></div><button id="focus-analysis-parcel" class="quiet-button" type="button" disabled>Show on map</button></div>
+          <dl class="analysis-facts">
+            <div><dt>Owner</dt><dd id="analysis-owner"></dd></div>
+            <div><dt>Land use</dt><dd id="analysis-land-use"></dd></div>
+            <div><dt>Towers</dt><dd id="analysis-foundation"></dd></div>
+            <div><dt>Wire length</dt><dd id="analysis-line-length"></dd></div>
+            <div class="analysis-recommended"><dt>Recommended offer</dt><dd id="analysis-offer"></dd></div>
+            <div><dt>Negotiation limit</dt><dd id="analysis-limit"></dd></div>
+            <div><dt id="analysis-parcel-rent-label">Monthly fee</dt><dd id="analysis-parcel-rent"></dd></div>
+            <div><dt>Status</dt><dd id="analysis-negotiation"></dd></div>
+          </dl>
+          <details class="analysis-breakdown"><summary>View breakdown</summary><p id="analysis-parcel-impact"></p><p id="analysis-parcel-copy"></p><p>Distances use the demo scale of 25 m/tile. Monthly fees shown with ≈ are rounded equivalents. Call consent does not grant land access.</p></details>
+        </article>
+        <p class="analysis-footnote">Simulation · estimated USD amounts, not an appraisal.</p>
+      </div>
+      <aside class="analysis-handoff" aria-label="Demo call target">
+        <div class="analysis-section-heading"><h3>Demo call target</h3><button id="edit-analysis-participant" class="quiet-button" type="button">Edit</button></div>
+        <button id="focus-user-parcel" class="user-assignment" type="button" aria-label="Show the demo call target on the map"><span><strong id="registered-participant-name">Participant</strong><small id="registered-participant-contact">Contact required</small></span><strong id="user-parcel-label">—</strong></button>
+        <div class="handoff-box">
+          <div class="analysis-section-heading"><h3>Calling agent</h3><span id="handoff-status-badge" class="role-badge">OFFLINE</span></div>
+          <button id="agent-call" class="primary-button" type="button" disabled>Agent call</button>
+          <button id="simulate-refusal" class="secondary-button" type="button" disabled>Simulate refusal</button>
+          <p id="handoff-result" class="analysis-feedback" role="status"></p>
+        </div>
+        <div class="handoff-box settlement-box">
+          <div class="analysis-section-heading"><h3>Settlement <small>Simulated</small></h3><span id="settlement-status" class="role-badge">Awaiting approval</span></div>
+          <button id="settle-payment" class="primary-button settlement-button" type="button" aria-describedby="settlement-status settlement-feedback" disabled>Continue to contract &amp; settlement</button>
+          <div id="demo-settlement-summary" hidden><h3>Contract &amp; settlement</h3><p>Demo · owner approvals assumed</p><dl class="route-costs"><div><dt>Land compensation</dt><dd id="demo-settlement-compensation"></dd></div><div><dt>Rent total</dt><dd id="demo-settlement-rent"></dd></div></dl><p>Ready for contract preparation. No payment sent.</p></div>
+          <p id="settlement-feedback" class="analysis-feedback" role="status"></p>
+        </div>
+      </aside>
+    </div>
+  </section>
+  <div class="map-tools"><button id="reset-view" class="quiet-button" type="button">↗ Fit map</button><span id="map-help">Drag to pan · Two fingers / Shift-drag to rotate · Pinch / scroll to zoom</span></div>
+  <p id="save-note" class="save-note" role="status" hidden></p>
+  </div>
+  <section id="demo-onboarding" class="demo-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="user-phone-help">
+    <div class="onboarding-card">
+      <div class="onboarding-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="onboarding-title">QUICKGRID</span></div>
+      <form id="user-form" class="user-form" autocomplete="off" novalidate>
+        <label for="user-alias">Name</label>
+        <input id="user-alias" type="text" maxlength="80" autocomplete="off" placeholder="Enter your name" required aria-required="true">
+        <label for="user-phone">Phone number <span>country code optional</span></label>
+        <input id="user-phone" type="tel" inputmode="tel" maxlength="32" autocomplete="off" placeholder="(415) 555-0123" required aria-required="true" aria-describedby="user-phone-help">
+        <p id="user-phone-help" class="field-help">US country code (+1) is added automatically. Your details stay in this page until you request a call.</p>
+        <label class="consent-label" for="user-consent"><input id="user-consent" type="checkbox" required aria-required="true"><span>I agree to receive an AI demo call at this number and understand that I am playing a fictional landowner.</span></label>
+        <div class="user-form-actions"><button id="save-user" class="primary-button" type="submit">Start demo <span aria-hidden="true">→</span></button><button id="clear-user" class="quiet-button muted" type="button">Clear</button></div>
+      </form>
+      <p id="user-form-status" class="analysis-feedback" role="status"></p>
+    </div>
+  </section>
+  <div id="error" role="alert" hidden>The 3D map could not be displayed. Open it in a browser with WebGL support.</div>
+  <!-- APP_SCRIPT -->
+</body>
+</html>
