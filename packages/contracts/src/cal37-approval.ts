@@ -19,7 +19,7 @@ export type Cal37LedgerEntry = {
   routeId:string; routeVersion:number; parcelId:string; ownerId:string;
   contractId:string; contractVersion:number; termsVersion:number;
   paymentRecipientRef:string; recipientDisplay:string; amountCents:number;
-  status:'attempted'|'paid'; attemptedAt:string; paidAt?:string;
+  status:'attempted'|'paid'; attemptedAt:string; requestKey:string; paidAt?:string;
   receiptId?:string; simulated:true;
 };
 export type Cal37State = {
@@ -92,6 +92,8 @@ export function settleCal37(input:{
  packet:OwnerHandoff;current:CurrentHandoffState;signed:DemoAgreementPackage;
  state:Cal37State;expectedStateRevision:number;attemptedAt:string;
  outcome:'simulated_success'|'simulated_failure';requestKey:string;
+ /** Optional subset for owner-specific retries; defaults to every currently unpaid parcel. */
+ selectedParcelIds?:string[];
 }):{state:Cal37State;receipts:Cal37Receipt[];attempted:Cal37LedgerEntry[];alreadyPaid:string[]} {
  const {packet,current,state}=input;checkUnique(state);
  if(state.revision!==input.expectedStateRevision)fail('STALE_VERSION','Concurrent state revision changed');
@@ -114,6 +116,30 @@ export function settleCal37(input:{
  }))fail('BLOCKED_STATE','Current complete signed contracts required');
  const owners=new Map(packet.owners.map(o=>[o.ownerId,o]));
  const paid=state.ledger.filter(e=>e.status==='paid');
+ const parcelById=new Map(packet.parcels.map(p=>[p.parcelId,p]));
+ const contractByParcel=new Map(input.signed.agreements.map(a=>[a.parcelId,a]));
+ // Validate all persisted rows BEFORE using them as trusted settlement evidence.
+ for(const entry of state.ledger){
+  const p=parcelById.get(entry.parcelId), a=contractByParcel.get(entry.parcelId);
+  const owner=p&&owners.get(p.ownerId);
+  if(!p||!a||!owner||entry.approvalId!==approval.approvalId||
+     entry.sessionId!==packet.sessionId||entry.projectId!==packet.projectId||
+     entry.routeId!==packet.routeId||entry.routeVersion!==packet.routeVersion||
+     entry.ownerId!==p.ownerId||entry.contractId!==a.id||
+     entry.contractVersion!==a.contractVersion||entry.termsVersion!==p.terms.termsVersion||
+     entry.paymentRecipientRef!==owner.banking.paymentRecipientRef||
+     entry.obligationId!==settlementObligationId(packet.sessionId,p.parcelId,'contract_tranche')||
+     entry.amountCents!==a.contract20Cents||entry.simulated!==true||
+     !validText(entry.requestKey)||!stamp(entry.attemptedAt)||
+     (entry.status==='paid'&&(!entry.receiptId||!entry.paidAt||!stamp(entry.paidAt)))||
+     (entry.status==='attempted'&&(entry.receiptId!==undefined||entry.paidAt!==undefined)))
+    fail('STALE_VERSION','Stored ledger row differs from the approved contract and mock recipient');
+ }
+ if(input.selectedParcelIds!==undefined){
+  if(input.selectedParcelIds.length===0||new Set(input.selectedParcelIds).size!==input.selectedParcelIds.length||
+    input.selectedParcelIds.some(id=>!parcelById.has(id)))
+    fail('INVALID_INPUT','Select unique known parcels for a partial retry');
+ }
  const contracts=input.signed.agreements.map(a=>({
   sessionId:packet.sessionId,projectId:packet.projectId,routeId:packet.routeId,
   routeVersion:packet.routeVersion,parcelId:a.parcelId,ownerId:a.ownerId,
@@ -139,8 +165,10 @@ export function settleCal37(input:{
    termsVersions:approval.termsVersions,contractVersions:approval.contractVersions},
   contracts,stage:'contract_tranche',asOfDate:input.attemptedAt.slice(0,10),
   completion:null,settledObligations});
+ const selected=new Set(input.selectedParcelIds??plan.entries.map(e=>e.parcelId));
  const updated=[...state.ledger],attempted:Cal37LedgerEntry[]=[],receipts:Cal37Receipt[]=[];
  for(const e of plan.entries){
+  if(!selected.has(e.parcelId))continue;
   const owner=owners.get(e.ownerId);
   if(!owner) throw new EasementError('INVALID_RECIPIENT','Missing owner banking record');
   if(owner.banking.ownerId!==e.ownerId||
@@ -157,7 +185,7 @@ export function settleCal37(input:{
    paymentRecipientRef:e.paymentRecipientRef,
    recipientDisplay:owner.banking.bankDisplay+' '+owner.banking.accountDisplay,
    amountCents:e.amountCents,status:paidNow?'paid':'attempted',
-   attemptedAt:input.attemptedAt,...(paidNow?{
+   attemptedAt:input.attemptedAt,requestKey:input.requestKey,...(paidNow?{
     paidAt:input.attemptedAt,receiptId:stableId(approval.approvalId,e.obligationId)
    }:{}),simulated:true
   };
@@ -168,8 +196,11 @@ export function settleCal37(input:{
    currency:'USD',recipientDisplay:entry.recipientDisplay,status:'simulated_paid',
    simulated:true,label:'SIMULATED PAYMENT — NO REAL FUNDS TRANSFERRED'});
  }
+ if(attempted.length===0)fail('BLOCKED_STATE','Selected obligations are already paid or unavailable');
+ const expectedSelected=plan.entries.filter(e=>selected.has(e.parcelId));
  const total=attempted.reduce((n,e)=>n+BigInt(e.amountCents),0n);
- if(total!==BigInt(plan.totalCents))fail('INVALID_AMOUNT','Per-parcel ledger does not reconcile to approved 20%');
+ const expectedTotal=expectedSelected.reduce((n,e)=>n+BigInt(e.amountCents),0n);
+ if(total!==expectedTotal)fail('INVALID_AMOUNT','Per-parcel ledger does not reconcile to approved 20%');
  return {state:{revision:state.revision+1,approval,ledger:updated},
   attempted,receipts,alreadyPaid};
 }
@@ -179,4 +210,38 @@ export function cal37Status(state:Cal37State){
   attempted:state.ledger.filter(e=>e.status==='attempted').length,
   paid:state.ledger.filter(e=>e.status==='paid').length,
   simulated:true,label:'SIMULATED LEDGER — NO REAL FUNDS TRANSFERRED'};
+}
+
+/** Public UI projection: simulated states and masked synthetic bank details only. */
+export function cal37PublicView(state:Cal37State){
+ return {
+  ...cal37Status(state),
+  payments:state.ledger.map(e=>({
+   obligationId:e.obligationId,parcelId:e.parcelId,ownerId:e.ownerId,
+   amountCents:e.amountCents,status:e.status,recipientDisplay:e.recipientDisplay,
+   receiptId:e.receiptId??null,simulated:true,
+   label:'SIMULATED PAYMENT — NO REAL FUNDS TRANSFERRED' as const
+  }))
+ };
+}
+
+/** Transactional boundary for CAL-29: adapter MUST perform atomic compare-and-swap.
+ * Returning a receipt before a successful commit is forbidden. The store is
+ * injected rather than creating an independent mutable settlement database.
+ */
+export interface Cal37AuthoritativeStore {
+ load(sessionId:string):Promise<{packet:OwnerHandoff;current:CurrentHandoffState;state:Cal37State;signed:DemoAgreementPackage;issued:Cal36ApprovalPackage}>;
+ compareAndSwap(sessionId:string,expectedRevision:number,next:Cal37State):Promise<boolean>;
+}
+export async function settleCal37Authoritatively(
+ store:Cal37AuthoritativeStore,sessionId:string,
+ request:Pick<Parameters<typeof settleCal37>[0],'attemptedAt'|'outcome'|'requestKey'|'selectedParcelIds'>
+):Promise<ReturnType<typeof settleCal37>>{
+ const snapshot=await store.load(sessionId);
+ if(snapshot.packet.sessionId!==sessionId||snapshot.current.sessionId!==sessionId)
+  fail('STALE_VERSION','Authoritative session mismatch');
+ const result=settleCal37({...snapshot,...request,expectedStateRevision:snapshot.state.revision});
+ if(!await store.compareAndSwap(sessionId,snapshot.state.revision,result.state))
+  fail('STALE_VERSION','Atomic state commit rejected a concurrent settlement');
+ return result;
 }
