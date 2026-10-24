@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDemoAgreements,signDemoAgreement,supersedeDemoAgreements,isAgreementPackageReady,compensationTranches,type FinalRoute} from '../src/cal36-easement.ts';
+import {createDemoAgreements,signDemoAgreement,supersedeDemoAgreements,regenerateDemoAgreements,isAgreementPackageReady,compensationTranches,type FinalRoute} from '../src/cal36-easement.ts';
 const route=():FinalRoute=>({sessionId:'demo-1',projectId:'project-1',routeId:'route-1',routeVersion:1,
   status:'final_agreement_ready',operatorAlias:'EasyGrid',parcelIds:['A','B'],
   terms:['A','B'].map(id=>({parcelId:id,ownerId:'owner-'+id,ownerAlias:'Owner '+id,
@@ -34,5 +34,21 @@ test('CAL-36: simulated signatures bind versions and supersession invalidates th
   assert.equal(isAgreementPackageReady(all),true);
   assert.equal(isAgreementPackageReady(supersedeDemoAgreements(all)),false);
   const updated=route();updated.routeVersion=2;
-  assert.notEqual(createDemoAgreements(updated).packageHash,p.packageHash);
+  const regen=regenerateDemoAgreements(all,updated);
+  assert.equal(isAgreementPackageReady(regen.previous),false);
+  assert.equal(regen.current.agreements[0]!.contractVersion,2);
+  assert.equal(regen.current.agreements[0]!.status,'draft');
+  assert.notEqual(regen.current.packageHash,p.packageHash);
+});
+
+test('CAL-36: floor cents rounding, stale signatures and changed terms',()=>{
+  assert.deepEqual(compensationTranches(10004),{contract20Cents:2000,completion80Cents:8004});
+  const original=route();const p=createDemoAgreements(original);
+  assert.throws(()=>signDemoAgreement(p,'A','Owner A','2026-10-24T12:00:00Z','wrong'),{code:'STALE_VERSION'});
+  assert.throws(()=>signDemoAgreement(p,'A','Wrong owner','2026-10-24T12:00:00Z',p.packageHash),{code:'INVALID_SIGNATURE'});
+  const changed=route();changed.terms[0]!.termsVersion=2;
+  const regen=regenerateDemoAgreements(p,changed);
+  assert.notEqual(regen.current.agreements[0]!.contentHash,p.agreements[0]!.contentHash);
+  const rollback=route();rollback.routeVersion=0;
+  assert.throws(()=>regenerateDemoAgreements(p,rollback),{code:'STALE_VERSION'});
 });
