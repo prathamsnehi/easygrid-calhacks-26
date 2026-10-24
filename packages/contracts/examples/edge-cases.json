@@ -546,7 +546,9 @@
         "actor": "demo-operator",
         "payload": {
           "reconciliationIds": [
-            "recon-01"
+            "recon-P4-2026-11",
+            "recon-P2-2026-11",
+            "recon-P6-2026-11"
           ]
         }
       },
@@ -564,7 +566,9 @@
         "actor": "demo-operator",
         "payload": {
           "reconciliationIds": [
-            "recon-01"
+            "recon-P4-2026-11",
+            "recon-P2-2026-11",
+            "recon-P6-2026-11"
           ]
         }
       }

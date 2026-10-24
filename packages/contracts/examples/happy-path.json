@@ -736,6 +736,43 @@
       "evidenceRefs": [
         "fixture:cedar-valley-v1"
       ],
+      "id": "payment-deposit-P4",
+      "contractId": "contract-P4",
+      "contractVersion": 1,
+      "approvalId": "approval-01",
+      "kind": "deposit",
+      "expectedCents": 200000,
+      "actualCents": 200000,
+      "currency": "USD",
+      "status": "settled",
+      "providerReference": "mock-deposit-P4",
+      "idempotencyKey": "deposit-P4-v1"
+    },
+    {
+      "schemaVersion": 1,
+      "sourceMode": "mock",
+      "evidenceRefs": [
+        "fixture:cedar-valley-v1"
+      ],
+      "id": "payment-rent-P4-2026-11",
+      "contractId": "contract-P4",
+      "contractVersion": 1,
+      "approvalId": "approval-01",
+      "kind": "rent",
+      "installmentPeriod": "2026-11",
+      "expectedCents": 10000,
+      "actualCents": 10000,
+      "currency": "USD",
+      "status": "settled",
+      "providerReference": "mock-rent-P4-2026-11",
+      "idempotencyKey": "rent-P4-2026-11-v1"
+    },
+    {
+      "schemaVersion": 1,
+      "sourceMode": "mock",
+      "evidenceRefs": [
+        "fixture:cedar-valley-v1"
+      ],
       "id": "payment-deposit-P2",
       "contractId": "contract-P2",
       "contractVersion": 1,
@@ -745,7 +782,7 @@
       "actualCents": 200000,
       "currency": "USD",
       "status": "settled",
-      "providerReference": "mock-receipt-01",
+      "providerReference": "mock-deposit-P2",
       "idempotencyKey": "deposit-P2-v1"
     },
     {
@@ -764,8 +801,45 @@
       "actualCents": 10000,
       "currency": "USD",
       "status": "settled",
-      "providerReference": "mock-receipt-02",
+      "providerReference": "mock-rent-P2-2026-11",
       "idempotencyKey": "rent-P2-2026-11-v1"
+    },
+    {
+      "schemaVersion": 1,
+      "sourceMode": "mock",
+      "evidenceRefs": [
+        "fixture:cedar-valley-v1"
+      ],
+      "id": "payment-deposit-P6",
+      "contractId": "contract-P6",
+      "contractVersion": 1,
+      "approvalId": "approval-01",
+      "kind": "deposit",
+      "expectedCents": 200000,
+      "actualCents": 200000,
+      "currency": "USD",
+      "status": "settled",
+      "providerReference": "mock-deposit-P6",
+      "idempotencyKey": "deposit-P6-v1"
+    },
+    {
+      "schemaVersion": 1,
+      "sourceMode": "mock",
+      "evidenceRefs": [
+        "fixture:cedar-valley-v1"
+      ],
+      "id": "payment-rent-P6-2026-11",
+      "contractId": "contract-P6",
+      "contractVersion": 1,
+      "approvalId": "approval-01",
+      "kind": "rent",
+      "installmentPeriod": "2026-11",
+      "expectedCents": 10000,
+      "actualCents": 10000,
+      "currency": "USD",
+      "status": "settled",
+      "providerReference": "mock-rent-P6-2026-11",
+      "idempotencyKey": "rent-P6-2026-11-v1"
     }
   ],
   "reconciliations": [
@@ -775,9 +849,39 @@
       "evidenceRefs": [
         "fixture:cedar-valley-v1"
       ],
-      "id": "recon-01",
+      "id": "recon-P4-2026-11",
+      "contractId": "contract-P4",
+      "paymentId": "payment-rent-P4-2026-11",
+      "installmentPeriod": "2026-11",
+      "expectedCents": 10000,
+      "observedCents": 10000,
+      "result": "matched",
+      "checkedAt": "2026-10-24T19:00:00Z"
+    },
+    {
+      "schemaVersion": 1,
+      "sourceMode": "fixture",
+      "evidenceRefs": [
+        "fixture:cedar-valley-v1"
+      ],
+      "id": "recon-P2-2026-11",
       "contractId": "contract-P2",
       "paymentId": "payment-rent-P2-2026-11",
+      "installmentPeriod": "2026-11",
+      "expectedCents": 10000,
+      "observedCents": 10000,
+      "result": "matched",
+      "checkedAt": "2026-10-24T19:00:00Z"
+    },
+    {
+      "schemaVersion": 1,
+      "sourceMode": "fixture",
+      "evidenceRefs": [
+        "fixture:cedar-valley-v1"
+      ],
+      "id": "recon-P6-2026-11",
+      "contractId": "contract-P6",
+      "paymentId": "payment-rent-P6-2026-11",
       "installmentPeriod": "2026-11",
       "expectedCents": 10000,
       "observedCents": 10000,
@@ -800,7 +904,9 @@
       "actor": "demo-operator",
       "payload": {
         "reconciliationIds": [
-          "recon-01"
+          "recon-P4-2026-11",
+          "recon-P2-2026-11",
+          "recon-P6-2026-11"
         ]
       }
     }

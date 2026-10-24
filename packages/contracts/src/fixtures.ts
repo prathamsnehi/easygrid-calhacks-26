@@ -67,13 +67,26 @@ const reconciliation = s.ReconciliationEntry.parse({ ...meta, id: 'recon-01', co
   installmentPeriod: '2026-11', expectedCents: 10000, observedCents: 10000, result: 'matched', checkedAt: at });
 const approvedRoute = s.RouteCandidate.parse({ ...routes[0], readyToApprove: true, reasons: ['Fixture checks only; no actual regulatory approval.'],
   regulatoryChecks: routes[0]!.regulatoryChecks.map(c => ({ ...c, outcome: 'pass', missingEvidence: [] })) });
+// The completed demo month includes every crossed parcel, not only the example P2 payment.
+const settledPayments = contracts.flatMap(contract => [
+  s.Payment.parse({ ...payment, id: `payment-deposit-${contract.parcelId}`, contractId: contract.id,
+    expectedCents: contract.depositCents, actualCents: contract.depositCents,
+    providerReference: `mock-deposit-${contract.parcelId}`, idempotencyKey: `deposit-${contract.parcelId}-v1` }),
+  s.Payment.parse({ ...rent, id: `payment-rent-${contract.parcelId}-2026-11`, contractId: contract.id,
+    expectedCents: contract.monthlyRentCents, actualCents: contract.monthlyRentCents,
+    providerReference: `mock-rent-${contract.parcelId}-2026-11`, idempotencyKey: `rent-${contract.parcelId}-2026-11-v1` }),
+]);
+const matchedEntries = contracts.map(contract => s.ReconciliationEntry.parse({ ...reconciliation,
+  id: `recon-${contract.parcelId}-2026-11`, contractId: contract.id, paymentId: `payment-rent-${contract.parcelId}-2026-11`,
+  expectedCents: contract.monthlyRentCents, observedCents: contract.monthlyRentCents,
+}));
 export const happyPath = s.Snapshot.parse({
   project: { ...project, revision: 8, selectedRouteId: 'direct', approvedRouteVersion: 1, status: 'demo_settled' }, owners,
   parcels: parcels.map(p => approvedRoute.parcelIds.includes(p.id) ? { ...p, accessConsent: 'allowed', negotiationStatus: 'accepted' } : p),
   routes: [approvedRoute, ...routes.slice(1)], negotiations: accepted, easements: contracts,
-  approvals: [approval], payments: [payment, rent], reconciliations: [reconciliation],
+  approvals: [approval], payments: settledPayments, reconciliations: matchedEntries,
   events: [{ ...meta, eventId: 'event-reconciliation-01', projectId, revision: 8, type: 'reconciliation.completed',
-    occurredAt: at, actor: 'demo-operator', payload: { reconciliationIds: [reconciliation.id] } }],
+    occurredAt: at, actor: 'demo-operator', payload: { reconciliationIds: matchedEntries.map(e => e.id) } }],
 });
 export const refusal = s.NegotiationResult.parse({ ...accepted[1], id: 'terms-P2-refusal', termsVersion: 2,
   outcome: 'refused', accessConsent: 'refused', upfrontCents: 5000000, depositCents: 0,
@@ -109,7 +122,7 @@ export const apiExamples: Example[] = [
     contractIds: approval.contractIds, ...command(5,'approve-01') }, response: envelope(approval,6) },
   { operation: 'createPayment', request: { contractId: 'contract-P2', contractVersion: 1, approvalId: approval.id, kind: 'deposit', ...command(6,'deposit-P2-v1') },
     response: envelope(payment,7) },
-  { operation: 'reconcile', request: { projectId, asOfDemoDate: '2026-11-30', ...command(7,'recon-01') }, response: envelope({ entries: [reconciliation] },8) },
+  { operation: 'reconcile', request: { projectId, asOfDemoDate: '2026-11-30', ...command(7,'recon-01') }, response: envelope({ entries: matchedEntries },8) },
   { operation: 'resetDemo', request: { projectId, newSessionId: 'demo-session-02', ...command(8,'reset-demo-02') },
     response: envelope({ sessionId: 'demo-session-02', project: { ...project, id: 'demo-session-02-project' } },0) },
 ].map(example => JSON.parse(JSON.stringify(example)) as Example);

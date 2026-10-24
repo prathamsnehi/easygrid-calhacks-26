@@ -176,3 +176,14 @@ test('client maps a non-JSON response to the documented invalid-response error',
   const client = c.createApiClient('https://example.invalid', async () => new Response('<html>Unavailable</html>', { status: 503 }));
   await assert.rejects(() => client.execute('getProject', { projectId: c.project.id }), errorCode('INVALID_RESPONSE'));
 });
+
+test('the completed demo month settles and reconciles every crossed parcel', () => {
+  for (const contract of c.happyPath.easements) {
+    const payments = c.happyPath.payments.filter(p => p.contractId === contract.id);
+    assert.equal(payments.length, 2);
+    assert.equal(payments.find(p => p.kind === 'deposit')!.actualCents, contract.depositCents);
+    assert.equal(payments.find(p => p.kind === 'rent')!.actualCents, contract.monthlyRentCents);
+    assert.equal(c.happyPath.reconciliations.find(e => e.contractId === contract.id)!.result, 'matched');
+  }
+  assert.equal(new Set(c.happyPath.payments.map(p => p.id)).size, c.happyPath.payments.length);
+});
