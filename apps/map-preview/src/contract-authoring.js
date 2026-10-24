@@ -32,9 +32,9 @@ export function validateContractSource(input) {
       if (!validId(parcel?.ownerId) || !text(parcel?.ownerName, 160) || !text(parcel?.landDescription, 1000)) errors.push('Each parcel needs a fictional owner and land description.');
       if (parcel?.accepted !== true) errors.push('Every parcel on the final route must have accepted terms.');
       if (!version(parcel?.termsVersion) || !text(parcel?.accessTerms)) errors.push('Each parcel needs versioned access terms.');
-      if (!cents(parcel?.compensationCents) || !cents(parcel?.monthlyFeeCents)) errors.push('Approved compensation and monthly fees must be non-negative integer cents.');
+      if (!cents(parcel?.compensationCents)) errors.push('Approved compensation must be non-negative integer cents.');
     }
-    for (const field of ['compensationCents','monthlyFeeCents']) if (!Number.isSafeInteger(input.parcels.reduce((sum, p) => sum + (cents(p?.[field]) ? p[field] : 0), 0))) errors.push('The approved package total exceeds the supported range.');
+    if (!Number.isSafeInteger(input.parcels.reduce((sum, p) => sum + (cents(p?.compensationCents) ? p.compensationCents : 0), 0))) errors.push('The approved package total exceeds the supported range.');
   }
   return {valid: errors.length === 0, errors: [...new Set(errors)]};
 }
@@ -50,7 +50,7 @@ export function normalizeContractSource(input) {
     negotiation: {id: input.negotiation.id, version: input.negotiation.version, status: 'approved', approvedAt: input.negotiation.approvedAt},
     parcels: input.parcels.map(p => ({parcelId: p.parcelId, ownerId: p.ownerId, ownerName: p.ownerName.trim(),
       landDescription: p.landDescription.trim(), accepted: true, termsVersion: p.termsVersion,
-      compensationCents: p.compensationCents, monthlyFeeCents: p.monthlyFeeCents, accessTerms: p.accessTerms.trim()}))
+      compensationCents: p.compensationCents, accessTerms: p.accessTerms.trim()}))
       .sort((a, b) => a.parcelId.localeCompare(b.parcelId)),
   };
 }
@@ -105,7 +105,7 @@ export function contractDocument(draft, input) {
     routeName: source.route.name, routeId: source.route.id, routeVersion: source.route.version,
     termsVersion: parcel.termsVersion, negotiationId: source.negotiation.id,
     negotiationVersion: source.negotiation.version, approvedAt: source.negotiation.approvedAt,
-    ...split, monthlyFeeCents: parcel.monthlyFeeCents,
+    ...split,
     agreedAccessTerms: parcel.accessTerms, accessDescription: draft.fields.accessTerms,
     specialConditions: draft.fields.specialConditions, draftVersion: draft.version,
     draftId: draft.id, sourceMode: 'fixture', status: 'draft'};

@@ -81,6 +81,10 @@ After both sites are placed, calculation begins promptly and the result is revea
 
 Three.js 0.180.0 is vendored from the official npm package, with its MIT license, so the generated preview needs no external assets or runtime installation. All map objects are procedural geometry. This preview does not modify the shared contract package. Development follows the repository's [Linear/GitHub workflow](../../AGENTS.md); generated `dist/` files and private participant details must not be committed.
 
+## Contract development preview
+
+The [contract authoring guide](../../docs/CONTRACT_AUTHORING.md) explains the fixture-driven agreement editor at `/contracts.html`, two simulated click signatures, and signature-gated initial 20% settlement. [Finance track evidence](../../docs/FINANCE_TRACKS.md) maps the implementation to the Hyphenate brief and optional Nessie sandbox, including verification limits.
+
 ## Initial payment and construction completion
 
 The existing contract workspace now follows the CAL-38 journey: simulated initial

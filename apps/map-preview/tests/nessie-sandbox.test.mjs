@@ -4,7 +4,7 @@ import {createNessieSandboxBank, dollarsToCents} from '../server/nessie-sandbox.
 
 const input = {ownerId:'OWNER-DEMO-004',obligationId:'initial-fixture',amountCents:240000,documentHash:'a'.repeat(64)};
 const config = {apiKey:'test-only-key',baseUrl:'https://prod-api.nessieisreal.com',payerId:'sandbox-payer',recipients:{'OWNER-DEMO-004':{accountId:'sandbox-payee',customerId:'sandbox-customer'}}};
-function transport({complete = true, wrongAccount = false, failPost = false} = {}) {
+function transport({complete = true, wrongAccount = false, failPost = false, missingTransactionId = false} = {}) {
   const calls = []; let created = false;
   const row = () => ({_id:'transfer-fixture',payer_id:'sandbox-payer',payee_id:'sandbox-payee',amount:2400,status:complete?'completed':'pending',description:`EasyGrid ${input.obligationId} ${input.documentHash}`});
   return {calls, fetcher:async (url, options) => {
@@ -18,7 +18,7 @@ function transport({complete = true, wrongAccount = false, failPost = false} = {
     if (url.pathname === '/accounts/sandbox-payer') return Response.json({_id:wrongAccount?'different':'sandbox-payer',balance:10000});
     if (url.pathname === '/accounts/sandbox-payee') return Response.json({_id:'sandbox-payee',customer_id:'sandbox-customer'});
     if (url.pathname === '/accounts/sandbox-payer/transfers') return Response.json(created?[row()]:[]);
-    if (url.pathname === '/transfers/transfer-fixture') return Response.json(row());
+    if (url.pathname === '/transfers/transfer-fixture') return Response.json(missingTransactionId ? {...row(),_id:undefined} : row());
     throw new Error('Unexpected endpoint.');
   }};
 }
@@ -50,4 +50,11 @@ test('Nessie refuses unsafe origins, mismatched identities, missing mappings and
 test('bank dollar conversion preserves cents and rejects fractional cents or overflow', () => {
   assert.equal(dollarsToCents(2400.01),240001); assert.equal(dollarsToCents('0.05'),5);
   for (const invalid of ['1.001',-1,NaN,Infinity,'1e10','90071992547409999']) assert.throws(() => dollarsToCents(invalid));
+});
+
+test('a bank response without a verifiable transaction ID cannot prove a completed payment', async () => {
+  const mock = transport({missingTransactionId:true});
+  const bank = createNessieSandboxBank({...config,allowTransfers:true,fetcher:mock.fetcher});
+  await assert.rejects(bank.transfer(input),/no verifiable transaction ID/);
+  assert.equal(mock.calls.filter(row => row.method === 'POST').length,1);
 });

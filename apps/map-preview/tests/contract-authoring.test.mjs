@@ -12,7 +12,7 @@ test('only complete approved negotiations for every final-route parcel enable co
     assert.equal(validateContractSource(createContractExample(status)).valid, false);
     assert.throws(() => create(createContractExample(status)), /approved/);
   }
-  for (const mutate of [s => s.parcels[1].accepted = false, s => s.parcels[0].monthlyFeeCents = null,
+  for (const mutate of [s => s.parcels[1].accepted = false, s => s.parcels[0].compensationCents = null,
     s => s.parcels[0].compensationCents = 0.1, s => s.route.version = 0, s => s.parcels.push({...s.parcels[0]}),
     s => s.sourceMode = 'live', s => s.parcels[0].accessTerms = '', s => s.parcels.forEach(p => p.compensationCents = Number.MAX_SAFE_INTEGER)]) {
     const source = createContractExample(); mutate(source); assert.equal(validateContractSource(source).valid, false);
@@ -29,15 +29,15 @@ test('normalization drops transcripts, contact and banking extras and does not m
   assert.equal(contractSourceKey(normalized), contractSourceKey(source));
 });
 
-test('approved cents and exact 20 percent split appear without monthly payment terms', () => {
+test('approved cents and the exact 20 percent split appear without monthly-rent functionality', () => {
   const source = createContractExample(), draft = create(source), document = contractDocument(draft, source);
   assert.equal(document.initialCents, 240000); assert.equal(document.completionCents, 960000);
-  assert.equal(document.monthlyFeeCents, 30000);
+  assert.equal(Object.hasOwn(document, 'monthlyFeeCents'), false);
   assert.deepEqual(compensationSplit(10003), {totalCents:10003, initialCents:2000, completionCents:8003});
   assert.throws(() => compensationSplit(-1));
   const html = renderContractDocument(draft, source);
+  assert.doesNotMatch(html, /Monthly usage fee|monthly anniversaries/);
   for (const value of ['$12,000.00','$2,400.00','$9,600.00','Awaiting click signature']) assert(html.includes(value));
-  assert.doesNotMatch(html, /\$300\.00|Monthly usage fee|one calendar month/);
 });
 
 test('draft changes cannot alter approved money, owner, parcel or source bindings', () => {
