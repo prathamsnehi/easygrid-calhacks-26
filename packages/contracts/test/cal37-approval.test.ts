@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createAcceptedOwnerHandoff,createInitialOwnerHandoff,createOwnerHandoffCurrent} from '../src/owner-handoff-fixtures.ts';
 import {buildCal36FromOwnerHandoff} from '../src/cal36-shared-handoff.ts';
 import {signDemoAgreement} from '../src/cal36-easement.ts';
-import {approveCal37,settleCal37,emptyCal37State,cal37Status,cal37PublicView,settleCal37Authoritatively,approveCal37Authoritatively} from '../src/cal37-approval.ts';
+import {approveCal37,settleCal37,emptyCal37State,cal37Status,cal37PublicView,settleCal37Authoritatively,approveCal37Authoritatively,cal37ApprovedRecipientHandoff} from '../src/cal37-approval.ts';
 import {settlementObligationId} from '../src/owner-handoff.ts';
 function fixture(){
  const packet=createAcceptedOwnerHandoff(),current=createOwnerHandoffCurrent(packet);
@@ -124,4 +124,21 @@ test('CAL-37 authoritative manager approval commits only after CAS',async()=>{
  await assert.rejects(approveCal37Authoritatively(store,f.packet.sessionId,{
   operatorAlias:'EasyGrid',managerAlias:'Operator',managerConfirmed:true,
   approvedAt:'2026-10-24T11:01:00Z'}),{code:'BLOCKED_STATE'});
+});
+
+test('CAL-37 exposes one approved synthetic recipient binding for future 20/80/monthly stages',()=>{
+ const f=fixture(),approved=approval(f);
+ const handoff=cal37ApprovedRecipientHandoff(f.packet,f.current,f.signed,approved);
+ assert.equal(handoff.length,f.packet.parcels.length);
+ for(const h of handoff){
+  const owner=f.packet.owners.find(o=>o.ownerId===h.ownerId)!;
+  assert.equal(h.paymentRecipientRef,owner.banking.paymentRecipientRef);
+  assert.match(h.recipientDisplay,/\*{4}\d{4}/);
+  assert.equal(h.simulated,true);
+  assert.match(h.label,/NO REAL FUNDS/);
+  assert.equal(h.completionBalanceObligationId,settlementObligationId(f.packet.sessionId,h.parcelId,'completion_balance'));
+ }
+ assert.throws(()=>cal37ApprovedRecipientHandoff(f.packet,f.current,f.issued.agreementPackage,approved));
+ const wrong=structuredClone(f.packet);wrong.owners[0]!.banking.paymentRecipientRef='mock-different';
+ assert.throws(()=>cal37ApprovedRecipientHandoff(wrong,f.current,f.signed,approved));
 });
