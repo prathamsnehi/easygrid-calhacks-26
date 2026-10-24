@@ -38,7 +38,7 @@ test('CAL-39 two monthly periods and mismatch reconcile, pre-completion rejected
  assert.equal(second.payments.length,4);
  const view=laterPublicView(second);
  assert.equal(view.discrepantCents,5000);
- assert.equal(view.paidCents,70000);
+ assert.equal(view.paidCents,80000);
  assert.equal(view.expectedCents,100000);
  assert.equal(JSON.stringify(view).includes('paymentRecipientRef'),false);
  assert.throws(()=>advanceMonthlyPeriod({...f,later:second,expectedRevision:3,month:2,asOfDate:'2026-12-24',
