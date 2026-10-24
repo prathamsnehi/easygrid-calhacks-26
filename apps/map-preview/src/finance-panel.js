@@ -94,7 +94,7 @@ export function mountFinancePanel(){
  const group=(parent,title)=>{const box=div('section','','finance-stage');box.append(div('h4',title));parent.append(box);return box};
  const row=(parent,label,value)=>{const x=div('div','','finance-entry');x.append(div('span',label),div('strong',value));parent.append(x)};
  const controls=(parent,items)=>{const x=div('div','','finance-controls');for(const item of items)x.append(btn(...item));parent.append(x)};
- const status=root.querySelector('#finance-message'),content=root.querySelector('#finance-content');
+ const status=document.querySelector('#finance-message'),content=document.querySelector('#finance-content');
  const notify=(msg,error=false)=>{status.textContent=msg;status.dataset.error=String(error)};
  function current(){
   const handoff=window.easygridDemo.getHandoff();
@@ -166,9 +166,9 @@ export function mountFinancePanel(){
   ledger.append(div('p','All receipts and bank destinations are simulated. No actual account or transfer. State is stored only in this browser tab, not in SpacetimeDB.','finance-note'));
   controls(content,[['Reset local demo','reset',true]]);
  }
- root.querySelector('#finance-refresh').addEventListener('click',refresh);
- document.querySelector('#open-analysis')?.addEventListener('click',()=>queueMicrotask(refresh));
+ document.querySelector('#finance-refresh').addEventListener('click',refresh);
+ document.querySelector('#open-analysis')?.addEventListener('click',()=>refresh());
  document.querySelector('#recalculate-route')?.addEventListener('click',()=>{view=null;s=null;});
- root.querySelector('#finance-summary')?.addEventListener('click',refresh);
+ document.querySelector('#finance-summary')?.addEventListener('click',refresh);
  refresh();
 }
