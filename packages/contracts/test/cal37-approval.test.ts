@@ -94,7 +94,7 @@ test('CAL-37 refuses forged paid rows, altered amount, and recipient reference',
  const paid=settleCal37({...f,state:approved,expectedStateRevision:1,
   attemptedAt:'2026-10-24T11:10:00Z',outcome:'simulated_success',requestKey:'valid',selectedParcelIds:[f.packet.parcels[0]!.parcelId]});
  for(const change of [(x:any)=>x.amountCents++, (x:any)=>x.paymentRecipientRef='mock-evil',
-   (x:any)=>x.termsVersion++, (x:any)=>x.obligationId='fake']){
+   (x:any)=>x.termsVersion++, (x:any)=>x.recipientDisplay='Real Bank 123456789', (x:any)=>x.obligationId='fake']){
   const state=structuredClone(paid.state);change(state.ledger[0]);
   assert.throws(()=>settleCal37({...f,state,expectedStateRevision:2,
    attemptedAt:'2026-10-24T11:11:00Z',outcome:'simulated_success',requestKey:'retry'}),{code:'STALE_VERSION'});
