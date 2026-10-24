@@ -128,6 +128,7 @@ export function settleCal37(input:{
      entry.ownerId!==p.ownerId||entry.contractId!==a.id||
      entry.contractVersion!==a.contractVersion||entry.termsVersion!==p.terms.termsVersion||
      entry.paymentRecipientRef!==owner.banking.paymentRecipientRef||
+     entry.recipientDisplay!==owner.banking.bankDisplay+' '+owner.banking.accountDisplay||
      entry.obligationId!==settlementObligationId(packet.sessionId,p.parcelId,'contract_tranche')||
      entry.amountCents!==a.contract20Cents||entry.simulated!==true||
      !validText(entry.requestKey)||!stamp(entry.attemptedAt)||
@@ -173,7 +174,7 @@ export function settleCal37(input:{
   if(!owner) throw new EasementError('INVALID_RECIPIENT','Missing owner banking record');
   if(owner.banking.ownerId!==e.ownerId||
      owner.banking.paymentRecipientRef!==e.paymentRecipientRef||
-     owner.banking.mode!=='simulated')fail('INVALID_RECIPIENT','Mock banking owner/destination mismatch');
+     owner.banking.mode!=='simulated'||!/^\*{4}\d{4}$/.test(owner.banking.accountDisplay))fail('INVALID_RECIPIENT','Mock banking owner/destination mismatch');
   const existing=updated.findIndex(v=>v.obligationId===e.obligationId);
   if(existing>=0&&updated[existing]!.status==='paid')fail('BLOCKED_STATE','Already paid business obligation');
   const paidNow=input.outcome==='simulated_success';
