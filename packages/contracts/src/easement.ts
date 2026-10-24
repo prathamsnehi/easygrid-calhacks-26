@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { ContractError } from './api.ts';
-import { canonicalJson, validateNegotiation } from './policy.ts';
+import { assertVersion, canonicalJson, validateNegotiation } from './policy.ts';
 import { Easement, DateOnly, type NegotiationResult, type Easement as EasementType } from './schemas.ts';
 
 export type EasementInput = {
@@ -15,6 +15,7 @@ export type EasementInput = {
   accessConditions: string[]; effectiveStartDate: string; effectiveEndDate: string;
   negotiation: NegotiationResult; offerCapCents: number;
   priorContract?: EasementType;
+  currentRouteVersion?: number; currentTermsVersion?: number;
 };
 
 export type EasementArtifact = {
@@ -36,6 +37,8 @@ export function createEasementDraft(input: EasementInput): EasementArtifact {
   if (input.accessConditions.length === 0 || input.accessConditions.some(v => !nonempty(v)))
     missingFields.push('accessConditions');
   const n = input.negotiation;
+  if (input.currentRouteVersion !== undefined) assertVersion(input.currentRouteVersion, n.routeVersion);
+  if (input.currentTermsVersion !== undefined) assertVersion(input.currentTermsVersion, n.termsVersion);
   if (n.outcome !== 'accepted') missingFields.push('acceptedNegotiation');
   if (n.accessConsent !== 'allowed' || !n.explicitConfirmation) missingFields.push('explicitAccessConsent');
   if (n.evidenceRefs.length === 0) missingFields.push('evidenceRefs');
@@ -57,6 +60,8 @@ export function createEasementDraft(input: EasementInput): EasementArtifact {
     if (input.effectiveEndDate !== expectedEnd) missingFields.push('termDateMismatch');
   }
   if (input.priorContract) {
+    if (input.priorContract.status === 'superseded')
+      throw new ContractError('BLOCKED_STATE', 'Cannot supersede an already superseded contract');
     if (input.priorContract.projectId !== input.projectId || input.priorContract.parcelId !== input.parcelId)
       throw new ContractError('INVALID_INPUT', 'Prior contract belongs to another project/parcel');
     if (input.contractVersion !== input.priorContract.contractVersion + 1)
