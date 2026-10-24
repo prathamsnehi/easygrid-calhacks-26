@@ -1,5 +1,5 @@
 /** Synthetic property fixtures. These coordinates and prices are demo data only. */
-export const PARCEL_FIXTURE_VERSION = 'california-valley-parcels-v1';
+export const PARCEL_FIXTURE_VERSION = 'california-valley-parcels-v2';
 
 const PARCEL_OWNER_ALIASES = [
   'Elena Brooks', 'Mateo Ruiz', 'Nora Bennett', 'Daniel Park',
@@ -77,6 +77,11 @@ export function createParcelFixtures({ tiles, width, depth }) {
       phoneDisplay: `555-${String(101+index).padStart(4,'0')} · demo`,
       dialTarget: null,
       contactConsent: 'unknown',
+      banking: {
+        ownerId: `O${suffix}`, paymentRecipientRef: `mock-recipient-o${suffix}`,
+        mode: 'simulated', accountHolderAlias: alias,
+        bankDisplay: 'Demo Bank — simulated', accountDisplay: `****${1001+index}`,
+      },
     };
   });
   const groups = Array.from({length:columns*rows},() => []);

@@ -24,6 +24,7 @@
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "generate": "node --experimental-strip-types scripts/generate.ts",
     "check:generated": "node --experimental-strip-types scripts/generate.ts --check",
+    "demo:handoff": "node --experimental-strip-types scripts/demo-owner-handoff.ts",
     "check": "npm run typecheck && npm test && npm run check:generated && npm run build"
   },
   "dependencies": {

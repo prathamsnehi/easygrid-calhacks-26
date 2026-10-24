@@ -1,6 +1,8 @@
 # Map → parcel analysis → voice agent
 
-Tracked in [CAL-23](https://linear.app/easygrid-calhacks-2026/issue/CAL-23), related to CAL-7, CAL-8, CAL-10 and CAL-16.
+Baseline tracked in [CAL-26](https://linear.app/easygrid-calhacks-2026/issue/CAL-26); common owner data in [CAL-27](https://linear.app/easygrid-calhacks-2026/issue/CAL-27), calling in CAL-33 and integration in CAL-41.
+
+For the normalized owner/parcel/contact-reference/terms/banking packet and executable development samples, see [Owner handoff](OWNER_HANDOFF.md). The `ownerHandoff` field extends the existing map envelope; the legacy snapshot and API v1 call request remain compatible.
 
 This slice collects a consented demo participant before planning, then prepares the selected transmission route and the fictional landowner that participant will play. Registration on **Start demo** is local page state. It does not dial a phone, import a project into a backend, register a server contact, record land access, or create an agreement. The map, parcel data and cost assumptions are synthetic.
 
@@ -46,6 +48,7 @@ The callback is a same-page integration seam. It does not automatically cross an
 | --- | --- |
 | `sessionId`, `routeVersion` | Local demo identity and version. They are not canonical server project or route versions. |
 | `snapshot` | A snapshot that passes the shared `Snapshot` Zod schema. Owners and parcels remain fictional; no negotiations, agreements, approvals or payments are fabricated. |
+| `ownerHandoff` | Additive CAL-27 packet joining original owners, contact references, mock banking recipients, affected parcel impacts and proposed terms. Validate with `OwnerHandoff`; use `createVoiceHandoff` for the bank-free voice view. Local contact references remain unregistered. |
 | `parcelAnalysis` | Per-parcel length, foundations, exact allocated upfront/rent cents, cap, pending status, fictional contacts, and display-role overlay. |
 | `userRole` | One affected `parcelId`, original fictional owner, generic `displayAlias: "User participant"`, local opaque contact reference, and participant readiness. The entered participant alias is not exported. |
 | `coordinateTransform` | Explicit, invented local-grid-to-WGS84 conversion described below. |

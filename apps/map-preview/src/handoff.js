@@ -129,11 +129,55 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     accessConsent:row.accessConsent,negotiationStatus:row.negotiationStatus,
     affectReasons:[...row.affectReasons],corridorOnly:row.corridorOnly,
   }));
+  // Additive shared handoff: the frozen API v1 snapshot above stays compatible.
+  // Contact references are local correlation IDs, never registered dial targets.
+  // Copy banking by original owner, so the participant overlay cannot redirect it.
+  const ownerHandoff={
+    schemaVersion:1,kind:'easygrid-owner-handoff',sourceMode:'fixture',
+    sessionId,projectId,routeId:route.id,routeVersion,revision:0,referenceBinding:'local-fixture',
+    currency:'USD',routeStatus:'selected_for_negotiation',rentHorizonMonths,
+    constructionCents:candidate.constructionCents,budgetCents,simulationChecksPassed:true,
+    owners:[...owners.values()].map(owner=>{
+      const original=world.ownerById.get(owner.id),banking=original.banking;
+      if(!banking||banking.ownerId!==owner.id||banking.mode!=='simulated'||
+        typeof banking.paymentRecipientRef!=='string'||!banking.paymentRecipientRef.startsWith('mock-')||
+        !/^\*{4}\d{4}$/.test(banking.accountDisplay)||banking.accountHolderAlias!==owner.alias||
+        typeof banking.bankDisplay!=='string'||!banking.bankDisplay.trim()){
+        throw new Error('A matching simulated banking profile is required for each affected owner.');
+      }
+      requireId(banking.paymentRecipientRef,'Mock payment recipient reference');
+      const isUser=owner.id===userRow.ownerId;
+      const ownerContactRef=isUser?contactRef:original.contactRef;
+      requireId(ownerContactRef,'Owner contact reference');
+      return {ownerId:owner.id,alias:owner.alias,synthetic:true,
+        contact:{contactRef:ownerContactRef,registration:'unregistered',callConsent:false},
+        banking:{ownerId:banking.ownerId,paymentRecipientRef:banking.paymentRecipientRef,
+          mode:'simulated',accountHolderAlias:banking.accountHolderAlias,
+          bankDisplay:banking.bankDisplay,accountDisplay:banking.accountDisplay}};
+    }),
+    parcels:analysis.parcels.map(row=>{
+      const parcel=parcels.find(item=>item.id===row.parcelId);
+      return {parcelId:row.parcelId,ownerId:row.ownerId,landUse:row.landUse,
+        geometry:{type:'Polygon',coordinates:parcel.geometry.coordinates.map(ring=>ring.map(point=>[...point]))},areaSqM:parcel.areaSqM,
+        impact:{towerCount:row.towerCount,wireLengthMeters:row.lineLengthTiles*DEMO_COORDINATE_TRANSFORM.metersPerTile},
+        offerCapCents:row.offerCapCents,
+        terms:{termsVersion:1,
+          // Fixture status alone is not an explicit negotiated acceptance.
+          outcome:row.negotiationStatus==='accepted'?'pending':row.negotiationStatus,
+          accessConsent:row.accessConsent,explicitConfirmation:false,confirmationRef:null,
+          compensationCents:row.upfrontCents,monthlyRentCents:row.monthlyRentCents,
+          comparisonRentTotalCents:row.rentTotalCents,monthlyRentIsApproximate:row.monthlyRentIsApproximate}};
+    }),
+    userRole:{ownerId:userRow.ownerId,parcelId:selectedUserParcel},
+  };
+  if(new Set(ownerHandoff.owners.map(owner=>owner.banking.paymentRecipientRef)).size!==ownerHandoff.owners.length){
+    throw new Error('Each affected owner must have a distinct mock payment recipient reference.');
+  }
   return {
     schemaVersion:2,kind:'easygrid-map-handoff',sourceMode:'fixture',sessionId,routeVersion,
     coordinateTransform:{...DEMO_COORDINATE_TRANSFORM},
     snapshot:{project,owners:[...owners.values()],parcels,routes:[candidate],negotiations:[],easements:[],approvals:[],payments:[],reconciliations:[],events:[]},
-    parcelAnalysis,
+    parcelAnalysis,ownerHandoff,
     userRole:{parcelId:selectedUserParcel,ownerId:userRow.ownerId,originalOwnerAlias:userRow.ownerAlias,
       displayAlias:'User participant',participantContactRef:contactRef,
       participantReady:validation.valid,participantConsent:validation.valid,

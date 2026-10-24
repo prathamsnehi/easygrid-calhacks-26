@@ -1,8 +1,8 @@
 # easygrid-calhacks-26
 
-Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → simulated deposit and rent reconciliation.
+Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → simulated compensation and rent reconciliation.
 
-The repository contains the [shared API contract and TypeScript client](packages/contracts/README.md) (CAL-6), and the [interactive map planner](apps/map-preview/README.md) (CAL-7/CAL-8/CAL-23). The planner supports A/B placement, transmission route comparison, affected-parcel analysis and a consented user roleplay handoff for Pratham's voice integration.
+The repository contains the [shared contract and TypeScript client](packages/contracts/README.md), the [owner handoff and development samples](docs/OWNER_HANDOFF.md) (CAL-27), and the [interactive map planner](apps/map-preview/README.md) (CAL-26). The planner supports A/B placement, transmission route comparison, affected-parcel analysis and a consented user roleplay handoff for Pratham's voice integration.
 
 From the repository root, use Node 24 (also used by the map CI):
 

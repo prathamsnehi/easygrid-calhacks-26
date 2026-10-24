@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { entities } from '../src/schemas.ts';
 import { operations, ErrorEnvelope } from '../src/api.ts';
 import { apiExamples, happyPath, edgeCases, validateFixtures } from '../src/fixtures.ts';
+import { ownerHandoffSchemas } from '../src/owner-handoff.ts';
+import { createOwnerHandoffExamples, validateOwnerHandoffFixtures } from '../src/owner-handoff-fixtures.ts';
 validateFixtures();
+validateOwnerHandoffFixtures();
 const schema = (value: z.ZodType) => z.toJSONSchema(value, { target: 'draft-2020-12' });
 const paths: Record<string, unknown> = {};
 for (const [name, op] of Object.entries(operations)) {
@@ -34,7 +37,15 @@ const openapi = {
     schemas: Object.fromEntries([...Object.entries(entities).map(([name, value]) => [name, schema(value)]), ['ErrorEnvelope', schema(ErrorEnvelope)]]) },
 };
 const outputs = { 'openapi.json': openapi, 'examples/api-v1.json': apiExamples,
-  'examples/happy-path.json': happyPath, 'examples/edge-cases.json': edgeCases };
+  'examples/happy-path.json': happyPath, 'examples/edge-cases.json': edgeCases,
+  'examples/owner-handoff.json': createOwnerHandoffExamples(),
+  'examples/owner-handoff.schema.json': {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    title: 'EasyGrid owner handoff development contracts',
+    description: 'Additive CAL-27 data contracts; not new HTTP operations. Runtime refinements and authoritative-state checks remain required.',
+    $ref: '#/$defs/OwnerHandoff',
+    $defs: Object.fromEntries(Object.entries(ownerHandoffSchemas).map(([name, value]) => [name, schema(value)])),
+  } };
 await mkdir(new URL('../examples/', import.meta.url), { recursive: true });
 for (const [name, value] of Object.entries(outputs)) {
   const url = new URL(`../${name}`, import.meta.url), text = JSON.stringify(value, null, 2) + '\n';

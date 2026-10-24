@@ -1,4 +1,8 @@
-# EasyGrid API v1 contract — CAL-6
+# EasyGrid shared contracts — CAL-27
+
+For the revised owner → voice → settlement workflow, start with the [owner handoff guide](../../docs/OWNER_HANDOFF.md) and [development examples](examples/owner-handoff.json). The additive owner-handoff contract links the existing map data to synthetic banking recipients and models 20% compensation, the exact completion balance and post-completion monthly fees. It is separate from the legacy API v1 transport below; it does not deploy a backend or execute calls/payments.
+
+## Legacy API v1 compatibility
 
 A shared, executable contract for Theo's routing, Pratham's Claude/voice adapter and Seohyun's easement/payment adapter. TypeScript types are inferred from the same strict Zod schemas used at runtime. This package is independent of the app framework so CAL-5 can import it into the shared SpacetimeDB backend without a competing database.
 
@@ -34,6 +38,10 @@ const response = await api.execute('evaluateRoutes', request);
 
 | File | Purpose |
 |---|---|
+| `src/owner-handoff.ts` | Revised owner packet, mock recipient binding, voice projection and guarded settlement plans |
+| `src/owner-handoff-fixtures.ts` | Fresh deterministic development inputs, outcomes and rejected cases |
+| `examples/owner-handoff.json` | Generated development pack for Theo, Pratham and Seohyun |
+| `examples/owner-handoff.schema.json` | Generated JSON shapes; use runtime helpers for cross-record validation |
 | `src/schemas.ts` | Entities, status enums, money, geometry, evidence and versions |
 | `src/api.ts` | 13 operations, request/response schemas, errors, typed client/server boundary |
 | `src/policy.ts` | Exact cents conversion, cost calculation, revision checks, replay/event helpers and approval/payment gates |
@@ -79,6 +87,6 @@ Examples are **independent boundary samples**, not a complete sequential server 
 - Pratham: implement `ContractApi` in the SpacetimeDB facade, durable atomic idempotency/auth, and Claude/voice normalization; keep unknown outcomes pending until resolved.
 - Seohyun: implement immutable contracts/artifacts, simulated signing, contract/approval version binding, ledger obligations and reconciliation.
 
-All three owners must review before freezing v1 or replacing mocks with integrations. Tests passing do not constitute teammate review. CAL-6 stays in review until those acknowledgments arrive.
+All three owners must review before freezing the revised interface or replacing mocks with integrations. Tests passing do not constitute teammate review. CAL-27 remains open for the broader workflow migration and review.
 
-Linear: https://linear.app/easygrid-calhacks-2026/issue/CAL-6
+Linear: https://linear.app/easygrid-calhacks-2026/issue/CAL-27
