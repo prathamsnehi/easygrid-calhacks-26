@@ -147,7 +147,7 @@ export function mountFinancePanel(){
   row(first,'Fictional agreement version','v'+s.contractVersion);
   controls(first,[['Prepare fictional accepted terms','prepare',!s.prepared],['Regenerate agreements (void signatures)','regenerate',s.prepared&&!s.approved]]);
   for(const p of view.parcels){
-   const terms=financeContractPreview(view,s,p.id);
+   const terms=s.prepared?financeContractPreview(view,s,p.id):{text:'Prepare fictional terms to view the versioned agreement. This is not an approved contract.'};
    const details=div('details','','finance-contract');details.append(div('summary','View '+p.id+' simulated easement agreement'));
    const body=div('pre',terms.text,'finance-contract-text');details.append(body);first.append(details);
    row(first,p.id+' · '+p.alias, money(p.comp)+' / month '+money(p.rent)+(p.rentApproximate?' (rounded estimate)':''));
