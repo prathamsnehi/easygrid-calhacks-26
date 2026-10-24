@@ -53,4 +53,4 @@ const server=createServer(async(req,res)=>{
   send(200,{...cal37PublicView(state),receipts:result.receipts});return;
  }catch(e){send(400,{error:e instanceof Error?e.message:'Invalid request'});}
 });
-server.listen(port,'127.0.0.1',()=>console.log('SIMULATED LOCAL CAL-37 fallback: http://127.0.0.1:'+port));
+server.listen(port,'127.0.0.1',()=>{const addr=server.address();console.log('SIMULATED LOCAL CAL-37 fallback: http://127.0.0.1:'+(typeof addr==='object'&&addr?addr.port:port));});
