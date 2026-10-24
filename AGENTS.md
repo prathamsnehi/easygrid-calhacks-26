@@ -1,0 +1,10 @@
+# EasyGrid development workflow
+
+- Track product development in Linear. Read the relevant CAL issue before coding and keep its scope, implementation status and validation evidence accurate.
+- Use the existing GitHub repository: https://github.com/prathamsnehi/easygrid-calhacks-26. Name feature branches with the CAL issue identifier and reference that issue in commit messages and pull requests. Link the resulting PR back to Linear.
+- Complete the implementation and relevant checks, then create a draft PR when authenticated GitHub access is available. Do not merge or deploy unless requested. Report unavailable publication separately from completed local work; never claim a push or integration succeeded without verification.
+- All product UI text, map labels and fixture display strings must be English. User-facing conversation may be Korean.
+- Keep entered demo participant contact details out of Git, fixtures, logs, URLs, shared exports and issue descriptions. Treat the judge as an explicitly labeled roleplay participant bound to one affected fictional parcel. Call consent never grants property access or easement consent.
+- Use synthetic geometry and costs honestly. The local map is not surveyed land; its optional geographic transform is an explicit fixture adapter.
+- Preserve other contributors' work and shared API contracts. Document the adapter and integration boundaries for Pratham's voice work rather than implying an offline demo is a live backend.
+- Run `npm ci --ignore-scripts --prefix packages/contracts` once for shared-schema test dependencies, then `npm test --prefix apps/map-preview`. UI VM checks do not substitute for browser layout and GPU verification.

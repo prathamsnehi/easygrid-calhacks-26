@@ -1,0 +1,72 @@
+# California valley site planner
+
+Interactive voxel map for fictional parcels, A/B facility placement and cost-optimized transmission connections (CAL-7/CAL-8), with affected-parcel analysis and a judge roleplay handoff (CAL-23). The user places a substation and data center; the planner calculates feasible support-to-support routes and renders the recommended route with lattice pylons and sagging conductors. The analysis packages the selected route and owner proposals for Pratham's integration. Calls, agreements and payments remain separate backend steps.
+
+**Product language: always English.** Keep every map label, message, accessibility description, fixture display value and routing explanation in English. The language regression checks cover source files and the generated deliverables.
+
+Use Node 24, matching the map CI. Run these commands from the repository root:
+
+```sh
+npm ci --ignore-scripts --prefix packages/contracts
+npm run build --prefix apps/map-preview
+npm test --prefix apps/map-preview
+npm run dev --prefix apps/map-preview
+```
+
+Open `apps/map-preview/dist/index.html` directly for an offline standalone preview, or use the local server at `http://127.0.0.1:4177`. The standalone preview makes no external requests; source links and an optional registered host integration are explicit actions. `dist/parcel-fixtures.json` contains the generated parcel and owner records. Installing the shared contract dependencies enables the handoff compatibility tests; the map build itself has no external dependencies.
+
+Click a valid location to place A (substation, 12×10 tiles), then B (data center, 20×14 tiles). The ghost and footprint turn green or red; the card explains rejection. Every footprint cell must be flat, vacant and inside the map, and the two facilities cannot overlap. The A/B buttons and building labels allow repositioning; old placement stays until a valid replacement is confirmed. The reset button clears the plan.
+
+The **Parcels** button shows property boundaries and fictional owner/contact/price details. **Find open site** and **Place here** provide an alternative to mouse placement and support keyboard use.
+
+After both facilities are placed, a queued route calculation runs automatically. **Transmission** opens the comparison panel. Select an alternative to update its pylons, conductors, cost breakdown and affected parcels together. Changing a committed facility immediately removes the old network, restores its crop clearings, and calculates a new connection. Reset cancels queued work; reload revalidates the saved sites and recalculates the recommendation. An infeasible connection is reported without relaxing constraints or showing a stale network.
+
+Choose **Analyze affected parcels** to open **Land & people**. Select a parcel to inspect its fictional owner/contact details, land use, crossed line length, pylon foundations, upfront allowance, offer cap, rent and consent status. The parcel totals reconcile to the selected route's compensation and rent. A pylon whose pad touches several parcels appears in each parcel's impacts; the route's pylon total remains a unique count. Corridor-only parcels stay in the analysis even when their modeled line-length and foundation allowance is zero. Monthly rent is a rounded equivalent; the full-horizon amount is authoritative.
+
+## Judge roleplay and Pratham handoff
+
+Every valid selected route reserves exactly one affected parcel for **Judge participant**. The selection prefers a pylon-bearing parcel, then the greatest crossed length. It preserves the existing assignment while that parcel remains affected and reassigns it when a different route excludes it. This is a display and handoff overlay: the underlying fictional parcel and owner records are not rewritten, and it is not a claim of actual land ownership.
+
+Enter an optional participant name and an international phone number, confirm that the participant agreed to an AI roleplay demo call, then select **Apply participant**. Call consent is separate from land-access consent, which remains pending. Personal name and phone data are held only in page memory, never written to local storage or fixtures. Editing the form revokes the saved participant's readiness until it is applied again. **Clear**, **Reset plan** and reloading the page remove the participant details. A/B coordinates can still be restored independently.
+
+**Export handoff JSON** produces a contact-redacted snapshot containing the selected route, affected parcels and synthetic owners, per-parcel proposals, judge-role assignment and declared coordinate transform. Personal name and phone values are excluded. A reserved judge role without a consented participant is not ready for a private handoff.
+
+The host can register a handler through `window.easygridDemo.setHandoffHandler(handler)` and obtain a redacted snapshot with `window.easygridDemo.getHandoff()`. **Prepare participant handoff** becomes available when the route and participant are ready and a handler is registered. The handler receives `{handoff, participant, signal}` only after that explicit action; no call is placed by this preview. It must respect the abort signal when contact or route changes make a pending handoff stale. The host still needs canonical backend project/parcel IDs and revisions, private contact registration, and the voice call integration. Read [PRATHAM_HANDOFF.md](../../docs/PRATHAM_HANDOFF.md) for the exact interface and integration sequence.
+
+## Map controls and fixtures
+
+Drag to rotate; Shift-drag or right-drag to pan. Scroll/pinch to zoom up to 5× the overview; two-finger drag pans. Keyboard: arrows rotate, Shift+arrows pan, +/− zoom, 0/Home reset the view, 1/2 select A/B, Enter confirms a preview, Escape leaves placement mode. Double-click no longer resets the camera, so it cannot conflict with placement clicks. Pointer drags and pinch gestures do not place buildings.
+
+The plan is saved in this browser's local storage when available. Reloaded coordinates are validated again against the current fixture; all parcel IDs, heights and connection points are rebuilt. Storage failure is reported without preventing placement. Local file URL storage support depends on the browser.
+
+The valley is 120 × 96 tiles (four times the original 60 × 48 area). Six empty 22×16 clearings provide space for 20×14 footprints. Tile dimensions and facility sizes are demo design choices, not an engineering scale or siting approval.
+
+`parcels.js` assigns every tile to one of 24 fictional properties L001–L024 and one synthetic owner O001–O024. Farm field IDs P1–P6 are retained separately as `fieldId`. Parcel polygons follow the clipped map outline, and their area is measured in tiles. Phone displays are mock values with `dialTarget:null`; emails use `example.com`. Prices in the map's general parcel inspector are fictional whole-parcel starting offers in USD cents; the analysis screen instead uses route-specific compensation. Neither is an appraisal. No judge phone number is embedded in the source or exported fixtures; private participant binding is separate from synthetic ownership.
+
+The source is split into `world.js` (terrain and occupancy), `parcels.js` (property fixtures), `landscape.js` (voxel terrain and reversible crop clearing), `facility-models.js` (buildings), `placement.js` (site validation, picking and saved plans), `planner.js` (placement/inspection UI), `routing.js` (support graph and optimization), `transmission-models.js` (pylons and conductors), `route-controller.js` (route state, comparison and redraw), `parcel-analysis.js` (affected parcels and reconciled costs), `handoff.js` (redacted contract snapshot and coordinate adapter), `analysis-controller.js` (analysis UI, participant memory and host handoff), and `main.js` (camera, lighting and pointer gestures). `index.html` and `styles.css` define the planner controls. The build wraps source modules separately and embeds Three.js in one HTML file.
+
+Facility eligibility is separate from line-passage and tower-foundation checks. Farmland can support a transmission corridor and cleared tower pads, even though facilities require vacant meadow. These checks do not establish owner consent or regulatory approval. Map geometry uses explicit local demo coordinates. The handoff adapter converts them into synthetic WGS84 GeoJSON using an invented origin at longitude −120.5, latitude 37 and 100 meters per tile. That declared scale exists only for shared-contract interoperability; it does not turn demo dimensions into surveyed geography or an engineering design. The shared contract package remains unchanged.
+
+## Route model
+
+The graph contains two front facility terminals and feasible tower sites on a 3-tile lattice. Every tower needs a flat 2×2 foundation. Water, riverbanks, roads, existing structures, tree crowns and rocks exclude foundations. Spans are at most 15 tiles long. Exact segment/rectangle intersections check a conservative 0.8-tile corridor, including corner contacts; they exclude structures, facility bodies, refused parcels and map boundaries. Facilities connect through their front service aprons.
+
+Each support is 10 demo units high. Three conductors have a maximum modeled sag of 1.1 units and radius 0.045. Terrain and conservative vegetation/rock envelopes are checked for at least 2 units of clearance under the cable. These dimensions are demo choices, not voltage-dependent engineering standards. The physical layer follows the exact graph edges without smoothing through obstacles. Crop and grass instances intersecting tower foundations are hidden reversibly; soil, trees, buildings and underlying parcel metadata stay intact.
+
+The balanced objective is additive integer USD cents: line construction + towers + two fixed terminals + terrain/elevation + water/road/agricultural/vegetation impacts + parcel-specific land allowance + 12 months of simulated rent. Dijkstra finds the minimum of this objective on the declared graph. Per-edge/node amounts are rounded to cents before search, and the displayed breakdown reconciles to that same total. Parcel IDs are deduplicated; land allowances use traversed length and foundation area, not the whole-parcel opening offer in the inspector.
+
+Distance-first and lower-impact searches supply alternatives. All alternatives are priced under the same balanced objective and identical paths are deduplicated. **“Lowest modeled cost” means optimal within this finite demo graph; it does not claim a global geographic optimum or a construction-ready design.** Unknown owner consent stays pending, `readyToApprove` is false, and explicit refusal blocks a route.
+
+Illustrative rates are in `ROUTING_ASSUMPTIONS`: $1,200 per line tile, $18,000 per pylon, $2,500 per terminal, plus terrain/land-use and fictional parcel rates. Distances remain in map tiles; no surveyed meters, acres or real market prices are inferred.
+
+## Criteria references
+
+- [Ironwood Routing Study, September 2025](https://ia.cpuc.ca.gov/environment/info/ecorp/ironwood/pdfs/Appendix%20K_Routing%20Study.pdf): CPUC-hosted applicant study weighing constructability, cost, land/ROW and environmental/land-use impacts. Its categories are project-specific, not statewide scoring weights.
+- [PG&E Overhead Transmission Line Design Criteria, December 17, 2020](https://www.pge.com/assets/pge/docs/outages-and-safety/outage-preparedness-and-support/oh-transmission-068177.pdf): motivates checking sag and clearances; its engineering requirements are not implemented by the fictional dimensions above.
+- [PG&E Easement and Property Requests](https://www.pge.com/en/about/land-use-and-sales/easement-and-property-requests.html): land rights remain separate from geometric feasibility.
+
+## Verification
+
+`npm test` builds the actual standalone output, then tests parcel coverage, placement and persistence, English-only output, weighted-path optimality against exhaustive small graphs, span/foundation constraints, route and parcel cost reconciliation, judge assignment, handoff contract compatibility and contact redaction, conductor geometry/continuity/disposal, and UI state flows in a Node VM with real Three.js and a stub renderer. Those UI tests are behavioral checks; they do not establish browser layout, GPU performance or actual WebGL rendering.
+
+Three.js 0.180.0 is vendored from the official npm package, with its MIT license, so the generated preview needs no external assets or runtime installation. All map objects are procedural geometry. This preview does not modify the shared contract package. Development follows the repository's [Linear/GitHub workflow](../../AGENTS.md); generated `dist/` files and private participant details must not be committed.

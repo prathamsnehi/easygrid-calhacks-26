@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e4e6d8">
+  <title>EasyGrid · Site Planning</title>
+  <style>/* APP_STYLES */</style>
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><div><strong>EASYGRID</strong><span>Fictional site simulation</span></div></div>
+    <nav class="steps" aria-label="Facility placement steps">
+      <button id="step-a" class="step" type="button" aria-pressed="true"><b>A</b><span>Substation<small id="a-status">Choose a site</small></span><i class="step-check" aria-hidden="true">✓</i></button>
+      <span class="step-divider" aria-hidden="true"></span>
+      <button id="step-b" class="step" type="button" aria-pressed="false" disabled><b>B</b><span>Data center<small id="b-status">Next step</small></span><i class="step-check" aria-hidden="true">✓</i></button>
+      <span class="step-divider" aria-hidden="true"></span>
+      <button id="step-route" class="step" type="button" aria-pressed="false" disabled><b>C</b><span>Transmission<small id="route-status">Place both sites</small></span><i class="step-check" aria-hidden="true">✓</i></button>
+    </nav>
+    <div class="toolbar-actions"><button id="inspect-parcels" class="quiet-button" type="button" aria-pressed="false">Parcels <span id="parcel-count">24</span></button><button id="reset-plan" class="quiet-button muted" type="button" disabled>Reset plan</button></div>
+  </header>
+  <main id="viewport">
+    <canvas id="map-canvas" tabindex="0" aria-label="Fictional 3D map. Click to place a facility, drag to rotate, Shift-drag or right-drag to pan, and scroll to zoom. Keyboard users can use Find open site and Place here."></canvas>
+    <div class="facility-labels"><button id="label-a" class="facility-label" type="button" hidden><b>A</b>Substation <span>Move</span></button><button id="label-b" class="facility-label" type="button" hidden><b>B</b>Data center <span>Move</span></button></div>
+  </main>
+  <aside id="context-card" class="context-card" aria-label="Site selection details">
+    <div class="card-heading"><span id="card-kicker" class="eyebrow">STEP 01 / 03</span><span id="size-badge" class="size-badge">12 × 10</span></div>
+    <h1 id="card-title">Choose a site for the substation</h1>
+    <p id="card-copy">Hover over open land to preview the full footprint.</p>
+    <div id="placement-info">
+      <div id="validation" class="validation neutral" role="status"><span class="status-dot"></span><span id="validation-text">Choose a location.</span></div>
+      <div id="site-meta" class="site-meta"><span id="footprint-meta">Footprint: 120 tiles</span><span id="parcel-meta">Parcels —</span></div>
+      <div class="card-actions"><button id="next-site" class="secondary-button" type="button">Find open site</button><button id="confirm-placement" class="primary-button" type="button" disabled>Place here</button></div>
+    </div>
+    <dl id="parcel-details" class="parcel-details" hidden>
+      <div><dt>Owner</dt><dd id="owner-name"></dd></div>
+      <div><dt>Phone</dt><dd id="owner-phone"></dd></div>
+      <div><dt>Email</dt><dd id="owner-email"></dd></div>
+      <div><dt>Land cover</dt><dd id="parcel-use"></dd></div>
+      <div><dt>Area</dt><dd id="parcel-area"></dd></div>
+      <div><dt>Demo opening offer</dt><dd id="parcel-offer"></dd></div>
+      <div><dt>Negotiation</dt><dd>Not started</dd></div>
+    </dl>
+    <p id="fixture-note" class="fixture-note" hidden>Owners, contacts and prices are fictional. Offers are illustrative amounts for the whole parcel.</p>
+  </aside>
+  <aside id="route-panel" class="route-panel" aria-label="Transmission route comparison" hidden>
+    <div class="card-heading"><span class="eyebrow">STEP 03 / 03</span><span id="route-badge" class="size-badge">DEMO</span></div>
+    <h2 id="route-title">Finding a connection</h2>
+    <p id="route-status-note" class="route-note" role="status">Comparing feasible spans between the two facilities.</p>
+    <div id="route-summary" hidden>
+      <div class="route-metrics"><div><span>Length</span><strong id="route-length">—</strong></div><div><span>Pylons</span><strong id="route-towers">—</strong></div><div><span>Owners</span><strong id="route-owners">—</strong></div></div>
+      <div class="route-options" role="group" aria-label="Compare calculated routes">
+        <button id="route-choice-0" class="route-choice" type="button" aria-pressed="false" hidden><span><b id="route-name-0"></b><small id="route-detail-0"></small></span><strong id="route-price-0"></strong></button>
+        <button id="route-choice-1" class="route-choice" type="button" aria-pressed="false" hidden><span><b id="route-name-1"></b><small id="route-detail-1"></small></span><strong id="route-price-1"></strong></button>
+        <button id="route-choice-2" class="route-choice" type="button" aria-pressed="false" hidden><span><b id="route-name-2"></b><small id="route-detail-2"></small></span><strong id="route-price-2"></strong></button>
+      </div>
+      <dl class="route-costs">
+        <div><dt>Line construction</dt><dd id="cost-line">—</dd></div>
+        <div><dt>Pylons & terminals</dt><dd id="cost-structures">—</dd></div>
+        <div><dt>Terrain & crossings</dt><dd id="cost-impact">—</dd></div>
+        <div><dt>Land compensation</dt><dd id="cost-land">—</dd></div>
+        <div><dt id="cost-rent-label">Rent · 12 months</dt><dd id="cost-rent">—</dd></div>
+        <div class="cost-total"><dt>Modeled total</dt><dd id="cost-total">—</dd></div>
+      </dl>
+      <p id="route-reason" class="route-reason"></p>
+      <p class="route-parcels"><span>Affected parcels</span><strong id="route-parcels"></strong></p>
+      <button id="open-analysis" class="primary-button analysis-entry" type="button" disabled><span>Analyze affected parcels</span><span aria-hidden="true">↗</span></button>
+      <p id="analysis-entry-status" class="analysis-feedback error analysis-entry-status" role="status" hidden></p>
+      <details class="route-method"><summary>Routing criteria & demo assumptions</summary><p id="route-method-copy"></p><p id="route-rates"></p><p id="route-assumptions"></p><p>Criteria references: <a href="https://ia.cpuc.ca.gov/environment/info/ecorp/ironwood/pdfs/Appendix%20K_Routing%20Study.pdf" target="_blank" rel="noopener">Ironwood routing study</a> · <a href="https://www.pge.com/assets/pge/docs/outages-and-safety/outage-preparedness-and-support/oh-transmission-068177.pdf" target="_blank" rel="noopener">PG&E design criteria</a>. Numerical values here are fictional, not values prescribed by these sources.</p></details>
+    </div>
+    <p id="route-no-results" class="route-empty" hidden></p>
+    <button id="recalculate-route" class="secondary-button route-recalculate" type="button" disabled>Recalculate connection</button>
+  </aside>
+  <section id="analysis-panel" class="analysis-panel" aria-labelledby="analysis-title" hidden>
+    <header class="analysis-header">
+      <div><span class="eyebrow">ROUTE → LANDOWNER HANDOFF</span><h2 id="analysis-title">Land &amp; people</h2><p id="analysis-route-note">Choose a route to review its affected parcels.</p></div>
+      <button id="close-analysis" class="quiet-button" type="button" aria-label="Close parcel analysis">Back to map <span aria-hidden="true">×</span></button>
+    </header>
+    <div class="analysis-overview">
+      <div><span>Affected parcels</span><strong id="analysis-count">—</strong></div>
+      <div><span>Land compensation</span><strong id="analysis-upfront">—</strong></div>
+      <div><span id="analysis-rent-label">Rent · 12 months</span><strong id="analysis-rent">—</strong></div>
+    </div>
+    <div class="analysis-content">
+      <div class="analysis-land">
+        <div class="analysis-section-heading"><h3>Along this connection</h3><span id="analysis-consent-note">Consent pending</span></div>
+        <div id="analysis-parcel-list" class="analysis-parcel-list" role="group" aria-label="Affected parcels"></div>
+        <article id="analysis-parcel-detail" class="analysis-parcel-detail" aria-labelledby="analysis-parcel-title">
+          <div class="analysis-section-heading"><h3 id="analysis-parcel-title">Parcel details</h3><span id="analysis-parcel-badge" class="role-badge">FICTIONAL OWNER</span></div>
+          <p id="analysis-parcel-copy" class="analysis-detail-copy"></p>
+          <dl class="analysis-facts">
+            <div><dt>Owner role</dt><dd id="analysis-owner"></dd></div>
+            <div><dt>Contact</dt><dd id="analysis-contact"></dd></div>
+            <div><dt>Email</dt><dd id="analysis-email"></dd></div>
+            <div><dt>Land use</dt><dd id="analysis-land-use"></dd></div>
+            <div><dt>Line length</dt><dd id="analysis-line-length"></dd></div>
+            <div><dt>Pylons / pad area</dt><dd id="analysis-foundation"></dd></div>
+            <div><dt>Upfront / offer cap</dt><dd id="analysis-offer"></dd></div>
+            <div><dt id="analysis-parcel-rent-label">Rent · 12 months</dt><dd id="analysis-parcel-rent"></dd></div>
+            <div><dt>Access / negotiation</dt><dd id="analysis-negotiation"></dd></div>
+          </dl>
+          <p id="analysis-parcel-impact" class="analysis-footnote"></p>
+        </article>
+        <p class="analysis-footnote">Fictional land and illustrative USD amounts. Lengths use demo tiles. Compensation covers centerline length and pylon pads; corridor-only parcels still need review.</p>
+      </div>
+      <aside class="analysis-handoff" aria-label="Judge demo participant and handoff">
+        <div class="judge-heading"><span class="judge-symbol" aria-hidden="true">J</span><div><span class="eyebrow">ONE LIVE DEMO ROLE</span><h3>Judge participant</h3></div></div>
+        <p class="judge-copy">One affected parcel is always reserved for the judge's landowner role. The assignment follows the selected route.</p>
+        <button id="focus-judge-parcel" class="judge-assignment" type="button"><span><small>Assigned parcel</small><strong id="judge-parcel-label">—</strong></span><span id="judge-contact-status" class="role-badge">CONTACT NEEDED</span></button>
+        <p id="judge-role-note" class="analysis-footnote">A role in this fictional simulation, not a claim of real ownership.</p>
+        <form id="judge-form" class="judge-form" autocomplete="off" novalidate>
+          <label for="judge-alias">Participant name <span>optional</span></label>
+          <input id="judge-alias" type="text" maxlength="80" autocomplete="off" placeholder="Judge participant">
+          <label for="judge-phone">Phone number <span>international format</span></label>
+          <input id="judge-phone" type="tel" inputmode="tel" maxlength="32" autocomplete="off" placeholder="+1 415 555 0123" aria-describedby="judge-phone-help">
+          <p id="judge-phone-help" class="field-help">Enter a country code. Kept only in this page until you prepare the handoff; excluded from JSON exports.</p>
+          <label class="consent-label" for="judge-consent"><input id="judge-consent" type="checkbox"><span>The participant agrees to receive an AI demo call and understands this is fictional landowner roleplay.</span></label>
+          <div class="judge-form-actions"><button id="save-judge" class="secondary-button" type="submit">Apply participant</button><button id="clear-judge" class="quiet-button muted" type="button">Clear</button></div>
+        </form>
+        <p id="judge-form-status" class="analysis-feedback" role="status">Add a phone number and confirm consent to prepare a call handoff.</p>
+        <div class="handoff-box">
+          <div class="analysis-section-heading"><h3>Ready for Pratham</h3><span id="handoff-status-badge" class="role-badge">LOCAL PREVIEW</span></div>
+          <p id="handoff-connection-note">The voice backend is not connected. Export the route package to review the integration.</p>
+          <p id="handoff-budget-note" class="analysis-footnote">Fixture budget: $1,000,000.00. This is a demo limit, not an approved project budget.</p>
+          <button id="export-handoff" class="secondary-button" type="button" disabled>Export handoff JSON</button>
+          <button id="prepare-handoff" class="primary-button" type="button" disabled>Prepare participant handoff</button>
+          <p id="handoff-result" class="analysis-feedback" role="status">Export includes the selected route, owner roles and proposal amounts. Personal contact details stay private.</p>
+          <p class="analysis-footnote">Preparing a handoff does not place a call. Calling and consent verification belong to the connected voice agent.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+  <div class="map-tools"><button id="reset-view" class="quiet-button" type="button">↗ Fit map</button><span id="map-help">Drag to rotate · Shift-drag to pan · Scroll to zoom</span></div>
+  <p id="save-note" class="save-note" role="status" hidden></p>
+  <div id="error" role="alert" hidden>The 3D map could not be displayed. Open it in a browser with WebGL support.</div>
+  <!-- APP_SCRIPT -->
+</body>
+</html>
