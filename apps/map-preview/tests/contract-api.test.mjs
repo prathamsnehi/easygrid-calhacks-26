@@ -39,3 +39,19 @@ test('local API signs, submits, persists and restores the same outcome without t
     await rm(directory,{recursive:true,force:true});
   }
 });
+
+test('the example endpoint supplies the same approved source used to validate contracts', async () => {
+  const directory = await mkdtemp(join(tmpdir(),'quickgrid-example-'));
+  try {
+    const api = await createContractAPI({environment:{},stateURL:pathToFileURL(join(directory,'state.json'))});
+    const result = {};
+    const res = {writeHead(status,headers){result.status=status;result.headers=headers;return this;},end(value){result.body=JSON.parse(value);}};
+    assert.equal(await api({method:'GET',headers:{host:'127.0.0.1:4177'}},res,'/api/contracts/example'),true);
+    assert.equal(result.status,200); assert.equal(result.body.simulated,true);
+    assert.deepEqual(result.body.source,createContractExample());
+    const draft = createContractDraft(result.body.source,'P-004',{id:'server-example-review',now:'2026-10-24T18:00:00Z'});
+    assert.equal((await call(api,'/api/contracts/state',{draft})).status,200);
+    await api({method:'GET',headers:{host:'untrusted.example'}},res,'/api/contracts/example');
+    assert.equal(result.status,403);
+  } finally { await rm(directory,{recursive:true,force:true}); }
+});

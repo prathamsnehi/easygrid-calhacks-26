@@ -31,6 +31,9 @@ export async function createContractAPI({environment = process.env, stateURL = n
   return async (req, res, pathname) => {
     if (!pathname.startsWith('/api/contracts/')) return false;
     if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) { reply(res,403,{error:'Local development host required.'}); return true; }
+    if (req.method === 'GET' && pathname === '/api/contracts/example') {
+      reply(res,200,{simulated:true,source:createContractExample()}); return true;
+    }
     if (req.method === 'GET' && pathname === '/api/contracts/config') {
       reply(res,200,{bankMode:bank.mode, actorMode:'distinct simulated roles; no production authentication', storage:'local development ledger; not SpacetimeDB', agentMode:'rule-based-event-worker'}); return true;
     }

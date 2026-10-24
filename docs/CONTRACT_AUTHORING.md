@@ -12,13 +12,13 @@ node build.mjs
 node serve.mjs
 ```
 
-Set `EASYGRID_PREVIEW_PORT` to use another local port when needed. Open `http://127.0.0.1:4177/contracts.html` for the development example. The normal map remains at `/`. The offline `dist/contracts.html` supports authoring and HTML download, but click signatures and submission require the local server.
+Set `EASYGRID_PREVIEW_PORT` to use another local port when needed. Open `http://127.0.0.1:4177/contracts.html` for the development example. The normal map remains at `/`. The example page fetches approved fixture terms from `GET /api/contracts/example`, which returns the same source the local workflow validates. It opens the first agreement automatically. The local server is required to load the example and to sign or submit; exported HTML remains self-contained.
 
-1. Switch the example negotiation to Pending or Refused to verify that **Proceed to contract** is disabled.
-2. Choose Approved, then **Proceed to contract**. Two fictional landowner agreements are available in the parcel selector.
-3. Review the generated document. Compensation and recipient ownership come from the approved source. Developer name, document date, draft access description and reviewer notes are editable. The original approved access terms remain visible and cannot be overwritten by editing a description.
+1. Expand **Example data** and switch to Pending or Refused to verify that **Review agreements** is disabled.
+2. Choose Approved to reopen the document. Two fictional landowner agreements are available in the parcel selector. Willow Creek Orchard / P-004 shows $12,000 total, $2,400 initially and $9,600 after completion.
+3. Review the generated document. Compensation and recipient ownership come from the approved source. Expand **Edit draft details** for optional changes to developer display name, document date, draft access description and reviewer notes. The original approved access terms remain visible and cannot be overwritten by editing a description.
 4. Save the draft in this browser or download a self-contained HTML copy. It can be printed to PDF using the browser's normal print action.
-5. Click **Power utility** and **Landowner**. Each simulated signature is recorded against the exact server-computed document hash and revision. Changing a field invalidates the current signatures. The utility signature approves the precise initial 20% amount and the configured recipient binding.
+5. Click **Developer** and **Landowner** in the signing panel. Each simulated signature is recorded against the exact server-computed document hash and revision. Changing a field invalidates the current signatures. The utility signature approves the precise initial 20% amount and the configured recipient binding.
 6. Both signatures are required for every parcel on the approved final route before the initial-payment submission is enabled. Submission triggers the server's accounts-payable worker; it rechecks both signatures, distinct actor identities, approved amount, current destination, existing bank evidence and available balance.
 7. A normal local simulation posts one matching transaction and a balanced demonstration journal. Retries and concurrent submissions reuse the same business obligation and cannot pay it twice. A new draft ID cannot bypass this guard.
 
@@ -26,7 +26,7 @@ No legally executed signatures or real funds are involved. The draft includes th
 
 ## Judge scenarios and answer key
 
-The development page exposes a **Planted finance scenario** selector. It is hidden for a configured Nessie provider.
+Expand **Demo settings & activity** to find the **Payment scenario** selector and the audit trail. It is hidden for a configured Nessie provider.
 
 | Scenario | Correct result | Evidence |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ An unattempted hold can be retried after the simulated underlying issue is corre
 
 `src/contract-fixtures.js` defines the examples; `src/contract-authoring.js` validates and normalizes them. The normalization allowlist excludes transcripts, participant contact and bank data. It requires an approved negotiation and accepted, versioned terms for every final-route parcel.
 
-The shared map now connects selected routes through **Simulate approved negotiation** and **Proceed to contract**. See [the CAL-41 bridge](MAP_CONTRACT_HANDOFF.md) for the full journey and server reconstruction. A development host can also project a matching fixture approval:
+The integrated QuickGrid map connects confirmed refusal reroutes through **Continue to contract & settlement**, followed by **Review agreements**. See [the CAL-41 bridge](MAP_CONTRACT_HANDOFF.md) for the full journey and server reconstruction. A development host can also project a matching fixture approval:
 
 ```js
 window.easygridDemo.setContractNegotiation({
@@ -75,3 +75,9 @@ npm test --prefix apps/map-preview
 ```
 
 UI-controller/VM tests verify behavior, not actual browser layout, WebGL or visual rendering. See `FINANCE_TRACKS.md` for sponsor evidence and remaining live verification.
+
+## Review layout
+
+The main document shows parties, parcel, date, approved access terms, exact milestone amounts and signature status. Identical draft/approved access descriptions are shown once; reviewer notes appear only when present. Source IDs and versions remain available under **Approval reference & versions**.
+
+The right column prioritizes confirmed compensation and two simulated signatures. The initial-payment panel appears after both selected-contract signatures; execution still requires every final-route contract to be signed. Construction controls appear only after the selected initial payment is confirmed. Money, owners, source bindings and server validation are unchanged.

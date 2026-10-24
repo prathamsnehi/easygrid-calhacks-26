@@ -42,14 +42,18 @@ test('approval gate, authoring, both click signatures, submission and restored p
     ui.app.setSource(createContractExample()); assert.equal(ui.nodes.get('cg-proceed').disabled,false);
     await ui.click('cg-proceed'); await ui.flush();
     assert.equal(ui.nodes.get('cg-editor').hidden,false); assert(ui.nodes.get('cg-preview').innerHTML.includes('$2,400.00'));
+    assert.equal(ui.nodes.get('cg-payment-panel').hidden,true);
+    assert.equal(ui.nodes.get('cg-completion-panel').hidden,true);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-sign-utility'); assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-sign-landowner'); assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.nodes.get('cg-payment-panel').hidden,false);
     ui.nodes.get('cg-parcel').value='P-009'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
     await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
     ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
     assert.equal(ui.nodes.get('cg-submit').disabled,false);
     await ui.click('cg-submit'); assert(ui.nodes.get('cg-execution-status').textContent.includes('payment complete'));
+    assert.equal(ui.nodes.get('cg-completion-panel').hidden,false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true); assert.equal(ui.nodes.get('cg-notes').disabled,true);
     assert(ui.nodes.get('cg-journal-summary').textContent.includes('$2,400.00'));
     assert.equal(ui.flow.snapshot().journal.length,1);

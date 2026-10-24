@@ -53,11 +53,19 @@ test('draft changes cannot alter approved money, owner, parcel or source binding
 });
 
 test('downloaded HTML escapes author input and has no active scripts or external dependencies', () => {
-  const source = createContractExample(), draft = updateContractDraft(create(source), {developerName:'<script>alert(1)</script>', specialConditions:'</style><img src=x onerror=alert(1)>'}, source, now);
+  const source = createContractExample(), draft = updateContractDraft(create(source), {developerName:'<script>alert(1)</script>', accessTerms:'Proposed reviewer description.', specialConditions:'</style><img src=x onerror=alert(1)>'}, source, now);
   const html = exportContractHTML(draft, source);
   assert(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;')); assert(!html.includes('<script>'));
   assert(!html.includes('<img src=x')); assert(html.includes('Content-Security-Policy'));
   assert(html.includes('Approved terms:')); assert(html.includes('Draft access description:'));
+});
+
+test('the review document shows confirmed terms once and omits empty reviewer notes', () => {
+  const source = createContractExample(), html = renderContractDocument(create(source), source);
+  assert.equal(html.split(source.parcels[0].accessTerms).length - 1, 1);
+  assert(!html.includes('Draft access description:'));
+  assert(!html.includes('Reviewer notes'));
+  for (const value of [source.project.name,source.parcels[0].ownerName,'P-004','Oct 24, 2026','$12,000.00','$2,400.00','$9,600.00']) assert(html.includes(value));
 });
 
 test('saved drafts restore per parcel and reject stale, corrupt, mismatched or unavailable storage', () => {

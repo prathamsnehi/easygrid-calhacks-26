@@ -5,6 +5,7 @@ import {createContractAPIClient} from './contract-api-client.js';
 export function createContractWorkspace({storage, onClose = () => {}, isCurrent = () => true, api = createContractAPIClient()} = {}) {
   const ids = ['contract-workspace','cg-close','cg-demo-controls','cg-example-status','cg-package-state','cg-gate','cg-gate-title','cg-gate-copy','cg-proceed','cg-gate-error','cg-approved-tag','cg-project-name','cg-route-name','cg-owner-count','cg-total','cg-initial','cg-balance','cg-editor','cg-draft-state','cg-parcel','cg-owner-caption','cg-form','cg-developer','cg-date','cg-access','cg-notes','cg-save','cg-download','cg-feedback','cg-parcel-total','cg-parcel-initial','cg-parcel-balance','cg-preview','cg-version','cg-stale'];
   ids.push('cg-sign-utility','cg-sign-landowner','cg-utility-signature-status','cg-landowner-signature-status','cg-submit','cg-reconcile','cg-reject','cg-execution-status','cg-provider-mode','cg-scenario-wrap','cg-finance-scenario','cg-audit-panel','cg-payment-state','cg-payment-summary','cg-audit-list','cg-journal-summary');
+  ids.push('cg-payment-panel','cg-completion-panel','cg-signer-developer','cg-signer-owner');
   ids.push('cg-construction-status','cg-pay-balance','cg-balance-status','cg-balance-reconcile','cg-balance-reject','cg-preview-completion');
   const el = Object.fromEntries(ids.map(id => [id, document.querySelector(`#${id}`)]));
   const store = createContractDraftStore(storage), drafts = new Map();
@@ -53,6 +54,10 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     const valid = current() && validateContractDraft(candidate(), source).valid;
     const locked = Boolean(payment && payment.status !== 'held');
     const both = Boolean(execution?.signatures?.utility && execution?.signatures?.landowner);
+    el['cg-payment-panel'].hidden = !both && !payment;
+    el['cg-completion-panel'].hidden = payment?.status !== 'paid';
+    write('cg-signer-developer', value.fields.developerName);
+    write('cg-signer-owner', source.parcels.find(p => p.parcelId === selected).ownerName);
     for (const side of ['utility','landowner']) {
       el[`cg-sign-${side}`].disabled = !valid || busy || locked || Boolean(execution?.signatures?.[side]);
       write(`cg-${side}-signature-status`, execution?.signatures?.[side] ? '✓ Signed' : 'Sign ↗');
@@ -100,7 +105,7 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     for (const [field, id] of [['developerName','cg-developer'],['agreementDate','cg-date'],['accessTerms','cg-access']]) {
       el[id].setAttribute('aria-invalid', String(!value.fields[field]?.trim()));
     }
-    write('cg-draft-state', value.saved && !dirty(value) ? 'Saved in this browser' : 'Unsaved draft');
+    write('cg-draft-state', value.saved && !dirty(value) ? 'Draft saved' : 'Draft ready for review');
     el['cg-draft-state'].className = `cg-draft-status${value.saved && !dirty(value) ? ' cg-saved' : ''}`;
     if (validation.valid) { el['cg-preview'].innerHTML = renderContractDocument(draft, source, value.execution ?? {}); write('cg-version', `DRAFT / V${draft.version}`); }
     if (!validation.valid) feedback(validation.errors.join(' '), true);
@@ -123,7 +128,7 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     }
     const value = entry(); el['cg-parcel'].value = selected;
     for (const [field, id] of [['developerName','cg-developer'],['agreementDate','cg-date'],['accessTerms','cg-access'],['specialConditions','cg-notes']]) el[id].value = value.fields[field];
-    write('cg-owner-caption', `${parcel.ownerName} · approved terms v${parcel.termsVersion}`);
+    write('cg-owner-caption', `Approved terms · version ${parcel.termsVersion}`);
     const split = compensationSplit(parcel.compensationCents);
     write('cg-parcel-total', money(split.totalCents)); write('cg-parcel-initial', money(split.initialCents));
     write('cg-parcel-balance', money(split.completionCents));
@@ -132,11 +137,11 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
   }
   function renderGate(input) {
     const validation = validateContractSource(input), approved = validation.valid;
-    const status = approved ? 'Approved negotiation' : input?.negotiation?.status === 'refused' ? 'Negotiation refused' : 'Awaiting approval';
+    const status = approved ? 'Approved terms' : input?.negotiation?.status === 'refused' ? 'Negotiation refused' : 'Awaiting approval';
     write('cg-package-state', status); el['cg-package-state'].className = `cg-status${approved ? '' : ' cg-pending'}`;
     write('cg-approved-tag', approved ? 'CONFIRMED' : 'NOT APPROVED');
-    write('cg-gate-title', approved ? 'The terms are agreed.\nLet’s prepare the contracts.' : 'An approved negotiation\ncomes first.');
-    write('cg-gate-copy', approved ? 'All landowners on the final route have approved their terms. Create individual drafts using those exact amounts.' : 'Contract authoring unlocks when every final-route landowner has accepted complete terms and the negotiation result is approved.');
+    write('cg-gate-title', approved ? 'Your agreements are ready to prepare.' : 'Waiting for approved terms.');
+    write('cg-gate-copy', approved ? 'The final route, landowners and compensation are confirmed. Review each agreement, then collect both signatures.' : 'Contract authoring unlocks when every final-route landowner has accepted complete terms and the negotiation result is approved.');
     write('cg-project-name', input?.project?.name ?? 'Project details pending'); write('cg-route-name', input?.route?.name ?? 'Final route pending');
     const rows = Array.isArray(input?.parcels) ? input.parcels : [];
     write('cg-owner-count', rows.length);
@@ -201,14 +206,15 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
       if (ticket === generation) { busy = false; renderDraft(); notifyConstruction(); }
     }
   }
-  el['cg-proceed'].addEventListener('click', () => {
+  function review() {
     if (!current()) { invalidate(); return; }
     el['cg-parcel'].replaceChildren(...source.parcels.map(parcel => {
       const option = document.createElement('option'); option.value = parcel.parcelId; option.textContent = `${parcel.ownerName} / ${parcel.parcelId}`; return option;
     }));
     el['cg-gate'].hidden = true; el['cg-editor'].hidden = false;
-    chooseParcel(selected ?? source.parcels[0].parcelId); el['cg-developer'].focus({preventScroll: true});
-  });
+    chooseParcel(selected ?? source.parcels[0].parcelId); el['cg-parcel'].focus({preventScroll: true});
+  }
+  el['cg-proceed'].addEventListener('click', review);
   el['cg-parcel'].addEventListener('change', () => chooseParcel(el['cg-parcel'].value));
   for (const id of ['cg-developer','cg-date','cg-access','cg-notes']) el[id].addEventListener('input', () => {
     if (!current()) { invalidate(); return; }
@@ -244,9 +250,9 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
   el['contract-workspace'].addEventListener('keydown', event => {
     if (event.key === 'Escape' && !el['cg-close'].hidden) { event.preventDefault(); event.stopPropagation(); close(); }
     if (event.key !== 'Tab') return;
-    const nodes = [...el['contract-workspace'].querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]')].filter(node => node.getClientRects().length > 0);
+    const nodes = [...el['contract-workspace'].querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary')].filter(node => node.getClientRects().length > 0);
     const first = nodes[0], last = nodes.at(-1);
     if (nodes.length && ((event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last))) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
   });
-  return {open, close, setSource, invalidate, setConstructionHandler, reportConstructionComplete};
+  return {open, close, review, setSource, invalidate, setConstructionHandler, reportConstructionComplete};
 }
