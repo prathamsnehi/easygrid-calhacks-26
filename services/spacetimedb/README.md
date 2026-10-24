@@ -73,14 +73,36 @@ or configuring the builder makes no network requests; `.build()` starts the
 connection. Subscriptions and reducer calls belong to the backend integration.
 Client tokens, contact information and private records must stay server-side.
 
-## Remaining CAL-29 work
+## State module
 
-- Implement and publish the module's tables, reducers and authorization rules.
-- Generate bindings from the actual module; do not invent a parallel schema here.
-- Connect the backend, manage its connection lifecycle and persist client identity
-  as appropriate. Verify reconnect behavior before relying on it.
-- Implement authoritative session state, revision checks and atomic duplicate
-  protection, then demonstrate persistence and stale-update rejection.
+The authoritative module lives in `module/`. It stores one demo session, the
+private participant phone, the current tower route, and simulated contract
+payments. It does not place phone calls. CAL-33 dials. CAL-34 owns the spoken
+negotiation. This module checks the stored result.
+
+For the hackathon, one phone number roleplays one tower-parcel owner at a time.
+The other tower parcels on that route are recorded as agreed without a call.
+A refusal excludes that parcel. The next published route binds the same phone
+number to one new tower owner: most towers, then the longest crossing, then the
+lowest parcel id. A clear yes opens one 20% contract tranche per tower parcel.
+A second request key cannot create that tranche again. Corridor parcels are
+ignored. Needs review leaves the route in place and blocks payment.
+
+Published database: `easygrid-demo`.
+Identity: `c200a6a781f8d5d17fb3f77d114184a7c758df84eaab7ca069606d32a88fe17f`.
+Dashboard: https://spacetimedb.com/easygrid-demo.
+SDK and CLI: 2.13.0. Collaborator access for Theo and Stella is not configured yet.
+
+```sh
+npm test --prefix services/spacetimedb/module
+./.tools/spacetime-cli publish easygrid-demo \
+  --server maincloud \
+  --module-path services/spacetimedb/module
+```
+
+Generate client bindings from the published module before the map or the call
+worker imports them. The connection helper in this package still only applies
+the host, database name, and token.
 
 For the repo-local CLI, login and Maincloud deployment workflow, see
 [shared setup](../../docs/shared-setup.md).
