@@ -4,6 +4,7 @@ import { createPlanner } from './planner.js';
 import { createRouteController } from './route-controller.js';
 import { createAnalysisController } from './analysis-controller.js';
 import { createNegotiationController } from './negotiation-controller.js';
+import { createContractEntry } from './contract-entry.js';
 
 const canvas = document.querySelector('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -69,6 +70,7 @@ let planner = null;
 let routing = null;
 let analysis = null;
 let negotiation = null;
+let contracts = null;
 let demoReady = false;
 const pointers = new Map();
 let pinchDistance = 0;
@@ -182,6 +184,7 @@ planner=createPlanner({THREE,scene,camera,canvas,world:landscape.world,
   onPlanChange:()=>{rebuildViewBounds();routing?.invalidate();},
 });
 analysis=createAnalysisController({world:landscape.world,canvas,
+  onContextChange:()=>contracts?.invalidate(),
   getPlacements:()=>planner.getPlacements(),
   onDemoReadyChange:ready=>{
     demoReady=ready;pointers.clear();pinchDistance=0;canvas.classList.remove('dragging');
@@ -192,6 +195,8 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   },
   onUserRoleChange:()=>planner.refreshParcelRoles(),
 });
+contracts=createContractEntry({getHandoff:()=>analysis.getHandoff(),getPlacements:()=>planner.getPlacements(),
+  getRoutingOptions:()=>negotiation?.getRoutingOptions()??{},onOpen:()=>analysis.close({restoreFocus:false})});
 const negotiationMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
 let refusalDemoActive=false;
 function renderNegotiation(state){
@@ -229,13 +234,7 @@ function renderNegotiation(state){
     const rows=state.outcomes.filter(outcome=>h.snapshot.routes[0].parcelIds.includes(outcome.parcelId));
     analysis.setNegotiationDisplay({routeVersion:h.routeVersion,outcomes:rows});
   }else analysis.setNegotiationDisplay(null);
-  analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,packet=>{
-    get('demo-settlement-summary').hidden=false;
-    write('demo-settlement-compensation',money(packet.totals.compensationCents));
-    write('demo-settlement-rent',money(packet.totals.rentTotalCents));
-    write('settlement-feedback','');
-    get('demo-settlement-summary').scrollIntoView?.({block:'nearest'});
-  });
+  analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,()=>contracts.prepareAndOpen());
   if(confirmed){
     write('route-title','Updated connection');write('route-badge','DEMO AGREED');
     write('route-status-note',`${state.outcomes.length} owners accepted · simulated`);
@@ -243,7 +242,7 @@ function renderNegotiation(state){
   }
 }
 negotiation=createNegotiationController({world:landscape.world,getHandoff:()=>analysis.getHandoff(),getSessionId:()=>analysis.getSessionId(),
-  invalidateApproval:()=>analysis.settlement.invalidate(),lockLiveCall:()=>analysis.setLiveCallLockout(true),
+  invalidateApproval:()=>{analysis.settlement.invalidate();contracts.invalidate();},lockLiveCall:()=>analysis.setLiveCallLockout(true),
   onReroute:()=>{analysis.close({restoreFocus:false});planner.showOverview();routing.replan();},onChange:renderNegotiation});
 document.querySelector('#overview-settlement').addEventListener('click',()=>{
   if(document.querySelector('#overview-settlement').disabled)return;
@@ -256,6 +255,10 @@ document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoA
 window.addEventListener('pagehide',()=>{refusalDemoActive=false;negotiation.reset();});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
+  getContractBinding:()=>contracts.getBinding(),setContractNegotiation:value=>contracts.setNegotiation(value),
+  setContractAgreement:value=>contracts.setAgreement(value),openContracts:()=>contracts.open(),
+  setConstructionHandler:handler=>contracts.setConstructionHandler(handler),
+  reportConstructionComplete:value=>contracts.reportConstructionComplete(value),closeContracts:()=>contracts.close(),
   getSettlementBinding:()=>analysis.settlement.getBinding(),
   setSettlementApproval:approval=>analysis.settlement.setApproval(approval),
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),

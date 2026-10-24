@@ -1,0 +1,72 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createContractExample} from '../src/contract-fixtures.js';
+import {validateContractSource, normalizeContractSource, contractSourceKey, createContractDraft, updateContractDraft, validateContractDraft, compensationSplit, contractDocument, renderContractDocument, exportContractHTML, createContractDraftStore} from '../src/contract-authoring.js';
+
+const now = '2026-10-24T18:00:00Z';
+const create = (source = createContractExample(), parcelId = 'P-004') => createContractDraft(source, parcelId, {now, id:`draft-${parcelId}`});
+
+test('only complete approved negotiations for every final-route parcel enable contract authoring', () => {
+  assert.equal(validateContractSource(createContractExample()).valid, true);
+  for (const status of ['pending','refused']) {
+    assert.equal(validateContractSource(createContractExample(status)).valid, false);
+    assert.throws(() => create(createContractExample(status)), /approved/);
+  }
+  for (const mutate of [s => s.parcels[1].accepted = false, s => s.parcels[0].compensationCents = null,
+    s => s.parcels[0].compensationCents = 0.1, s => s.route.version = 0, s => s.parcels.push({...s.parcels[0]}),
+    s => s.sourceMode = 'live', s => s.parcels[0].accessTerms = '', s => s.parcels.forEach(p => p.compensationCents = Number.MAX_SAFE_INTEGER)]) {
+    const source = createContractExample(); mutate(source); assert.equal(validateContractSource(source).valid, false);
+  }
+});
+
+test('normalization drops transcripts, contact and banking extras and does not mutate input', () => {
+  const source = createContractExample();
+  source.transcript = 'private transcript'; source.participant = {phone:'private-number'};
+  source.parcels[0].bankAccount = 'private-bank-account';
+  const before = JSON.stringify(source), normalized = normalizeContractSource(source), serialized = JSON.stringify(normalized);
+  assert.equal(JSON.stringify(source), before);
+  for (const secret of ['private transcript','private-number','private-bank-account']) assert(!serialized.includes(secret));
+  assert.equal(contractSourceKey(normalized), contractSourceKey(source));
+});
+
+test('approved cents and the exact 20 percent split appear without monthly-rent functionality', () => {
+  const source = createContractExample(), draft = create(source), document = contractDocument(draft, source);
+  assert.equal(document.initialCents, 240000); assert.equal(document.completionCents, 960000);
+  assert.equal(Object.hasOwn(document, 'monthlyFeeCents'), false);
+  assert.deepEqual(compensationSplit(10003), {totalCents:10003, initialCents:2000, completionCents:8003});
+  assert.throws(() => compensationSplit(-1));
+  const html = renderContractDocument(draft, source);
+  assert.doesNotMatch(html, /Monthly usage fee|monthly anniversaries/);
+  for (const value of ['$12,000.00','$2,400.00','$9,600.00','Awaiting click signature']) assert(html.includes(value));
+});
+
+test('draft changes cannot alter approved money, owner, parcel or source bindings', () => {
+  const source = createContractExample(), draft = create(source);
+  const updated = updateContractDraft(draft, {specialConditions:'Reviewer note only.'}, source, now);
+  assert.equal(updated.version, 2); assert.equal(draft.version, 1);
+  assert.throws(() => updateContractDraft(draft, {compensationCents:1}, source, now), /cannot be edited/);
+  assert.throws(() => updateContractDraft(draft, {agreementDate:'2026-02-30'}, source, now), /valid agreement date/);
+  assert.throws(() => updateContractDraft(draft, {developerName:''}, source, now), /Developer name/);
+  for (const mutate of [s => s.route.version++, s => s.negotiation.version++, s => s.parcels[0].termsVersion++, s => s.parcels[0].compensationCents++]) {
+    const changed = createContractExample(); mutate(changed); assert.equal(validateContractDraft(draft, changed).valid, false);
+  }
+});
+
+test('downloaded HTML escapes author input and has no active scripts or external dependencies', () => {
+  const source = createContractExample(), draft = updateContractDraft(create(source), {developerName:'<script>alert(1)</script>', specialConditions:'</style><img src=x onerror=alert(1)>'}, source, now);
+  const html = exportContractHTML(draft, source);
+  assert(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;')); assert(!html.includes('<script>'));
+  assert(!html.includes('<img src=x')); assert(html.includes('Content-Security-Policy'));
+  assert(html.includes('Approved terms:')); assert(html.includes('Draft access description:'));
+});
+
+test('saved drafts restore per parcel and reject stale, corrupt, mismatched or unavailable storage', () => {
+  const data = new Map(), storage = {getItem:k => data.get(k) ?? null, setItem:(k,v) => data.set(k,v)}, store = createContractDraftStore(storage);
+  const source = createContractExample(), draft = create(source);
+  assert.equal(store.load(source,'P-004').status,'empty'); store.save(draft, source);
+  assert.deepEqual(store.load(source,'P-004').draft, draft);
+  const changed = createContractExample(); changed.route.version++; assert.equal(store.load(changed,'P-004').status,'stale');
+  const [key] = data.keys(); data.set(key, JSON.stringify(create(source,'P-009'))); assert.equal(store.load(source,'P-004').status,'stale');
+  data.set(key,'{'); assert.equal(store.load(source,'P-004').status,'unavailable');
+  assert.throws(() => createContractDraftStore(null).save(draft,source), /unavailable/);
+});
