@@ -9,11 +9,11 @@ export function createContractExample(status = 'approved') {
     parcels: [
       {parcelId: 'P-004', ownerId: 'OWNER-DEMO-004', ownerName: 'Willow Creek Orchard',
         landDescription: 'Fictional orchard parcel. A 180 m overhead corridor and two illustrative tower pads along the northern boundary.',
-        accepted: status === 'approved', termsVersion: 2, compensationCents: 1200000, monthlyFeeCents: 30000,
+        accepted: status === 'approved', termsVersion: 2, compensationCents: 1200000,
         accessTerms: 'Use the approved northern corridor for two tower pads and overhead transmission lines. Schedule maintenance access with the fictional landowner and restore disturbed ground.'},
       {parcelId: 'P-009', ownerId: 'OWNER-DEMO-009', ownerName: 'Meadow Ridge Farm',
         landDescription: 'Fictional grazing parcel. A 125 m overhead corridor and one illustrative tower pad along the eastern boundary.',
-        accepted: status === 'approved', termsVersion: 1, compensationCents: 800000, monthlyFeeCents: 20000,
+        accepted: status === 'approved', termsVersion: 1, compensationCents: 800000,
         accessTerms: 'Use the approved eastern corridor for one tower pad and overhead transmission lines. Preserve livestock access and coordinate maintenance visits with the fictional landowner.'},
     ],
   };

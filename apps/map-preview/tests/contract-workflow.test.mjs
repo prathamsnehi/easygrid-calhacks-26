@@ -53,6 +53,7 @@ test('concurrent submissions, repeated clicks and a new draft ID cannot pay the 
   const results = await Promise.all([app.flow.submit(app.draft,DEMO_ACTORS.requester),app.flow.submit(app.draft,DEMO_ACTORS.requester)]);
   assert.equal(results[0].payment.obligationId,results[1].payment.obligationId);
   assert.equal(app.flow.snapshot().journal.length,1);
+  assert.equal(app.transfers,1);
   const another = {...app.draft,id:'another-draft'};
   await assert.rejects(app.flow.sign(another,'utility',DEMO_ACTORS.utility), /already|submitted obligation locks/);
 });

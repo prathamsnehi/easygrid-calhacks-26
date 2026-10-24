@@ -24,10 +24,11 @@ export function createNessieSandboxBank({apiKey, baseUrl, payerId, recipients, a
   }
   const marker = input => `EasyGrid ${input.obligationId} ${input.documentHash}`;
   function evidence(row, input, recipient) {
+    if (!validId(row?._id)) throw new Error('The sandbox record has no verifiable transaction ID.');
     return {obligationId: input.obligationId, amountCents: dollarsToCents(row.amount),
       recipientMatches: row.payer_id === payerId && row.payee_id === recipient.accountId && row.description === marker(input),
       status: row.status === 'completed' ? 'completed' : 'pending',
-      transactionRef: typeof row._id === 'string' ? `nessie-${row._id.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 100)}` : 'nessie-unconfirmed'};
+      transactionRef: `nessie-${row._id.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 100)}`};
   }
   return {
     mode: 'nessie-sandbox',
