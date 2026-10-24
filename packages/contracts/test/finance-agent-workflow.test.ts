@@ -66,5 +66,5 @@ test('Capital One obligations reconcile only via unique explicit transaction ref
  assert.equal(result.discrepant[0]?.obligationId,'rent-L002');
  assert.throws(()=>reconcileNessieEvidence(evidence,expected,[{obligationId:'first-L001',transactionId:'tx1'},
  {obligationId:'rent-L002',transactionId:'tx1'}]),/only once/);
- assert.equal(evidence.transactions[0].amountCents,240000);
+ assert.equal(evidence.transactions[0]!.amountCents,240000);
 });
