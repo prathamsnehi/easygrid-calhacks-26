@@ -1,7 +1,7 @@
 import { createFacilityModel } from './facility-models.js';
 import { FACILITY_SPECS, PLAN_STORAGE_KEY, validatePlacement, createPlacement, serializePlan, restorePlan, pickTerrain } from './placement.js';
 
-export function createPlanner({ THREE, scene, camera, canvas, world, onChange, onFocus, onResetView, onPlanChange=()=>{}, getParcelRole=()=>null }) {
+export function createPlanner({ THREE, scene, camera, canvas, world, onChange, onFocus, onResetView, onPlanChange=()=>{}, getParcelRole=()=>null, canInteract=()=>true }) {
   const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map(el=>[el.id,el]));
   const write = (id,value) => {const node=elements[id];if(node.textContent!==String(value))node.textContent=String(value);};
   const note = message => {write('save-note',message);elements['save-note'].hidden=!message;};
@@ -86,13 +86,16 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     refreshUI();
   }
   function refreshUI() {
+    const enabled=canInteract();
     for(const [kind,suffix] of [['substation','a'],['datacenter','b']]){
       const button=elements[`step-${suffix}`],p=placements[kind];
       button.setAttribute('aria-pressed',String(mode===kind));button.classList.toggle('done',Boolean(p));
       write(`${suffix}-status`,p?'Placed · click to move':kind==='datacenter'&&!placements.substation?'Next step':'Choose a site');
     }
-    elements['step-b'].disabled=!placements.substation;
-    elements['reset-plan'].disabled=!placements.substation&&!placements.datacenter;
+    elements['step-a'].disabled=!enabled;
+    elements['step-b'].disabled=!enabled||!placements.substation;
+    for(const id of ['inspect-parcels','next-site','reset-view','label-a','label-b'])elements[id].disabled=!enabled;
+    elements['reset-plan'].disabled=!enabled||(!placements.substation&&!placements.datacenter);
     elements['inspect-parcels'].setAttribute('aria-pressed',String(mode==='inspect'));
     canvas.classList.toggle('inspecting',mode==='inspect');parcelLines.visible=mode==='inspect';
     write('parcel-count',world.parcels.length);
@@ -110,7 +113,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
       elements.validation.className=`validation ${v?(v.valid?'valid':'invalid'):'neutral'}`;
       write('footprint-meta',`Footprint: ${spec.width*spec.depth} tiles`);
       write('parcel-meta',v?.parcelIds.length?`Parcels ${v.parcelIds.join(' · ')}`:'Parcels —');
-      elements['confirm-placement'].disabled=!v?.valid;
+      elements['confirm-placement'].disabled=!enabled||!v?.valid;
       write('confirm-placement',placements[mode]?'Move here':'Place here');
     }else if(mode==='inspect'){
       const parcel=world.parcelById.get(selectedParcelId);
@@ -136,10 +139,12 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     canvas.dataset.previewValid=String(Boolean(candidate?.validation.valid));
   }
   function setMode(next) {
+    if(!canInteract())return;
     if(next==='datacenter'&&!placements.substation)return;
     mode=next;candidate=null;hideGhosts();refreshUI();onChange();
   }
   function commit() {
+    if(!canInteract())return false;
     if(!candidate?.validation.valid || candidate.kind!==mode)return false;
     const placement=createPlacement(world,mode,candidate.x,candidate.z,placements);
     if(!placement)return false;
@@ -149,6 +154,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     return true;
   }
   function hover(clientX,clientY) {
+    if(!canInteract())return;
     if(mode==='overview')return;
     const rect=canvas.getBoundingClientRect();
     if(rect.width<=0||rect.height<=0)return;
@@ -164,11 +170,13 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     onChange();
   }
   function tap(clientX,clientY) {
+    if(!canInteract())return;
     if(Date.now()-lastCommit<350)return;
     hover(clientX,clientY);
     if(FACILITY_SPECS[mode])commit();
   }
   function nextSite() {
+    if(!canInteract())return;
     if(!FACILITY_SPECS[mode])return;
     const choices=world.clearings.map(c=>({x:(c.x0+c.x1)/2,z:(c.z0+c.z1)/2})).filter(p=>validatePlacement(world,mode,p.x,p.z,placements).valid);
     if(mode==='datacenter' && placements.substation){
@@ -183,8 +191,9 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
   elements['label-b'].addEventListener('click',()=>setMode('datacenter'));
   elements['inspect-parcels'].addEventListener('click',()=>setMode(mode==='inspect'?(placements.datacenter?'overview':placements.substation?'datacenter':'substation'):'inspect'));
   elements['next-site'].addEventListener('click',nextSite);elements['confirm-placement'].addEventListener('click',commit);
-  elements['reset-view'].addEventListener('click',onResetView);
+  elements['reset-view'].addEventListener('click',()=>{if(canInteract())onResetView();});
   elements['reset-plan'].addEventListener('click',()=>{
+    if(!canInteract())return;
     placements.substation=null;placements.datacenter=null;selectedParcelId=null;siteIndex.substation=0;siteIndex.datacenter=0;
     persist();syncModels();setMode('substation');onResetView();
     onPlanChange();
@@ -194,6 +203,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
     hover,tap,
     refreshParcelRoles(){refreshUI();onChange();},
     focusAnalysisParcel(parcelId){
+      if(parcelId&&!canInteract())return;
       const parcel=world.parcelById.get(parcelId);
       analysisParcelId=parcel?.id??null;refreshHighlight();
       canvas.dataset.analysisParcel=analysisParcelId??'';
@@ -213,6 +223,7 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
       }
     },
     keydown(event){
+      if(!canInteract())return false;
       if(event.key==='Escape'){setMode(placements.datacenter?'overview':'inspect');return true;}
       if(event.key==='1'){setMode('substation');return true;}
       if(event.key==='2'){setMode('datacenter');return true;}

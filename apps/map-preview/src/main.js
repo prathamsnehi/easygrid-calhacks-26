@@ -67,6 +67,9 @@ let width = 1, height = 1, raf = 0;
 let planner = null;
 let routing = null;
 let analysis = null;
+let demoReady = false;
+const pointers = new Map();
+let pinchDistance = 0;
 const minZoom = 0.75, maxZoom = 5;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -117,6 +120,7 @@ function frame(time) { raf = 0; draw(time); if (!document.hidden && !reduceMotio
 function resume() { if (!raf && !document.hidden) { if (reduceMotion.matches) draw(performance.now()); else raf = requestAnimationFrame(frame); } }
 
 planner=createPlanner({THREE,scene,camera,canvas,world:landscape.world,
+  canInteract:()=>demoReady,
   getParcelRole:parcelId=>analysis?.getParcelRole(parcelId)??null,
   onChange:()=>draw(performance.now()),onResetView:resetCamera,
   onFocus:(x,z)=>{target.x=x;target.z=z;zoom=Math.max(zoom,1.9);fitCamera();draw(performance.now());},
@@ -124,6 +128,10 @@ planner=createPlanner({THREE,scene,camera,canvas,world:landscape.world,
 });
 analysis=createAnalysisController({world:landscape.world,canvas,
   getPlacements:()=>planner.getPlacements(),
+  onDemoReadyChange:ready=>{
+    demoReady=ready;pointers.clear();pinchDistance=0;canvas.classList.remove('dragging');
+    planner.clearPreview();routing?.invalidate();
+  },
   onFocusParcel:parcelId=>{
     planner.focusAnalysisParcel(parcelId);
     if(!parcelId||width<=900)return;
@@ -139,6 +147,7 @@ analysis=createAnalysisController({world:landscape.world,canvas,
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler)});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
+  canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),
   onRouteChange:snapshot=>analysis.setRoute(snapshot),
   onFitRoute:(_route,diagnostics)=>{
@@ -148,9 +157,8 @@ routing=createRouteController({THREE,scene,world:landscape.world,landscape,canva
     fitCamera();draw(performance.now());
   },
 });
-const pointers = new Map();
-let pinchDistance = 0;
 canvas.addEventListener('pointerdown', e => {
+  if(!demoReady)return;
   if (![0, 1, 2].includes(e.button)) return;
   canvas.focus({preventScroll:true});
   pointers.set(e.pointerId, { x:e.clientX, y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,pan:e.shiftKey || e.button !== 0 });
@@ -162,6 +170,7 @@ canvas.addEventListener('pointerdown', e => {
   }
 });
 canvas.addEventListener('pointermove', e => {
+  if(!demoReady)return;
   const old = pointers.get(e.pointerId);
   if (!old) {planner.hover(e.clientX,e.clientY);return;}
   const dx=e.clientX-old.x,dy=e.clientY-old.y;
@@ -183,6 +192,7 @@ canvas.addEventListener('pointermove', e => {
 });
 function release(e) { pointers.delete(e.pointerId); if (!pointers.size) canvas.classList.remove('dragging'); pinchDistance=0; }
 canvas.addEventListener('pointerup',e=>{
+  if(!demoReady){release(e);return;}
   const pointer=pointers.get(e.pointerId);
   const isTap=pointer&&!pointer.moved&&!pointer.pan&&!e.shiftKey&&e.button===0&&pointers.size===1&&Math.hypot(e.clientX-pointer.startX,e.clientY-pointer.startY)<=5;
   release(e);
@@ -192,8 +202,9 @@ canvas.addEventListener('pointerup',e=>{
 canvas.addEventListener('pointercancel',release);
 canvas.addEventListener('lostpointercapture',release);
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
-canvas.addEventListener('wheel',e=>{ e.preventDefault();const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1);zoom=THREE.MathUtils.clamp(zoom*Math.exp(-delta*0.001),minZoom,maxZoom);fitCamera();planner.hover(e.clientX,e.clientY);draw(performance.now()); },{passive:false});
+canvas.addEventListener('wheel',e=>{ e.preventDefault();if(!demoReady)return;const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1);zoom=THREE.MathUtils.clamp(zoom*Math.exp(-delta*0.001),minZoom,maxZoom);fitCamera();planner.hover(e.clientX,e.clientY);draw(performance.now()); },{passive:false});
 canvas.addEventListener('keydown',e=>{
+  if(!demoReady){e.preventDefault();return;}
   if(['1','2'].includes(e.key)&&canvas.dataset.analysisOpen==='true')analysis.close({restoreFocus:false});
   if(planner.keydown(e)){e.preventDefault();return;}
   if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','0','Home'].includes(e.key))return;

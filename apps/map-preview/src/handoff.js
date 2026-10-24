@@ -24,13 +24,13 @@ function equalIds(a,b){return a.length===b.length&&[...a].sort().every((id,index
 export function validateDemoParticipant({alias='',phone='',consent=false}={}) {
   const errors=[];
   const name=typeof alias==='string'?alias.trim():'';
-  if(typeof alias!=='string'||name.length>80||/[\u0000-\u001f\u007f]/.test(name))errors.push('Use a participant alias of up to 80 characters on one line.');
+  if(typeof alias!=='string'||name.length===0||name.length>80||/[\u0000-\u001f\u007f]/.test(name))errors.push('Enter a participant name of 1 to 80 characters on one line.');
   const entered=typeof phone==='string'?phone.trim():'';
   const phoneE164=entered.replace(/[\s().-]/g,'');
   if(!/^\+[1-9]\d{7,14}$/.test(phoneE164))errors.push('Enter an international phone number, including + and country code.');
   if(consent!==true)errors.push('Confirm that this participant agreed to receive the AI roleplay demo call.');
   return {valid:errors.length===0,errors,
-    participant:errors.length?null:{alias:name||'Judge participant',phoneE164,consent:true}};
+    participant:errors.length?null:{alias:name,phoneE164,consent:true}};
 }
 
 export function localPointToGeoJSON(x,z) {

@@ -2,34 +2,37 @@
 
 Tracked in [CAL-23](https://linear.app/easygrid-calhacks-2026/issue/CAL-23/prepare-route-parcel-analysis-and-judge-roleplay-handoff-for-pratham), related to CAL-7, CAL-8, CAL-10 and CAL-16.
 
-This slice prepares the selected transmission route and the fictional landowner the judge will play. It does not dial a phone, import a project into a backend, register a contact, record land access, or create an agreement. The map, parcel data and cost assumptions are synthetic.
+This slice collects a consented demo participant before planning, then prepares the selected transmission route and the fictional landowner that participant will play. Registration on **Start demo** is local page state. It does not dial a phone, import a project into a backend, register a server contact, record land access, or create an agreement. The map, parcel data and cost assumptions are synthetic.
 
 ## Operator flow
 
-1. Place **A · Substation** and **B · Data center**. Review the recommended connection or choose another route.
-2. Choose **Analyze affected parcels** to open **Land & people**. Each affected parcel shows its owner role, crossed centerline length, pylons/foundation area, fictional upfront compensation and rent.
-3. Enter the judge's participant alias and international phone number. Check the explicit AI roleplay call consent box and select **Apply participant**.
-4. The app binds that participant to exactly one affected parcel. It retains that parcel on route changes when possible; otherwise it chooses another affected parcel deterministically. The base owner and parcel fixtures remain unchanged. A valid route has a judge role even before contact details are entered, but its participant is not ready.
-5. Export the redacted handoff JSON or use **Prepare participant handoff** after the host registers the integration callback. Preparation does not start a call. Pratham's integration owns the later explicit call action.
+1. On **Start demo**, enter the participant's name and international phone number, then check the explicit AI roleplay call consent box. All three are required. Select **Start demo** to validate registration and unlock planning. This does not deliver private data to the host or start a call.
+2. Place **A · Substation** and **B · Data center**. Review the recommended connection or choose another route.
+3. The app binds the registered participant to exactly one affected parcel on the selected route, including the recommended optimal route. It retains that parcel on route changes when possible; otherwise it chooses another affected parcel deterministically. The base owner and parcel fixtures remain unchanged.
+4. Choose **Analyze affected parcels** to open **Land & people**. Each affected parcel shows its owner role, crossed centerline length, pylons/foundation area, fictional upfront compensation and rent. The participant summary uses the startup registration; there is no second participant-entry form.
+5. Export the redacted handoff JSON or use **Prepare participant handoff** after the host registers the integration callback. Only this explicit preparation action delivers the private participant to the handler. Preparation does not start a call. Pratham's integration owns the later explicit call action.
 
 The judge role's call consent and the fictional parcel's land-access consent are separate. Entering a phone number never marks a parcel allowed or an agreement accepted.
+
+**Edit participant** in the toolbar or participant summary returns to the startup screen and invalidates any pending handoff. Endpoints are preserved, but planning and routing remain locked until registration is validated again. Reset, reload and `pagehide` erase participant details and require registration again. Names and phone numbers exist only in page memory. Reload may restore validated endpoint coordinates from local storage, but it never restores participant registration or bypasses the startup gate.
 
 ## Browser integration
 
 The standalone app exposes:
 
 ```js
-window.easygridDemo.getHandoff(); // Redacted current packet, or null when unavailable.
+window.easygridDemo.getHandoff(); // Redacted packet; null until participant + route are ready.
 
 window.easygridDemo.setHandoffHandler(async ({ handoff, participant, signal }) => {
-  // The only private contact delivery path. Called by the operator's preparation action.
+  // The only private contact delivery path. Called by Prepare participant handoff,
+  // never by Start demo or local participant registration.
   // participant = { alias, phoneE164, consent: true }
   // handoff contains no entered alias or phone number.
   // signal is aborted on relevant edits, route changes, or reset.
 });
 ```
 
-The host callback's successful resolution means only that the host received the handoff. Its return value is not interpreted as a successful call. Do not log the callback argument: it includes the participant's phone number. Store the dial target privately on the server, return an opaque contact reference, and keep provider credentials on the server. No public packet, URL, fixture, repository file, or browser persistent storage needs the real phone number.
+The host callback's successful resolution means only that the host received the handoff. Its return value is not interpreted as a successful call. The global `getHandoff()` method returns `null` before valid registration, while participant editing locks the demo, or when no current route exists. Do not log the callback argument: it includes the participant's name and phone number. Store the dial target privately on the server, return an opaque contact reference, and keep provider credentials on the server. No public packet, URL, fixture, repository file, or browser persistent storage needs the real phone number.
 
 The callback is a same-page integration seam. It does not automatically cross an iframe boundary. If the team embeds the map in a separate iframe, implement and validate an explicit origin-restricted bridge or integrate the source modules into the team frontend. Do not broadcast private participant data with wildcard `postMessage`.
 
@@ -37,7 +40,7 @@ The callback is a same-page integration seam. It does not automatically cross an
 
 `apps/map-preview/src/handoff.js` exports `createHandoff(...)`. The packet uses `kind: "easygrid-map-handoff"`, `schemaVersion: 1`, and `sourceMode: "fixture"`.
 
-`npm run build --prefix apps/map-preview` also generates `apps/map-preview/dist/demo-handoff-example.json` from the baseline A(−43, −17) / B(43, −17), with session ID `example-cal-23` and no participant contact. The development server serves it at `/demo-handoff-example.json`. This regenerable example is distinct from the current selection exported in the application.
+`npm run build --prefix apps/map-preview` also generates `apps/map-preview/dist/demo-handoff-example.json` from the baseline A(−43, −17) / B(43, −17), with session ID `example-cal-23` and no participant contact. The development server serves it at `/demo-handoff-example.json`. This regenerable developer fixture is distinct from the current selection exported in the application; it does not bypass the application's mandatory startup registration or make a private handoff available.
 
 | Field | Meaning |
 | --- | --- |

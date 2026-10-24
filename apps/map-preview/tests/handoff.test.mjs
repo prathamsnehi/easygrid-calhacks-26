@@ -15,14 +15,15 @@ const route=result.candidates[0],analysis=analyzeRouteParcels(world,route,result
 const input={world,route,analysis,placements,sessionId:'handoff-test-session',routeVersion:4};
 const clone=value=>JSON.parse(JSON.stringify(value));
 
-test('phone validation requires international format and explicit roleplay consent',()=>{
+test('participant setup requires a name, international phone and explicit roleplay consent',()=>{
   const accepted=validateDemoParticipant({alias:'  Test participant  ',phone:'+1 (415) 555-0134',consent:true});
   assert.equal(accepted.valid,true);
   assert.deepEqual(accepted.participant,{alias:'Test participant',phoneE164:'+14155550134',consent:true});
+  for(const alias of ['', '   ', null])assert.equal(validateDemoParticipant({alias,phone:'+14155550134',consent:true}).valid,false);
   for(const phone of ['', '4155550134','+0123456789','+14155550134 ext 5','++14155550134','+1234567','+1234567890123456']){
-    assert.equal(validateDemoParticipant({phone,consent:true}).valid,false,phone);
+    assert.equal(validateDemoParticipant({alias:'Test participant',phone,consent:true}).valid,false,phone);
   }
-  for(const consent of [false,undefined,'true',1])assert.equal(validateDemoParticipant({phone:'+14155550134',consent}).valid,false);
+  for(const consent of [false,undefined,'true',1])assert.equal(validateDemoParticipant({alias:'Test participant',phone:'+14155550134',consent}).valid,false);
   assert.equal(validateDemoParticipant({alias:'A\nB',phone:'+14155550134',consent:true}).valid,false);
   assert.equal(validateDemoParticipant({alias:'x'.repeat(81),phone:'+14155550134',consent:true}).valid,false);
 });

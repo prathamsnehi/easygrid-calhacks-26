@@ -2,7 +2,7 @@ import { computeTransmissionRoutes } from './routing.js';
 import { createTransmissionLayer } from './transmission-models.js';
 
 /** Connect the computed route, its physical geometry and its explanation to one state. */
-export function createRouteController({THREE,scene,world,landscape,canvas,getPlacements,onOverview,onDraw,onFitRoute,onRouteChange=()=>{}}) {
+export function createRouteController({THREE,scene,world,landscape,canvas,getPlacements,onOverview,onDraw,onFitRoute,onRouteChange=()=>{},canRoute=()=>true}) {
   const ids=['step-route','route-status','route-panel','route-summary','route-title','route-status-note','route-badge',
     'route-length','route-towers','route-owners','cost-line','cost-structures','cost-impact','cost-land','cost-rent','cost-rent-label','cost-total',
     'route-reason','route-parcels','route-method-copy','route-rates','route-assumptions','route-no-results','recalculate-route'];
@@ -15,7 +15,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
   const layer=createTransmissionLayer(THREE,world);scene.add(layer.group);
   let generation=0,timer=null,result=null,selectedId=null,state='incomplete',routeVersion=0;
 
-  function hasEndpoints(){const p=getPlacements();return Boolean(p.substation&&p.datacenter);}
+  function hasEndpoints(){const p=getPlacements();return canRoute()&&Boolean(p.substation&&p.datacenter);}
   function clearGeometry(){
     layer.clear();landscape.setFoundationClearings([]);
     canvas.dataset.routeId='';canvas.dataset.routeTowerCount='0';canvas.dataset.routeParcelIds='';
@@ -47,6 +47,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     }
   }
   function showCandidate(id){
+    if(!canRoute())return;
     const route=result?.candidates.find(candidate=>candidate.id===id);if(!route)return;
     clearGeometry();
     try{
@@ -96,7 +97,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     if(!hasEndpoints()){state='incomplete';renderState();onDraw();return;}
     const snapshot=getPlacements();state='calculating';renderState();onDraw();
     timer=setTimeout(()=>{
-      timer=null;if(ticket!==generation)return;
+      timer=null;if(ticket!==generation||!canRoute())return;
       try{
         const computed=computeTransmissionRoutes(world,snapshot);if(ticket!==generation)return;
         result=computed;state=computed.status;
@@ -115,7 +116,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     const route=result?.candidates[i];
     if(route&&state==='ok'&&route.id!==selectedId){const diagnostics=showCandidate(route.id);if(diagnostics)onFitRoute(route,diagnostics);}
   });
-  elements['step-route'].addEventListener('click',()=>{onOverview();if(!result||state==='error'||state==='no-route')schedule();else updateVisibility();});
+  elements['step-route'].addEventListener('click',()=>{if(!canRoute())return;onOverview();if(!result||state==='error'||state==='no-route')schedule();else updateVisibility();});
   elements['recalculate-route'].addEventListener('click',schedule);
   renderState();
   return {invalidate:schedule,updateVisibility,initialize:schedule};

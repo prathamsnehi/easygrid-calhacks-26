@@ -2,7 +2,7 @@ import { analyzeRouteParcels, chooseJudgeParcel } from './parcel-analysis.js';
 import { createHandoff, validateDemoParticipant } from './handoff.js';
 
 /** Local analysis and an explicit, contact-private integration boundary. No calls or storage. */
-export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onJudgeRoleChange=()=>{}}) {
+export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onJudgeRoleChange=()=>{},onDemoReadyChange=()=>{}}) {
   const ids=['open-analysis','analysis-entry-status','analysis-panel','close-analysis','analysis-route-note','analysis-count','analysis-upfront',
     'analysis-rent-label','analysis-rent','analysis-consent-note','analysis-parcel-list','analysis-parcel-detail',
     'analysis-parcel-title','analysis-parcel-badge','analysis-parcel-copy','analysis-owner','analysis-contact','analysis-email',
@@ -10,7 +10,9 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     'analysis-parcel-rent','analysis-negotiation','analysis-parcel-impact','focus-judge-parcel','judge-parcel-label',
     'judge-contact-status','judge-role-note','judge-form','judge-alias','judge-phone','judge-consent','save-judge',
     'clear-judge','judge-form-status','handoff-status-badge','handoff-connection-note','export-handoff','prepare-handoff',
-    'handoff-result','handoff-budget-note','reset-plan','step-a','step-b','label-a','label-b','inspect-parcels'];
+    'handoff-result','handoff-budget-note','reset-plan','step-a','step-b','label-a','label-b','inspect-parcels',
+    'demo-workspace','demo-onboarding','edit-participant','edit-analysis-participant',
+    'registered-participant-name','registered-participant-contact','registered-participant-consent'];
   const el=Object.fromEntries(ids.map(id=>[id,document.querySelector(`#${id}`)]));
   const money=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
   const moneyOf=value=>money.format(value/100);
@@ -18,20 +20,29 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   const write=(id,value)=>{el[id].textContent=String(value);};
   const sessionId=`map-${window.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,12)}`}`;
   let snapshot=null,analysis=null,judgeParcelId=null,priorJudgeParcelId=null,selectedParcelId=null;
-  let participant=null,handler=null,pending=null,activeHandoff=null,revision=0,prepared=false;
+  let participant=null,handler=null,pending=null,activeHandoff=null,revision=0,prepared=false,lastDemoReady=false;
 
   function feedback(id,message,kind='') {write(id,message);el[id].className=`analysis-feedback${kind?` ${kind}`:''}`;}
   function invalidateHandoff() {revision++;activeHandoff?.abort();activeHandoff=null;pending=null;prepared=false;}
+  function isDemoReady() {return Boolean(participant);}
+  function syncDemoGate() {
+    const ready=isDemoReady();
+    el['demo-workspace'].inert=!ready;el['demo-workspace'].setAttribute('aria-hidden',String(!ready));
+    el['demo-onboarding'].hidden=ready;canvas.dataset.demoReady=String(ready);
+    if(!ready&&!el['analysis-panel'].hidden)close({restoreFocus:false});
+    // Set this before notifying the host: routing invalidation can synchronously call setRoute(null).
+    if(ready!==lastDemoReady){lastDemoReady=ready;onDemoReadyChange(ready);}
+  }
   function getHandoff() {
-    if(!snapshot||!analysis)return null;
+    if(!participant||!snapshot||!analysis)return null;
     return createHandoff({world,route:snapshot.route,analysis,placements:getPlacements(),participant,
       judgeParcelId,sessionId,routeVersion:snapshot.routeVersion});
   }
   function getParcelRole(parcelId) {
     const row=analysis?.parcels.find(item=>item.parcelId===parcelId);
-    if(!row||parcelId!==judgeParcelId)return null;
+    if(!participant||!row||parcelId!==judgeParcelId)return null;
     return {ownerAlias:participant?.alias??'Judge participant',
-      phoneDisplay:participant?'Demo participant · contact saved':'Judge role · contact needed',
+      phoneDisplay:`Phone ending in ${participant.phoneE164.slice(-4)} · demo participant`,
       email:'Not collected for demo participant',originalOwnerAlias:row.ownerAlias,roleplay:true};
   }
   function renderHandoff() {
@@ -106,7 +117,11 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     el['focus-judge-parcel'].disabled=!judgeParcelId;
     canvas.dataset.judgeParcelId=judgeParcelId??'';
     canvas.dataset.participantReady=String(Boolean(participant));
-    renderRows();renderDetail();renderHandoff();onJudgeRoleChange();
+    write('registered-participant-name',participant?.alias??'Participant required');
+    write('registered-participant-contact',participant?`Phone ending in ${participant.phoneE164.slice(-4)}`:'Contact required');
+    write('registered-participant-consent',participant?'AI roleplay call consent recorded for this page.':'AI roleplay call consent required.');
+    el['open-analysis'].disabled=!participant||!snapshot||!analysis;
+    renderRows();renderDetail();renderHandoff();onJudgeRoleChange();syncDemoGate();
   }
   function close({restoreFocus=true}={}) {
     const wasOpen=!el['analysis-panel'].hidden;
@@ -115,7 +130,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     if(wasOpen&&restoreFocus)el['open-analysis'].focus({preventScroll:true});
   }
   function open() {
-    if(!snapshot||!analysis)return;
+    if(!participant||!snapshot||!analysis)return;
     el['analysis-panel'].hidden=false;el['open-analysis'].setAttribute('aria-expanded','true');canvas.dataset.analysisOpen='true';
     selectParcel(selectedParcelId??judgeParcelId);el['close-analysis'].focus({preventScroll:true});
   }
@@ -143,14 +158,22 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       write('analysis-entry-status','Parcel analysis is unavailable. Recalculate the connection.');el['analysis-entry-status'].hidden=false;
     }
   }
-  function clearParticipant(message='Participant contact cleared from this page.') {
+  function clearParticipant(message='Participant contact cleared. Enter your details and confirm consent to begin.',focus=true) {
     invalidateHandoff();participant=null;el['judge-alias'].value='';el['judge-phone'].value='';el['judge-consent'].checked=false;
     feedback('judge-form-status',message);feedback('handoff-result','Personal contact details are excluded from the route export.');renderParticipant();
+    for(const id of ['judge-alias','judge-phone','judge-consent'])el[id].setAttribute('aria-invalid','false');
+    if(focus)el['judge-alias'].focus({preventScroll:true});
   }
   function resetParticipant() {priorJudgeParcelId=null;clearParticipant();}
+  function editParticipant() {
+    invalidateHandoff();participant=null;el['judge-consent'].checked=false;
+    feedback('judge-form-status','Update your details and confirm consent to resume the demo.');
+    feedback('handoff-result','The participant handoff is paused until you confirm your details again.');
+    renderParticipant();el['judge-alias'].focus({preventScroll:true});
+  }
   function setHandoffHandler(next) {
     if(next!==null&&typeof next!=='function')throw new TypeError('The handoff handler must be a function or null.');
-    invalidateHandoff();handler=next;feedback('handoff-result',next?'The host adapter is available. Apply the participant, then prepare the handoff.':'The host adapter is disconnected. You can still export the route package.');renderHandoff();
+    invalidateHandoff();handler=next;feedback('handoff-result',next?'The host adapter is available. Start the demo, select a route, then prepare the handoff.':'The host adapter is disconnected. You can still export the selected route package after starting the demo.');renderHandoff();
   }
   el['open-analysis'].setAttribute('aria-controls','analysis-panel');el['open-analysis'].setAttribute('aria-expanded','false');
   el['open-analysis'].addEventListener('click',open);
@@ -159,22 +182,44 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     if(!el['analysis-panel'].hidden)close({restoreFocus:false});
   });
   el['focus-judge-parcel'].addEventListener('click',()=>selectParcel(judgeParcelId));
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!el['analysis-panel'].hidden){event.preventDefault();close();}});
+  document.addEventListener('keydown',event=>{
+    if(!isDemoReady()){
+      if(event.key==='Escape'){event.preventDefault();event.stopPropagation?.();return;}
+      if(event.key==='Tab'){
+        const focusable=['judge-alias','judge-phone','judge-consent','save-judge','clear-judge'].map(id=>el[id]);
+        const current=focusable.indexOf(document.activeElement);
+        if(current<0||(event.shiftKey&&current===0)||(!event.shiftKey&&current===focusable.length-1)){
+          event.preventDefault();focusable[event.shiftKey?focusable.length-1:0].focus({preventScroll:true});
+        }
+      }
+      return;
+    }
+    if(event.key==='Escape'&&!el['analysis-panel'].hidden){event.preventDefault();close();}
+  });
   for(const id of ['judge-alias','judge-phone','judge-consent'])el[id].addEventListener('input',()=>{
-    invalidateHandoff();participant=null;feedback('judge-form-status','Changes are not applied. Confirm consent and apply the participant.');
-    feedback('handoff-result','Apply the participant before preparing a private contact handoff.');renderParticipant();
+    invalidateHandoff();participant=null;el[id].setAttribute('aria-invalid','false');
+    feedback('judge-form-status','Enter your name and phone number, then confirm consent to begin.');
+    feedback('handoff-result','Start the demo before preparing a private contact handoff.');renderParticipant();
   });
   el['judge-form'].addEventListener('submit',event=>{
     event.preventDefault();invalidateHandoff();
     const validation=validateDemoParticipant({alias:el['judge-alias'].value,phone:el['judge-phone'].value,consent:el['judge-consent'].checked});
     participant=validation.participant;
-    feedback('judge-form-status',validation.valid?'Participant applied for this page only. No call has been placed.':validation.errors.join(' '),validation.valid?'success':'error');
-    if(participant)el['judge-phone'].value=participant.phoneE164;
+    feedback('judge-form-status',validation.valid?'Demo started. No call has been placed.':validation.errors.join(' '),validation.valid?'success':'error');
+    if(participant){el['judge-alias'].value=participant.alias;el['judge-phone'].value=participant.phoneE164;}
     feedback('handoff-result','Export remains contact-free. A connected host is required to prepare the participant handoff.');renderParticipant();
+    const name=el['judge-alias'].value.trim(),phone=el['judge-phone'].value.trim().replace(/[\s().-]/g,'');
+    const fields=[['judge-alias',Boolean(name)&&name.length<=80&&!/[\u0000-\u001f\u007f]/.test(name)],
+      ['judge-phone',/^\+[1-9]\d{7,14}$/.test(phone)],['judge-consent',el['judge-consent'].checked===true]];
+    for(const [id,valid] of fields)el[id].setAttribute('aria-invalid',String(!valid));
+    if(participant)(getPlacements().substation?canvas:el['step-a']).focus({preventScroll:true});
+    else el[fields.find(([,valid])=>!valid)?.[0]??'judge-alias'].focus({preventScroll:true});
   });
+  el['edit-participant'].addEventListener('click',editParticipant);
+  el['edit-analysis-participant'].addEventListener('click',editParticipant);
   el['clear-judge'].addEventListener('click',()=>clearParticipant());
   el['reset-plan'].addEventListener('click',resetParticipant);
-  window.addEventListener('pagehide',()=>clearParticipant('Participant contact cleared.'));
+  window.addEventListener('pagehide',()=>clearParticipant('Participant contact cleared. Enter your details again to begin.',false));
   el['export-handoff'].addEventListener('click',()=>{
     let objectUrl=null,anchor=null;
     try {
@@ -203,6 +248,6 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       pending=null;feedback('handoff-result','The host could not confirm preparation. Check its status before trying again; no automatic retry was made.','error');renderHandoff();
     }
   });
-  renderParticipant();
-  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,open,close};
+  renderParticipant();el['judge-alias'].focus({preventScroll:true});
+  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,isDemoReady,open,close};
 }
