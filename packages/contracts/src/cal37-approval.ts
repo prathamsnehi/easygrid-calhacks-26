@@ -271,8 +271,8 @@ export async function approveCal37Authoritatively(
 export function cal37ApprovedRecipientHandoff(packet:OwnerHandoff,current:CurrentHandoffState,
  signed:DemoAgreementPackage,state:Cal37State){
  checkUnique(state);
- if(!state.approval)fail('BLOCKED_STATE','Manager approval required for recipient handoff');
  const approval=state.approval;
+ if(!approval)throw new EasementError('BLOCKED_STATE','Manager approval required for recipient handoff');
  assertCurrentApproval(packet,current,approval);
  if(signed.packageHash!==approval.packageHash)fail('STALE_VERSION','Signed package changed after approval');
  const rebuilt=buildCal36FromOwnerHandoff(packet,current,approval.operatorAlias);
@@ -293,7 +293,7 @@ export function cal37ApprovedRecipientHandoff(packet:OwnerHandoff,current:Curren
    approval.contractVersions[agreement.id]!==agreement.contractVersion||
    approval.termsVersions[parcel.parcelId]!==parcel.terms.termsVersion||
    owner.banking.mode!=='simulated'||!/^\*{4}\d{4}$/.test(owner.banking.accountDisplay))
-   fail('STALE_VERSION','Current signed owner/destination linkage is invalid');
+   throw new EasementError('STALE_VERSION','Current signed owner/destination linkage is invalid');
   return {sessionId:packet.sessionId,projectId:packet.projectId,routeId:packet.routeId,
    routeVersion:packet.routeVersion,approvalId:approval.approvalId,packageHash:approval.packageHash,
    parcelId:parcel.parcelId,ownerId:owner.ownerId,contractId:agreement.id,
