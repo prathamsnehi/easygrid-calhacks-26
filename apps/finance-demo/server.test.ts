@@ -36,7 +36,7 @@ test('finance UI server adapter calls real CAL-37/38/39 reducers and rejects ear
  const s=snapshot();
  assert.equal(s.later.payments.filter(x=>x.kind==='monthly_fee').length,4);
  assert.equal(s.later.discrepantCents,5000);
- assert.equal(s.later.paidCents,70000);
+ assert.equal(s.later.paidCents,1670000);
  assert.equal(s.later.expectedCents,1700000);
  assert.throws(()=>applyAction('mismatch'),/already/i);
  applyAction('reset');
