@@ -18,7 +18,7 @@ export type EasementInput = {
 };
 
 export type EasementArtifact = {
-  contract: EasementType;
+  contract: EasementType | null;
   preview: string;
   missingFields: string[];
   supersededContract?: EasementType;
@@ -52,7 +52,7 @@ export function createEasementDraft(input: EasementInput): EasementArtifact {
     throw new ContractError('STALE_VERSION', 'First contract version must be 1');
   }
   if (missingFields.length > 0)
-    return { contract: null as never, preview: '', missingFields: [...new Set(missingFields)] };
+    return { contract: null, preview: '', missingFields: [...new Set(missingFields)] };
   validateNegotiation(n, input.offerCapCents);
   const canonicalContent = {
     projectId: input.projectId, routeId: input.routeId, parcelId: input.parcelId,
