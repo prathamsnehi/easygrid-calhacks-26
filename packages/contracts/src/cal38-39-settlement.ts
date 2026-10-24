@@ -67,8 +67,9 @@ export function advanceMonthlyPeriod(c:Context & {
  /** Optional deliberately discrepant amount; never treated as matched/paid. */
  discrepancy?:{parcelId:string;actualCents:number};
 }):LaterState{
- const approved=verify(c),completion=c.later.completion;
- if(!completion)error('No rent before completion');
+ const approved=verify(c);
+ if(!c.later.completion)error('No rent before completion');
+ const completion=c.later.completion!;
  if(!date(c.asOfDate)||!c.requestKey.trim())error('Invalid date or request key');
  const due=monthlyFeeDueDate(completion.completedOn,c.month);
  if(c.asOfDate<due)error('Monthly period not due');
