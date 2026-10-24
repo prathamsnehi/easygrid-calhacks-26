@@ -1,0 +1,986 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EasyGrid owner handoff development contracts",
+  "description": "Additive CAL-27 data contracts; not new HTTP operations. Runtime refinements and authoritative-state checks remain required.",
+  "$ref": "#/$defs/OwnerHandoff",
+  "$defs": {
+    "OwnerHandoff": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "easygrid-owner-handoff"
+        },
+        "sourceMode": {
+          "type": "string",
+          "const": "fixture"
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "routeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "routeVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "referenceBinding": {
+          "type": "string",
+          "enum": [
+            "local-fixture",
+            "canonical"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "const": "USD"
+        },
+        "routeStatus": {
+          "type": "string",
+          "enum": [
+            "selected_for_negotiation",
+            "ready_for_agreements"
+          ]
+        },
+        "rentHorizonMonths": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1200
+        },
+        "constructionCents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "budgetCents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "simulationChecksPassed": {
+          "type": "boolean"
+        },
+        "owners": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ownerId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "alias": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "synthetic": {
+                "type": "boolean",
+                "const": true
+              },
+              "contact": {
+                "type": "object",
+                "properties": {
+                  "contactRef": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "registration": {
+                    "type": "string",
+                    "enum": [
+                      "unregistered",
+                      "registered",
+                      "simulation"
+                    ]
+                  },
+                  "callConsent": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "contactRef",
+                  "registration",
+                  "callConsent"
+                ],
+                "additionalProperties": false
+              },
+              "banking": {
+                "type": "object",
+                "properties": {
+                  "ownerId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                  },
+                  "paymentRecipientRef": {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                      },
+                      {
+                        "pattern": "^mock-"
+                      }
+                    ]
+                  },
+                  "mode": {
+                    "type": "string",
+                    "const": "simulated"
+                  },
+                  "accountHolderAlias": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "bankDisplay": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "accountDisplay": {
+                    "type": "string",
+                    "pattern": "^\\*{4}\\d{4}$"
+                  }
+                },
+                "required": [
+                  "ownerId",
+                  "paymentRecipientRef",
+                  "mode",
+                  "accountHolderAlias",
+                  "bankDisplay",
+                  "accountDisplay"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "ownerId",
+              "alias",
+              "synthetic",
+              "contact",
+              "banking"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "parcels": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "parcelId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "ownerId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "landUse": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "geometry": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "Polygon"
+                  },
+                  "coordinates": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "minItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number",
+                            "minimum": -180,
+                            "maximum": 180
+                          },
+                          {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 90
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "coordinates"
+                ],
+                "additionalProperties": false
+              },
+              "areaSqM": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "impact": {
+                "type": "object",
+                "properties": {
+                  "towerCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100000
+                  },
+                  "wireLengthMeters": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "towerCount",
+                  "wireLengthMeters"
+                ],
+                "additionalProperties": false
+              },
+              "offerCapCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "offerPolicy": {
+                "type": "object",
+                "properties": {
+                  "policyId": {
+                    "type": "string",
+                    "const": "recommended-times-1.2-v1"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "const": "route-impact-v1"
+                  },
+                  "recommendedOfferCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "multiplierNumerator": {
+                    "type": "number",
+                    "const": 6
+                  },
+                  "multiplierDenominator": {
+                    "type": "number",
+                    "const": 5
+                  },
+                  "rounding": {
+                    "type": "string",
+                    "const": "floor-cent"
+                  }
+                },
+                "required": [
+                  "policyId",
+                  "basis",
+                  "recommendedOfferCents",
+                  "multiplierNumerator",
+                  "multiplierDenominator",
+                  "rounding"
+                ],
+                "additionalProperties": false
+              },
+              "terms": {
+                "type": "object",
+                "properties": {
+                  "termsVersion": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "accepted",
+                      "refused",
+                      "counteroffer",
+                      "review_required"
+                    ]
+                  },
+                  "accessConsent": {
+                    "type": "string",
+                    "enum": [
+                      "unknown",
+                      "allowed",
+                      "refused"
+                    ]
+                  },
+                  "explicitConfirmation": {
+                    "type": "boolean"
+                  },
+                  "confirmationRef": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "compensationCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "monthlyRentCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "comparisonRentTotalCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "monthlyRentIsApproximate": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "termsVersion",
+                  "outcome",
+                  "accessConsent",
+                  "explicitConfirmation",
+                  "confirmationRef",
+                  "compensationCents",
+                  "monthlyRentCents",
+                  "comparisonRentTotalCents",
+                  "monthlyRentIsApproximate"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "parcelId",
+              "ownerId",
+              "landUse",
+              "geometry",
+              "areaSqM",
+              "impact",
+              "offerCapCents",
+              "terms"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "userRole": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "ownerId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "parcelId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                }
+              },
+              "required": [
+                "ownerId",
+                "parcelId"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "kind",
+        "sourceMode",
+        "sessionId",
+        "projectId",
+        "routeId",
+        "routeVersion",
+        "revision",
+        "referenceBinding",
+        "currency",
+        "routeStatus",
+        "rentHorizonMonths",
+        "constructionCents",
+        "budgetCents",
+        "simulationChecksPassed",
+        "owners",
+        "parcels",
+        "userRole"
+      ],
+      "additionalProperties": false
+    },
+    "CurrentHandoffState": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "routeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "routeVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "termsVersions": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "offerPolicies": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "policyId": {
+                "type": "string",
+                "const": "recommended-times-1.2-v1"
+              },
+              "basis": {
+                "type": "string",
+                "const": "route-impact-v1"
+              },
+              "recommendedOfferCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "offerCapCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "policyId",
+              "basis",
+              "recommendedOfferCents",
+              "offerCapCents"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "sessionId",
+        "projectId",
+        "routeId",
+        "routeVersion",
+        "revision",
+        "termsVersions"
+      ],
+      "additionalProperties": false
+    },
+    "SettlementContext": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "projectId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "routeId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "routeVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "termsVersions": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "offerPolicies": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "policyId": {
+                    "type": "string",
+                    "const": "recommended-times-1.2-v1"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "const": "route-impact-v1"
+                  },
+                  "recommendedOfferCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "offerCapCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "policyId",
+                  "basis",
+                  "recommendedOfferCents",
+                  "offerCapCents"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "sessionId",
+            "projectId",
+            "routeId",
+            "routeVersion",
+            "revision",
+            "termsVersions"
+          ],
+          "additionalProperties": false
+        },
+        "approvalId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "approvedPackage": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "projectId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "routeId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "routeVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "termsVersions": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "contractVersions": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            }
+          },
+          "required": [
+            "sessionId",
+            "projectId",
+            "routeId",
+            "routeVersion",
+            "termsVersions",
+            "contractVersions"
+          ],
+          "additionalProperties": false
+        },
+        "contracts": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "routeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "routeVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "parcelId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "ownerId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "contractId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "contractVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "termsVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "demoSigned": {
+                "type": "boolean"
+              },
+              "paymentRecipientRef": {
+                "type": "string",
+                "allOf": [
+                  {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                  },
+                  {
+                    "pattern": "^mock-"
+                  }
+                ]
+              },
+              "compensationCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "monthlyRentCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "rentHorizonMonths": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1200
+              }
+            },
+            "required": [
+              "sessionId",
+              "projectId",
+              "routeId",
+              "routeVersion",
+              "parcelId",
+              "ownerId",
+              "contractId",
+              "contractVersion",
+              "termsVersion",
+              "demoSigned",
+              "paymentRecipientRef",
+              "compensationCents",
+              "monthlyRentCents",
+              "rentHorizonMonths"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "contract_tranche",
+            "completion_balance",
+            "monthly_fee"
+          ]
+        },
+        "asOfDate": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        "completion": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "completionId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "sessionId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "projectId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "routeId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "routeVersion": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "approvalId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                },
+                "completedOn": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                }
+              },
+              "required": [
+                "completionId",
+                "sessionId",
+                "projectId",
+                "routeId",
+                "routeVersion",
+                "approvalId",
+                "completedOn"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "monthlyIndex": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1200
+        },
+        "settledObligations": {
+          "maxItems": 10000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "obligationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "routeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "routeVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "parcelId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "ownerId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "paymentRecipientRef": {
+                "type": "string",
+                "allOf": [
+                  {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                  },
+                  {
+                    "pattern": "^mock-"
+                  }
+                ]
+              },
+              "termsVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "compensationCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "monthlyRentCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "amountCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "rentHorizonMonths": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1200
+              },
+              "completionId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "completedOn": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "obligationId",
+              "sessionId",
+              "projectId",
+              "routeId",
+              "routeVersion",
+              "parcelId",
+              "ownerId",
+              "paymentRecipientRef",
+              "termsVersion",
+              "compensationCents",
+              "monthlyRentCents",
+              "amountCents",
+              "rentHorizonMonths",
+              "completionId",
+              "completedOn"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "current",
+        "approvalId",
+        "approved",
+        "approvedPackage",
+        "contracts",
+        "stage",
+        "asOfDate",
+        "completion",
+        "settledObligations"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
