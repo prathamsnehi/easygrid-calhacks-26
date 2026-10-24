@@ -95,7 +95,7 @@ export function settleCal37(input:{
 }):{state:Cal37State;receipts:Cal37Receipt[];attempted:Cal37LedgerEntry[];alreadyPaid:string[]} {
  const {packet,current,state}=input;checkUnique(state);
  if(state.revision!==input.expectedStateRevision)fail('STALE_VERSION','Concurrent state revision changed');
- if(!state.approval)fail('BLOCKED_STATE','Explicit manager approval required');
+ if(!state.approval) throw new EasementError('BLOCKED_STATE','Explicit manager approval required');
  if(!stamp(input.attemptedAt)||!validText(input.requestKey))fail('INVALID_INPUT','Attempt timestamp and request key required');
  const approval=state.approval;
  assertCurrentApproval(packet,current,approval);
@@ -142,7 +142,8 @@ export function settleCal37(input:{
  const updated=[...state.ledger],attempted:Cal37LedgerEntry[]=[],receipts:Cal37Receipt[]=[];
  for(const e of plan.entries){
   const owner=owners.get(e.ownerId);
-  if(!owner||owner.banking.ownerId!==e.ownerId||
+  if(!owner) throw new EasementError('INVALID_RECIPIENT','Missing owner banking record');
+  if(owner.banking.ownerId!==e.ownerId||
      owner.banking.paymentRecipientRef!==e.paymentRecipientRef||
      owner.banking.mode!=='simulated')fail('INVALID_RECIPIENT','Mock banking owner/destination mismatch');
   const existing=updated.findIndex(v=>v.obligationId===e.obligationId);
