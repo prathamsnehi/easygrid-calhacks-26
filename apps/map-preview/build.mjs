@@ -24,7 +24,7 @@ const bundled=sources.map((source,index)=>{
     .replace(/^export\s/gm,'');
   return `modules[${JSON.stringify(names[index])}] = (() => {\n${body}\nreturn {${exports.join(',')}};\n})();`;
 }).join('\n');
-const script=`(() => {\nconst THREE=(() => {const exports={};\n${vendor}\nreturn exports;})();\ntry {\nconst modules=Object.create(null);\n${bundled}\n} catch(error) {console.error(error);document.documentElement.dataset.mapError=error.message;document.querySelector('#error').hidden=false;}\n})();`;
+const script=`(() => {\nconst THREE=(() => {const exports={};\n${vendor}\nreturn exports;})();\ntry {\nconst modules=Object.create(null);\n${bundled}\nmodules['finance-panel.js'].mountFinancePanel();\n} catch(error) {console.error(error);document.documentElement.dataset.mapError=error.message;document.querySelector('#error').hidden=false;}\n})();`;
 const html=template.replace('/* APP_STYLES */',()=>styles).replace('<!-- APP_SCRIPT -->',()=>`<script>${script.replace(/<\/script/gi,'<\\/script')}</script>`);
 const world=createWorld();
 const fixtures={schemaVersion:1,fixtureVersion:world.parcelFixtureVersion,sourceMode:'fixture',
