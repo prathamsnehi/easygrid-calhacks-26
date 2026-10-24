@@ -1,0 +1,1868 @@
+[
+  {
+    "operation": "createProject",
+    "request": {
+      "schemaVersion": 1,
+      "expectedRevision": 0,
+      "idempotencyKey": "create-demo-01",
+      "endpointA": {
+        "type": "Point",
+        "coordinates": [
+          -97.505,
+          30.305
+        ]
+      },
+      "endpointB": {
+        "type": "Point",
+        "coordinates": [
+          -97.465,
+          30.305
+        ]
+      },
+      "budgetCents": 28000000,
+      "rentHorizonMonths": 12,
+      "sourceMode": "fixture"
+    },
+    "response": {
+      "data": {
+        "schemaVersion": 1,
+        "sourceMode": "fixture",
+        "evidenceRefs": [
+          "fixture:cedar-valley-v1"
+        ],
+        "id": "demo-cedar-valley",
+        "revision": 0,
+        "endpointA": {
+          "type": "Point",
+          "coordinates": [
+            -97.505,
+            30.305
+          ]
+        },
+        "endpointB": {
+          "type": "Point",
+          "coordinates": [
+            -97.465,
+            30.305
+          ]
+        },
+        "budgetCents": 28000000,
+        "rentHorizonMonths": 12,
+        "selectedRouteId": null,
+        "approvedRouteVersion": null,
+        "status": "draft"
+      },
+      "projectRevision": 0,
+      "requestId": "fixture-request-0"
+    }
+  },
+  {
+    "operation": "getProject",
+    "request": {
+      "projectId": "demo-cedar-valley"
+    },
+    "response": {
+      "data": {
+        "project": {
+          "schemaVersion": 1,
+          "sourceMode": "fixture",
+          "evidenceRefs": [
+            "fixture:cedar-valley-v1"
+          ],
+          "id": "demo-cedar-valley",
+          "revision": 8,
+          "endpointA": {
+            "type": "Point",
+            "coordinates": [
+              -97.505,
+              30.305
+            ]
+          },
+          "endpointB": {
+            "type": "Point",
+            "coordinates": [
+              -97.465,
+              30.305
+            ]
+          },
+          "budgetCents": 28000000,
+          "rentHorizonMonths": 12,
+          "selectedRouteId": "direct",
+          "approvedRouteVersion": 1,
+          "status": "demo_settled"
+        },
+        "owners": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "owner-P1",
+            "alias": "Synthetic owner P1",
+            "synthetic": true
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "owner-P2",
+            "alias": "Synthetic owner P2",
+            "synthetic": true
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "owner-P3",
+            "alias": "Synthetic owner P3",
+            "synthetic": true
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "owner-P4",
+            "alias": "Synthetic owner P4",
+            "synthetic": true
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "owner-P5",
+            "alias": "Synthetic owner P5",
+            "synthetic": true
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "owner-P6",
+            "alias": "Synthetic owner P6",
+            "synthetic": true
+          }
+        ],
+        "parcels": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "P1",
+            "projectId": "demo-cedar-valley",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [
+                    -97.5,
+                    30.3
+                  ],
+                  [
+                    -97.492,
+                    30.3
+                  ],
+                  [
+                    -97.492,
+                    30.308
+                  ],
+                  [
+                    -97.5,
+                    30.308
+                  ],
+                  [
+                    -97.5,
+                    30.3
+                  ]
+                ]
+              ]
+            },
+            "ownerId": "owner-P1",
+            "ownerAlias": "Synthetic owner P1",
+            "synthetic": true,
+            "landUse": "Walnuts",
+            "areaSqM": 97124.5541376,
+            "offerCapCents": 4200000,
+            "accessConsent": "unknown",
+            "negotiationStatus": "pending"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "P2",
+            "projectId": "demo-cedar-valley",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [
+                    -97.49,
+                    30.3
+                  ],
+                  [
+                    -97.482,
+                    30.3
+                  ],
+                  [
+                    -97.482,
+                    30.308
+                  ],
+                  [
+                    -97.49,
+                    30.308
+                  ],
+                  [
+                    -97.49,
+                    30.3
+                  ]
+                ]
+              ]
+            },
+            "ownerId": "owner-P2",
+            "ownerAlias": "Synthetic owner P2",
+            "synthetic": true,
+            "landUse": "Pears",
+            "areaSqM": 72843.4156032,
+            "offerCapCents": 5500000,
+            "accessConsent": "allowed",
+            "negotiationStatus": "accepted"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "P3",
+            "projectId": "demo-cedar-valley",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [
+                    -97.48,
+                    30.3
+                  ],
+                  [
+                    -97.47200000000001,
+                    30.3
+                  ],
+                  [
+                    -97.47200000000001,
+                    30.308
+                  ],
+                  [
+                    -97.48,
+                    30.308
+                  ],
+                  [
+                    -97.48,
+                    30.3
+                  ]
+                ]
+              ]
+            },
+            "ownerId": "owner-P3",
+            "ownerAlias": "Synthetic owner P3",
+            "synthetic": true,
+            "landUse": "Wheat",
+            "areaSqM": 129499.4055168,
+            "offerCapCents": 3800000,
+            "accessConsent": "unknown",
+            "negotiationStatus": "pending"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "P4",
+            "projectId": "demo-cedar-valley",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [
+                    -97.5,
+                    30.310000000000002
+                  ],
+                  [
+                    -97.492,
+                    30.310000000000002
+                  ],
+                  [
+                    -97.492,
+                    30.318
+                  ],
+                  [
+                    -97.5,
+                    30.318
+                  ],
+                  [
+                    -97.5,
+                    30.310000000000002
+                  ]
+                ]
+              ]
+            },
+            "ownerId": "owner-P4",
+            "ownerAlias": "Synthetic owner P4",
+            "synthetic": true,
+            "landUse": "Sunflowers",
+            "areaSqM": 105218.2669824,
+            "offerCapCents": 4500000,
+            "accessConsent": "allowed",
+            "negotiationStatus": "accepted"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "P5",
+            "projectId": "demo-cedar-valley",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [
+                    -97.49,
+                    30.310000000000002
+                  ],
+                  [
+                    -97.482,
+                    30.310000000000002
+                  ],
+                  [
+                    -97.482,
+                    30.318
+                  ],
+                  [
+                    -97.49,
+                    30.318
+                  ],
+                  [
+                    -97.49,
+                    30.310000000000002
+                  ]
+                ]
+              ]
+            },
+            "ownerId": "owner-P5",
+            "ownerAlias": "Synthetic owner P5",
+            "synthetic": true,
+            "landUse": "Hay",
+            "areaSqM": 153780.5440512,
+            "offerCapCents": 5200000,
+            "accessConsent": "unknown",
+            "negotiationStatus": "pending"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "P6",
+            "projectId": "demo-cedar-valley",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [
+                    -97.48,
+                    30.310000000000002
+                  ],
+                  [
+                    -97.47200000000001,
+                    30.310000000000002
+                  ],
+                  [
+                    -97.47200000000001,
+                    30.318
+                  ],
+                  [
+                    -97.48,
+                    30.318
+                  ],
+                  [
+                    -97.48,
+                    30.310000000000002
+                  ]
+                ]
+              ]
+            },
+            "ownerId": "owner-P6",
+            "ownerAlias": "Synthetic owner P6",
+            "synthetic": true,
+            "landUse": "Corn",
+            "areaSqM": 117358.8362496,
+            "offerCapCents": 4400000,
+            "accessConsent": "allowed",
+            "negotiationStatus": "accepted"
+          }
+        ],
+        "routes": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "direct",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.305
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P2",
+              "P6"
+            ],
+            "lengthMeters": 2400,
+            "constructionCents": 16000000,
+            "upfrontCompensationCents": 7800000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 24160000,
+            "eligible": true,
+            "readyToApprove": true,
+            "reasons": [
+              "Fixture checks only; no actual regulatory approval."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "pass",
+                "missingEvidence": [],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "north",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.325
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "lengthMeters": 3100,
+            "constructionCents": 17800000,
+            "upfrontCompensationCents": 7400000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25560000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "south",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.295
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P5",
+              "P6"
+            ],
+            "lengthMeters": 2900,
+            "constructionCents": 16200000,
+            "upfrontCompensationCents": 8500000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25060000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          }
+        ],
+        "negotiations": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "upfrontCents": 2600000,
+            "depositCents": 200000,
+            "depositCreditPolicy": "credited_to_upfront",
+            "monthlyRentCents": 10000,
+            "termMonths": 12,
+            "id": "terms-P4",
+            "projectId": "demo-cedar-valley",
+            "parcelId": "P4",
+            "routeVersion": 1,
+            "termsVersion": 1,
+            "sessionId": "demo-call-P4",
+            "outcome": "accepted",
+            "accessConsent": "allowed",
+            "conditions": [
+              "Synthetic agreement for a controlled demo only."
+            ],
+            "explicitConfirmation": true
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "upfrontCents": 2800000,
+            "depositCents": 200000,
+            "depositCreditPolicy": "credited_to_upfront",
+            "monthlyRentCents": 10000,
+            "termMonths": 12,
+            "id": "terms-P2",
+            "projectId": "demo-cedar-valley",
+            "parcelId": "P2",
+            "routeVersion": 1,
+            "termsVersion": 1,
+            "sessionId": "demo-call-P2",
+            "outcome": "accepted",
+            "accessConsent": "allowed",
+            "conditions": [
+              "Synthetic agreement for a controlled demo only."
+            ],
+            "explicitConfirmation": true
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "upfrontCents": 2400000,
+            "depositCents": 200000,
+            "depositCreditPolicy": "credited_to_upfront",
+            "monthlyRentCents": 10000,
+            "termMonths": 12,
+            "id": "terms-P6",
+            "projectId": "demo-cedar-valley",
+            "parcelId": "P6",
+            "routeVersion": 1,
+            "termsVersion": 1,
+            "sessionId": "demo-call-P6",
+            "outcome": "accepted",
+            "accessConsent": "allowed",
+            "conditions": [
+              "Synthetic agreement for a controlled demo only."
+            ],
+            "explicitConfirmation": true
+          }
+        ],
+        "easements": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "upfrontCents": 2600000,
+            "depositCents": 200000,
+            "depositCreditPolicy": "credited_to_upfront",
+            "monthlyRentCents": 10000,
+            "termMonths": 12,
+            "id": "contract-P4",
+            "contractVersion": 1,
+            "projectId": "demo-cedar-valley",
+            "parcelId": "P4",
+            "routeId": "direct",
+            "routeVersion": 1,
+            "termsVersion": 1,
+            "templateVersion": "demo-v1",
+            "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "effectiveStartDate": "2026-11-01",
+            "effectiveEndDate": "2027-10-31",
+            "status": "demo_signed",
+            "signatureMode": "simulated",
+            "signedAt": "2026-10-24T19:00:00Z",
+            "artifactRef": "fixture:easement-P4"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "upfrontCents": 2800000,
+            "depositCents": 200000,
+            "depositCreditPolicy": "credited_to_upfront",
+            "monthlyRentCents": 10000,
+            "termMonths": 12,
+            "id": "contract-P2",
+            "contractVersion": 1,
+            "projectId": "demo-cedar-valley",
+            "parcelId": "P2",
+            "routeId": "direct",
+            "routeVersion": 1,
+            "termsVersion": 1,
+            "templateVersion": "demo-v1",
+            "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "effectiveStartDate": "2026-11-01",
+            "effectiveEndDate": "2027-10-31",
+            "status": "demo_signed",
+            "signatureMode": "simulated",
+            "signedAt": "2026-10-24T19:00:00Z",
+            "artifactRef": "fixture:easement-P2"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "upfrontCents": 2400000,
+            "depositCents": 200000,
+            "depositCreditPolicy": "credited_to_upfront",
+            "monthlyRentCents": 10000,
+            "termMonths": 12,
+            "id": "contract-P6",
+            "contractVersion": 1,
+            "projectId": "demo-cedar-valley",
+            "parcelId": "P6",
+            "routeId": "direct",
+            "routeVersion": 1,
+            "termsVersion": 1,
+            "templateVersion": "demo-v1",
+            "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "effectiveStartDate": "2026-11-01",
+            "effectiveEndDate": "2027-10-31",
+            "status": "demo_signed",
+            "signatureMode": "simulated",
+            "signedAt": "2026-10-24T19:00:00Z",
+            "artifactRef": "fixture:easement-P6"
+          }
+        ],
+        "approvals": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "approval-01",
+            "projectId": "demo-cedar-valley",
+            "routeId": "direct",
+            "routeVersion": 1,
+            "contractIds": [
+              "contract-P4",
+              "contract-P2",
+              "contract-P6"
+            ],
+            "termsVersions": {
+              "P4": 1,
+              "P2": 1,
+              "P6": 1
+            },
+            "contractVersions": {
+              "contract-P4": 1,
+              "contract-P2": 1,
+              "contract-P6": 1
+            },
+            "approvedBy": "demo-manager",
+            "approvedAt": "2026-10-24T19:00:00Z",
+            "valid": true
+          }
+        ],
+        "payments": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "mock",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "payment-deposit-P2",
+            "contractId": "contract-P2",
+            "contractVersion": 1,
+            "approvalId": "approval-01",
+            "kind": "deposit",
+            "expectedCents": 200000,
+            "actualCents": 200000,
+            "currency": "USD",
+            "status": "settled",
+            "providerReference": "mock-receipt-01",
+            "idempotencyKey": "deposit-P2-v1"
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "mock",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "payment-rent-P2-2026-11",
+            "contractId": "contract-P2",
+            "contractVersion": 1,
+            "approvalId": "approval-01",
+            "kind": "rent",
+            "installmentPeriod": "2026-11",
+            "expectedCents": 10000,
+            "actualCents": 10000,
+            "currency": "USD",
+            "status": "settled",
+            "providerReference": "mock-receipt-02",
+            "idempotencyKey": "rent-P2-2026-11-v1"
+          }
+        ],
+        "reconciliations": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "recon-01",
+            "contractId": "contract-P2",
+            "paymentId": "payment-rent-P2-2026-11",
+            "installmentPeriod": "2026-11",
+            "expectedCents": 10000,
+            "observedCents": 10000,
+            "result": "matched",
+            "checkedAt": "2026-10-24T19:00:00Z"
+          }
+        ],
+        "events": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "eventId": "event-reconciliation-01",
+            "projectId": "demo-cedar-valley",
+            "revision": 8,
+            "type": "reconciliation.completed",
+            "occurredAt": "2026-10-24T19:00:00Z",
+            "actor": "demo-operator",
+            "payload": {
+              "reconciliationIds": [
+                "recon-01"
+              ]
+            }
+          }
+        ]
+      },
+      "projectRevision": 8,
+      "requestId": "fixture-request-8"
+    }
+  },
+  {
+    "operation": "evaluateRoutes",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "schemaVersion": 1,
+      "expectedRevision": 0,
+      "idempotencyKey": "routes-01"
+    },
+    "response": {
+      "data": {
+        "candidates": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "direct",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.305
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P2",
+              "P6"
+            ],
+            "lengthMeters": 2400,
+            "constructionCents": 16000000,
+            "upfrontCompensationCents": 7800000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 24160000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "north",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.325
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "lengthMeters": 3100,
+            "constructionCents": 17800000,
+            "upfrontCompensationCents": 7400000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25560000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "south",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.295
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P5",
+              "P6"
+            ],
+            "lengthMeters": 2900,
+            "constructionCents": 16200000,
+            "upfrontCompensationCents": 8500000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25060000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          }
+        ],
+        "recommendation": "direct",
+        "reasons": [
+          "Minimum cost among these three synthetic candidates."
+        ]
+      },
+      "projectRevision": 1,
+      "requestId": "fixture-request-1"
+    }
+  },
+  {
+    "operation": "createCallSession",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "parcelId": "P2",
+      "routeVersion": 1,
+      "participantContactRef": "consented-demo-participant",
+      "participantConsent": true,
+      "schemaVersion": 1,
+      "expectedRevision": 1,
+      "idempotencyKey": "call-P2-01"
+    },
+    "response": {
+      "data": {
+        "schemaVersion": 1,
+        "sourceMode": "fixture",
+        "evidenceRefs": [
+          "fixture:cedar-valley-v1"
+        ],
+        "sessionId": "demo-call-P2",
+        "projectId": "demo-cedar-valley",
+        "parcelId": "P2",
+        "routeVersion": 1,
+        "status": "creating",
+        "events": []
+      },
+      "projectRevision": 2,
+      "requestId": "fixture-request-2"
+    }
+  },
+  {
+    "operation": "getCallSession",
+    "request": {
+      "sessionId": "demo-call-P2"
+    },
+    "response": {
+      "data": {
+        "schemaVersion": 1,
+        "sourceMode": "fixture",
+        "evidenceRefs": [
+          "fixture:cedar-valley-v1"
+        ],
+        "sessionId": "demo-call-P2",
+        "projectId": "demo-cedar-valley",
+        "parcelId": "P2",
+        "routeVersion": 1,
+        "status": "completed",
+        "events": [
+          {
+            "eventId": "call-event-01",
+            "occurredAt": "2026-10-24T19:00:00Z",
+            "type": "fixture.completed",
+            "summary": "Synthetic participant; no call placed."
+          }
+        ]
+      },
+      "projectRevision": 2,
+      "requestId": "fixture-request-2"
+    }
+  },
+  {
+    "operation": "recordNegotiation",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "schemaVersion": 1,
+      "expectedRevision": 2,
+      "idempotencyKey": "terms-P2-01",
+      "result": {
+        "schemaVersion": 1,
+        "sourceMode": "fixture",
+        "evidenceRefs": [
+          "fixture:cedar-valley-v1"
+        ],
+        "upfrontCents": 2800000,
+        "depositCents": 200000,
+        "depositCreditPolicy": "credited_to_upfront",
+        "monthlyRentCents": 10000,
+        "termMonths": 12,
+        "id": "terms-P2",
+        "projectId": "demo-cedar-valley",
+        "parcelId": "P2",
+        "routeVersion": 1,
+        "termsVersion": 1,
+        "sessionId": "demo-call-P2",
+        "outcome": "accepted",
+        "accessConsent": "allowed",
+        "conditions": [
+          "Synthetic agreement for a controlled demo only."
+        ],
+        "explicitConfirmation": true
+      }
+    },
+    "response": {
+      "data": {
+        "result": {
+          "schemaVersion": 1,
+          "sourceMode": "fixture",
+          "evidenceRefs": [
+            "fixture:cedar-valley-v1"
+          ],
+          "upfrontCents": 2800000,
+          "depositCents": 200000,
+          "depositCreditPolicy": "credited_to_upfront",
+          "monthlyRentCents": 10000,
+          "termMonths": 12,
+          "id": "terms-P2",
+          "projectId": "demo-cedar-valley",
+          "parcelId": "P2",
+          "routeVersion": 1,
+          "termsVersion": 1,
+          "sessionId": "demo-call-P2",
+          "outcome": "accepted",
+          "accessConsent": "allowed",
+          "conditions": [
+            "Synthetic agreement for a controlled demo only."
+          ],
+          "explicitConfirmation": true
+        },
+        "rerouteNeeded": false
+      },
+      "projectRevision": 3,
+      "requestId": "fixture-request-3"
+    }
+  },
+  {
+    "operation": "replan",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "negotiationResultId": "terms-P2-refusal",
+      "schemaVersion": 1,
+      "expectedRevision": 5,
+      "idempotencyKey": "replan-refusal-01"
+    },
+    "response": {
+      "data": {
+        "priorCandidates": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "direct",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.305
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P2",
+              "P6"
+            ],
+            "lengthMeters": 2400,
+            "constructionCents": 16000000,
+            "upfrontCompensationCents": 7800000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 24160000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "north",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.325
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "lengthMeters": 3100,
+            "constructionCents": 17800000,
+            "upfrontCompensationCents": 7400000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25560000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "south",
+            "projectId": "demo-cedar-valley",
+            "version": 1,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.295
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P5",
+              "P6"
+            ],
+            "lengthMeters": 2900,
+            "constructionCents": 16200000,
+            "upfrontCompensationCents": 8500000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25060000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Synthetic estimated terms; explicit consent and screening are pending."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          }
+        ],
+        "candidates": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "direct",
+            "projectId": "demo-cedar-valley",
+            "version": 2,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.305
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P2",
+              "P6"
+            ],
+            "lengthMeters": 2400,
+            "constructionCents": 16000000,
+            "upfrontCompensationCents": 7800000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 24160000,
+            "eligible": false,
+            "readyToApprove": false,
+            "reasons": [
+              "P2 owner refused access."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "north",
+            "projectId": "demo-cedar-valley",
+            "version": 2,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.325
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "lengthMeters": 3100,
+            "constructionCents": 17800000,
+            "upfrontCompensationCents": 7400000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25560000,
+            "eligible": false,
+            "readyToApprove": false,
+            "reasons": [
+              "P2 owner refused access."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          },
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "south",
+            "projectId": "demo-cedar-valley",
+            "version": 2,
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -97.505,
+                  30.305
+                ],
+                [
+                  -97.485,
+                  30.295
+                ],
+                [
+                  -97.465,
+                  30.305
+                ]
+              ]
+            },
+            "parcelIds": [
+              "P4",
+              "P5",
+              "P6"
+            ],
+            "lengthMeters": 2900,
+            "constructionCents": 16200000,
+            "upfrontCompensationCents": 8500000,
+            "recurringRentTotalCents": 360000,
+            "separateDepositTotalCents": 0,
+            "totalCostCents": 25060000,
+            "eligible": true,
+            "readyToApprove": false,
+            "reasons": [
+              "Bypass candidate; current agreements and screening still required."
+            ],
+            "regulatoryChecks": [
+              {
+                "schemaVersion": 1,
+                "sourceMode": "fixture",
+                "evidenceRefs": [
+                  "fixture:cedar-valley-v1"
+                ],
+                "id": "screen-01",
+                "jurisdiction": "DEMO ONLY",
+                "ruleCitation": "fixture:screening-placeholder",
+                "ruleVersion": "fixture-v1",
+                "checkedAt": "2026-10-24T19:00:00Z",
+                "outcome": "unknown",
+                "missingEvidence": [
+                  "Actual rule and source verification"
+                ],
+                "preliminary": true
+              }
+            ]
+          }
+        ],
+        "recommendation": "south",
+        "costDeltaCents": 900000,
+        "changedParcelIds": [
+          "P2"
+        ],
+        "invalidatedApprovalIds": [
+          "approval-01"
+        ],
+        "reasons": [
+          "Old approval invalidated; southern candidate requires new agreements."
+        ]
+      },
+      "projectRevision": 6,
+      "requestId": "fixture-request-6"
+    }
+  },
+  {
+    "operation": "createEasement",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "routeId": "direct",
+      "routeVersion": 1,
+      "parcelId": "P2",
+      "termsVersion": 1,
+      "schemaVersion": 1,
+      "expectedRevision": 3,
+      "idempotencyKey": "contract-P2-01"
+    },
+    "response": {
+      "data": {
+        "easement": {
+          "schemaVersion": 1,
+          "sourceMode": "fixture",
+          "evidenceRefs": [
+            "fixture:cedar-valley-v1"
+          ],
+          "upfrontCents": 2800000,
+          "depositCents": 200000,
+          "depositCreditPolicy": "credited_to_upfront",
+          "monthlyRentCents": 10000,
+          "termMonths": 12,
+          "id": "contract-P2",
+          "contractVersion": 1,
+          "projectId": "demo-cedar-valley",
+          "parcelId": "P2",
+          "routeId": "direct",
+          "routeVersion": 1,
+          "termsVersion": 1,
+          "templateVersion": "demo-v1",
+          "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "effectiveStartDate": "2026-11-01",
+          "effectiveEndDate": "2027-10-31",
+          "status": "draft",
+          "signatureMode": "simulated",
+          "artifactRef": "fixture:easement-P2"
+        },
+        "missingFields": []
+      },
+      "projectRevision": 4,
+      "requestId": "fixture-request-4"
+    }
+  },
+  {
+    "operation": "demoSign",
+    "request": {
+      "contractId": "contract-P2",
+      "contractVersion": 1,
+      "signerAlias": "Synthetic owner P2",
+      "schemaVersion": 1,
+      "expectedRevision": 4,
+      "idempotencyKey": "sign-P2-01"
+    },
+    "response": {
+      "data": {
+        "easement": {
+          "schemaVersion": 1,
+          "sourceMode": "fixture",
+          "evidenceRefs": [
+            "fixture:cedar-valley-v1"
+          ],
+          "upfrontCents": 2800000,
+          "depositCents": 200000,
+          "depositCreditPolicy": "credited_to_upfront",
+          "monthlyRentCents": 10000,
+          "termMonths": 12,
+          "id": "contract-P2",
+          "contractVersion": 1,
+          "projectId": "demo-cedar-valley",
+          "parcelId": "P2",
+          "routeId": "direct",
+          "routeVersion": 1,
+          "termsVersion": 1,
+          "templateVersion": "demo-v1",
+          "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "effectiveStartDate": "2026-11-01",
+          "effectiveEndDate": "2027-10-31",
+          "status": "demo_signed",
+          "signatureMode": "simulated",
+          "signedAt": "2026-10-24T19:00:00Z",
+          "artifactRef": "fixture:easement-P2"
+        },
+        "simulation": true
+      },
+      "projectRevision": 5,
+      "requestId": "fixture-request-5"
+    }
+  },
+  {
+    "operation": "approveProject",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "routeId": "direct",
+      "routeVersion": 1,
+      "termsVersions": {
+        "P4": 1,
+        "P2": 1,
+        "P6": 1
+      },
+      "contractIds": [
+        "contract-P4",
+        "contract-P2",
+        "contract-P6"
+      ],
+      "schemaVersion": 1,
+      "expectedRevision": 5,
+      "idempotencyKey": "approve-01"
+    },
+    "response": {
+      "data": {
+        "schemaVersion": 1,
+        "sourceMode": "fixture",
+        "evidenceRefs": [
+          "fixture:cedar-valley-v1"
+        ],
+        "id": "approval-01",
+        "projectId": "demo-cedar-valley",
+        "routeId": "direct",
+        "routeVersion": 1,
+        "contractIds": [
+          "contract-P4",
+          "contract-P2",
+          "contract-P6"
+        ],
+        "termsVersions": {
+          "P4": 1,
+          "P2": 1,
+          "P6": 1
+        },
+        "contractVersions": {
+          "contract-P4": 1,
+          "contract-P2": 1,
+          "contract-P6": 1
+        },
+        "approvedBy": "demo-manager",
+        "approvedAt": "2026-10-24T19:00:00Z",
+        "valid": true
+      },
+      "projectRevision": 6,
+      "requestId": "fixture-request-6"
+    }
+  },
+  {
+    "operation": "createPayment",
+    "request": {
+      "contractId": "contract-P2",
+      "contractVersion": 1,
+      "approvalId": "approval-01",
+      "kind": "deposit",
+      "schemaVersion": 1,
+      "expectedRevision": 6,
+      "idempotencyKey": "deposit-P2-v1"
+    },
+    "response": {
+      "data": {
+        "schemaVersion": 1,
+        "sourceMode": "mock",
+        "evidenceRefs": [
+          "fixture:cedar-valley-v1"
+        ],
+        "id": "payment-deposit-P2",
+        "contractId": "contract-P2",
+        "contractVersion": 1,
+        "approvalId": "approval-01",
+        "kind": "deposit",
+        "expectedCents": 200000,
+        "actualCents": 200000,
+        "currency": "USD",
+        "status": "settled",
+        "providerReference": "mock-receipt-01",
+        "idempotencyKey": "deposit-P2-v1"
+      },
+      "projectRevision": 7,
+      "requestId": "fixture-request-7"
+    }
+  },
+  {
+    "operation": "reconcile",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "asOfDemoDate": "2026-11-30",
+      "schemaVersion": 1,
+      "expectedRevision": 7,
+      "idempotencyKey": "recon-01"
+    },
+    "response": {
+      "data": {
+        "entries": [
+          {
+            "schemaVersion": 1,
+            "sourceMode": "fixture",
+            "evidenceRefs": [
+              "fixture:cedar-valley-v1"
+            ],
+            "id": "recon-01",
+            "contractId": "contract-P2",
+            "paymentId": "payment-rent-P2-2026-11",
+            "installmentPeriod": "2026-11",
+            "expectedCents": 10000,
+            "observedCents": 10000,
+            "result": "matched",
+            "checkedAt": "2026-10-24T19:00:00Z"
+          }
+        ]
+      },
+      "projectRevision": 8,
+      "requestId": "fixture-request-8"
+    }
+  },
+  {
+    "operation": "resetDemo",
+    "request": {
+      "projectId": "demo-cedar-valley",
+      "newSessionId": "demo-session-02",
+      "schemaVersion": 1,
+      "expectedRevision": 8,
+      "idempotencyKey": "reset-demo-02"
+    },
+    "response": {
+      "data": {
+        "sessionId": "demo-session-02",
+        "project": {
+          "schemaVersion": 1,
+          "sourceMode": "fixture",
+          "evidenceRefs": [
+            "fixture:cedar-valley-v1"
+          ],
+          "id": "demo-session-02-project",
+          "revision": 0,
+          "endpointA": {
+            "type": "Point",
+            "coordinates": [
+              -97.505,
+              30.305
+            ]
+          },
+          "endpointB": {
+            "type": "Point",
+            "coordinates": [
+              -97.465,
+              30.305
+            ]
+          },
+          "budgetCents": 28000000,
+          "rentHorizonMonths": 12,
+          "selectedRouteId": null,
+          "approvedRouteVersion": null,
+          "status": "draft"
+        }
+      },
+      "projectRevision": 0,
+      "requestId": "fixture-request-0"
+    }
+  }
+]
