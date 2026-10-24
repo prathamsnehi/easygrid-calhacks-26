@@ -8,7 +8,7 @@ import { analyzeRouteParcels } from './src/parcel-analysis.js';
 import { createHandoff } from './src/handoff.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
-const names=['cost-model.js','offer-policy.js','parcels.js','world.js','landscape.js','facility-models.js','placement.js','routing.js','parcel-analysis.js','handoff.js','transmission-models.js','planner.js','route-controller.js','settlement-controller.js','contract-authoring.js','contract-api-client.js','contract-workspace.js','contract-entry.js','analysis-controller.js','main.js'];
+const names=['cost-model.js','offer-policy.js','parcels.js','world.js','landscape.js','facility-models.js','placement.js','routing.js','parcel-analysis.js','handoff.js','transmission-models.js','planner.js','route-controller.js','settlement-controller.js','contract-authoring.js','contract-handoff.js','contract-api-client.js','contract-workspace.js','contract-entry.js','analysis-controller.js','main.js'];
 const [vendor,template,styles,contractStyles,contractWorkspace,contractTemplate,...sources]=await Promise.all([
   readFile(join(root,'vendor/three.cjs'),'utf8'),
   readFile(join(root,'src/index.html'),'utf8'),
@@ -20,7 +20,7 @@ const [vendor,template,styles,contractStyles,contractWorkspace,contractTemplate,
 ]);
 // Keep module scopes separate while producing one offline-capable HTML file.
 const bundleModules=(moduleNames,moduleSources)=>moduleSources.map((source,index)=>{
-  const exports=[...source.matchAll(/^export\s+(?:const|let|function|class)\s+(\w+)/gm)].map(match=>match[1]);
+  const exports=[...source.matchAll(/^export\s+(?:async\s+)?(?:const|let|function|class)\s+(\w+)/gm)].map(match=>match[1]);
   const body=source
     .replace(/^import \* as THREE from 'three';\s*$/gm,'')
     .replace(/^import\s*\{([^}]+)\}\s*from\s*['"]\.\/([^'"]+)['"];?\s*$/gm,(_,bindings,name)=>`const {${bindings}} = modules[${JSON.stringify(name)}];\n`)

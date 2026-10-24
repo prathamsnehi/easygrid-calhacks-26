@@ -154,8 +154,8 @@ export function createContractWorkspace({storage, onClose = () => {}, isCurrent 
     for (const id of ['cg-developer','cg-date','cg-access','cg-notes','cg-parcel']) el[id].disabled = false;
     renderGate(input); feedback();
   }
-  function open(input, {demo = false} = {}) {
-    demoMode = demo;
+  function open(input, {demo = false, simulationControls = false} = {}) {
+    demoMode = demo || simulationControls;
     setSource(input);
     restoreFocus = document.activeElement;
     const background = document.querySelector('#demo-workspace');
