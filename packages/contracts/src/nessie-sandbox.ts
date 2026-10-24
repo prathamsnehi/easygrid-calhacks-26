@@ -11,9 +11,15 @@ export type NessieTransaction = {
 };
 export type NessieAccount = { _id: string; balance?: number; nickname?: string; type?: string };
 export class NessieSandbox {
-  constructor(private readonly apiKey: string,
-    private readonly transport: typeof fetch = fetch,
-    private readonly origin = 'https://prod-api.nessieisreal.com') {
+  private readonly apiKey: string;
+  private readonly transport: typeof fetch;
+  private readonly origin: string;
+  constructor(apiKey: string,
+    transport: typeof fetch = fetch,
+    origin = 'https://prod-api.nessieisreal.com') {
+    this.apiKey = apiKey;
+    this.transport = transport;
+    this.origin = origin;
     if (!apiKey.trim()) throw new Error('NESSIE_API_KEY required on server');
     if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1'))
       throw new Error('Nessie origin must use HTTPS');
