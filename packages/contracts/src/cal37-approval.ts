@@ -216,6 +216,7 @@ export function cal37Status(state:Cal37State){
 export function cal37PublicView(state:Cal37State){
  return {
   ...cal37Status(state),
+  revision:state.revision,
   payments:state.ledger.map(e=>({
    obligationId:e.obligationId,parcelId:e.parcelId,ownerId:e.ownerId,
    amountCents:e.amountCents,status:e.status,recipientDisplay:e.recipientDisplay,
