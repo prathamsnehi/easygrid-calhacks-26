@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEasementDraft, awaitDemoSignature, demoSign } from '../src/easement.ts';
 import { NegotiationResult } from '../src/schemas.ts';
+import { acceptedTermsEasement, missingTermsEasement } from '../src/easement-fixtures.ts';
 
 const negotiation = NegotiationResult.parse({
   schemaVersion: 1, sourceMode: 'fixture', evidenceRefs: ['synthetic-consent'],
@@ -17,6 +18,7 @@ const input = {
   operatorAlias: 'Demo Grid Operator', corridorDescription: 'Synthetic 10m corridor',
   accessConditions: ['Daytime access only'], effectiveStartDate: '2026-11-01',
   effectiveEndDate: '2026-12-31', negotiation, offerCapCents: 100000,
+  currentRouteVersion: 1, currentTermsVersion: 1,
 };
 test('accepted terms create immutable preview and demo receipt', () => {
   const draft = createEasementDraft(input);
@@ -71,4 +73,20 @@ test('repeated supersession of an already superseded contract is blocked', () =>
   const prior = createEasementDraft(input).contract!;
   const superseded = createEasementDraft({ ...input, id: 'contract-2', contractVersion: 2, priorContract: prior }).supersededContract!;
   assert.throws(() => createEasementDraft({ ...input, id: 'contract-2', contractVersion: 2, priorContract: superseded }), { code: 'BLOCKED_STATE' });
+});
+
+test('reusable integration fixtures produce accepted draft and blocked missing fields', () => {
+  const accepted = createEasementDraft(acceptedTermsEasement);
+  assert.ok(accepted.contract);
+  assert.deepEqual(accepted.missingFields, []);
+  const missing = createEasementDraft(missingTermsEasement);
+  assert.equal(missing.contract, null);
+  assert.ok(missing.missingFields.includes('corridorDescription'));
+  assert.ok(missing.missingFields.includes('accessConditions'));
+});
+test('missing authoritative versions fail closed', () => {
+  assert.throws(() => createEasementDraft({ ...input, currentRouteVersion: undefined as unknown as number }),
+    { code: 'INVALID_INPUT' });
+  assert.throws(() => createEasementDraft({ ...input, currentTermsVersion: undefined as unknown as number }),
+    { code: 'INVALID_INPUT' });
 });
