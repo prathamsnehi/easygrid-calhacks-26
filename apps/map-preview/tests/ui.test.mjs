@@ -764,6 +764,28 @@ test('refusal demo bypasses the original owner, simulates all new-route agreemen
   assert.deepEqual(app.errors,[]);
 });
 
+test('an unpriced corridor parcel does not disable refusal on a current route',async()=>{
+  const app=boot();
+  assert.equal(app.elements.get('simulate-refusal').disabled,true,'a route is still required');
+  app.click('next-site');app.click('confirm-placement');
+  app.click('next-site');app.click('next-site');app.click('confirm-placement');
+  await app.flushTimers();
+  const before=handoffOf(app),api=app.window.easygridDemo;
+  assert.equal(before.snapshot.routes[0].eligible,false);
+  assert(before.parcelAnalysis.some(p=>p.corridorOnly),'exercise a real unpriced corridor contact');
+  assert.equal(app.elements.get('simulate-refusal').disabled,false);
+  assert.equal(app.elements.get('settle-payment').disabled,true);
+  app.click('simulate-refusal');
+  assert.equal(api.getNegotiationState().phase,'rerouting');
+  assert.equal(app.canvas.dataset.previousRouteVisible,'true');
+  assert.equal(app.elements.get('simulate-refusal').disabled,true,'do not start a duplicate refusal');
+  await app.flushTimers();
+  assert.equal(api.getNegotiationState().phase,'no_route','this placement has no priced replacement within the constraints');
+  assert.equal(api.getNegotiatedHandoff(),null);
+  assert.equal(app.elements.get('overview-settlement').disabled,true,'missing replacement cannot approve contracts');
+  assert.deepEqual(app.errors,[]);
+});
+
 test('a host negotiation subscription disables fixture controls and is canceled on participant edits and departure',async()=>{
   const app=boot();placePair(app);await app.flushTimers();const api=app.window.easygridDemo;
   const subscriptions=[];let cleanupCount=0;

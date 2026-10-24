@@ -204,7 +204,7 @@ function renderNegotiation(state){
   const get=id=>document.querySelector(`#${id}`),write=(id,value)=>{get(id).textContent=value;};
   get('negotiation-progress').hidden=!active;
   get('simulate-refusal').hidden=connectedSource;
-  get('simulate-refusal').disabled=connectedSource||active||!h?.snapshot.routes[0].eligible||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
+  get('simulate-refusal').disabled=connectedSource||active||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
   get('negotiation-result').hidden=!active;
   write('negotiation-mode',connectedSource?'Owner responses':'Demo scenario');
   const labels={idle:connectedSource?(state.connected?'Listening':'Connecting'):'Ready',rerouting:'Rerouting',negotiating:'Simulating',confirmed:'Confirmed · simulated',review_required:'Review needed',no_route:'No route',awaiting_owners:'Pending owners'};
@@ -249,7 +249,7 @@ document.querySelector('#overview-settlement').addEventListener('click',()=>{
   analysis.open();document.querySelector('#settle-payment').click();
 });
 document.querySelector('#simulate-refusal').addEventListener('click',()=>{
-  try{refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose an eligible route before starting this scenario.';}
+  try{refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose a current route with the demo participant before starting this scenario.';}
 });
 document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoActive=false;negotiation.reset();});
 window.addEventListener('pagehide',()=>{refusalDemoActive=false;negotiation.reset();});

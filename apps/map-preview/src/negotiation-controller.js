@@ -138,7 +138,9 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
     return {status:'applied',rerouteNeeded:reroute};
   }
   function runRefusalDemo(){
-    const h=current();if(source||!h||!h.snapshot.routes[0].eligible||h.userRole.liveCallLocked||!h.snapshot.routes[0].parcelIds.includes(h.userRole.parcelId))throw new Error('Start a new eligible demo route first.');
+    // Refusing access does not require a priced or budget-approved proposal.
+    // The replacement route still passes the agreement checks in routeChanged.
+    const h=current();if(source||!h||h.userRole.liveCallLocked||!h.snapshot.routes[0].parcelIds.includes(h.userRole.parcelId))throw new Error('Select a current demo route first.');
     const p=h.ownerHandoff.parcels.find(p=>p.parcelId===h.userRole.parcelId);
     return applyUpdate({schemaVersion:1,kind:'easygrid-map-negotiation',eventId:`demo-refusal-${h.routeVersion}`,mapBinding:getBinding(),
       parcelId:p.parcelId,sourceMode:'mock',outcome:'refused',accessConsent:'refused',explicitConfirmation:true,
