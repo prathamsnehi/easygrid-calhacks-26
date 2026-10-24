@@ -367,6 +367,55 @@ test('drags, right-clicks, cancellation and pinch releases never commit a facili
   assert.equal(app.canvas.dataset.placementCount,'1','a clean single tap still places');
 });
 
+test('one-finger dragging pans, two-finger dragging orbits and pinching zooms without accidental placement',()=>{
+  const app=boot(),rect=app.canvas.getBoundingClientRect();
+  const rotation=()=>{
+    const q=app.camera().quaternion;return new THREE.Quaternion(q.x,q.y,q.z,q.w);
+  };
+  const touch=(pointerId,clientX,clientY)=>({pointerId,clientX,clientY,button:0,pointerType:'touch'});
+  const x=rect.left+rect.width*.45,y=rect.top+rect.height*.45;
+  const initialFocus=app.canvas.dataset.focus,initialRotation=rotation(),initialZoom=app.canvas.dataset.zoom;
+  app.input('pointerdown',touch(1,x,y));
+  app.input('pointermove',touch(1,x+80,y+30));
+  app.input('pointerup',touch(1,x+80,y+30));
+  assert.notEqual(app.canvas.dataset.focus,initialFocus,'a primary one-finger drag moves the map target');
+  assert(rotation().angleTo(initialRotation)<1e-7,'panning preserves camera orientation');
+  assert.equal(app.canvas.dataset.zoom,initialZoom);
+  assert.equal(app.canvas.dataset.placementCount,'0');
+
+  const orbitFocus=app.canvas.dataset.focus,orbitStart=rotation();
+  app.input('pointerdown',touch(1,x-50,y));
+  app.input('pointerdown',touch(2,x+50,y));
+  app.input('pointermove',touch(1,x-30,y+12));
+  app.input('pointermove',touch(2,x+70,y+12));
+  assert(rotation().angleTo(orbitStart)>.02,'moving both fingers together changes the viewing angle');
+  assert.equal(app.canvas.dataset.focus,orbitFocus,'two-finger orbit keeps the map target fixed');
+  const pinchStartZoom=Number(app.canvas.dataset.zoom);
+  app.input('pointermove',touch(1,x-50,y+12));
+  app.input('pointermove',touch(2,x+90,y+12));
+  assert(Number(app.canvas.dataset.zoom)>pinchStartZoom+.2,'spreading the fingers zooms in');
+  assert.equal(app.canvas.dataset.focus,orbitFocus,'pinch zoom does not pan the target');
+  app.input('pointerup',touch(1,x-50,y+12));
+  app.input('pointerup',touch(2,x+90,y+12));
+  assert.equal(app.canvas.dataset.placementCount,'0','ending a two-finger gesture cannot place a facility');
+
+  for(const alternate of [{button:2},{button:0,shiftKey:true}]){
+    const focus=app.canvas.dataset.focus,before=rotation(),mouse={pointerId:1,pointerType:'mouse',...alternate};
+    app.input('pointerdown',{...mouse,clientX:x,clientY:y});
+    app.input('pointermove',{...mouse,clientX:x+20,clientY:y+8});
+    app.input('pointerup',{...mouse,clientX:x+20,clientY:y+8});
+    assert(rotation().angleTo(before)>.02,'right-drag and Shift-drag provide mouse orbit alternatives');
+    assert.equal(app.canvas.dataset.focus,focus);
+    assert.equal(app.canvas.dataset.placementCount,'0');
+  }
+
+  app.click('next-site');
+  const preview=app.scene().getObjectByName('Preview substation');
+  app.tap(preview.position.x,preview.position.z);
+  assert.equal(app.canvas.dataset.placementCount,'1','a later clean tap still places a facility');
+  assert.deepEqual(app.errors,[]);
+});
+
 test('water remains invalid and rapid follow-up taps cannot place B accidentally',()=>{
   const app=boot();app.hover(4,0);
   assert.equal(app.canvas.dataset.previewValid,'false');
@@ -725,7 +774,7 @@ function assertParcelFits(app,parcelId,panelId,side) {
 }
 const cameraSignature=app=>[...app.camera().matrixWorld.elements,...app.camera().projectionMatrix.elements];
 function panMap(app,free,dx=58,dy=22) {
-  const point={clientX:(free.left+free.right)/2,clientY:(free.top+free.bottom)/2,button:2};
+  const point={clientX:(free.left+free.right)/2,clientY:(free.top+free.bottom)/2,button:0};
   app.input('pointerdown',point);app.input('pointermove',{...point,clientX:point.clientX+dx,clientY:point.clientY+dy});
   app.input('pointerup',{...point,clientX:point.clientX+dx,clientY:point.clientY+dy});
 }

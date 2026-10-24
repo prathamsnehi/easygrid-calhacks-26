@@ -207,7 +207,7 @@ canvas.addEventListener('pointerdown', e => {
   if(!demoReady)return;
   if (![0, 1, 2].includes(e.button)) return;
   canvas.focus({preventScroll:true});
-  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,pan:e.shiftKey || e.button !== 0 });
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,rotate:e.shiftKey || e.button !== 0 });
   canvas.setPointerCapture(e.pointerId);
   if (pointers.size > 1) {
     for(const pointer of pointers.values())pointer.moved=true;
@@ -226,13 +226,14 @@ canvas.addEventListener('pointermove', e => {
   canvas.classList.add('dragging');planner.clearPreview();
   if (pointers.size === 2) {
     const [a,b]=[...pointers.values()], next=Math.hypot(a.x-b.x,a.y-b.y);
-    pan(dx / 2, dy / 2);
+    // Each pointer contributes half of the two-finger centroid movement.
+    yaw-=dx*.002;pitch=THREE.MathUtils.clamp(pitch+dy*.0015,.35,1.15);
     if (pinchDistance) zoom=THREE.MathUtils.clamp(zoom*next/pinchDistance,minZoom,maxZoom);
     pinchDistance=next;
-  } else if (old.pan || e.shiftKey) {
-    pan(dx,dy);
-  } else {
+  } else if (old.rotate || e.shiftKey) {
     yaw -= dx*0.004; pitch=Math.max(0.35,Math.min(1.15,pitch+dy*0.003));
+  } else {
+    pan(dx,dy);
   }
   fitCamera(); draw(performance.now());
 });
@@ -240,7 +241,7 @@ function release(e) { pointers.delete(e.pointerId); if (!pointers.size) canvas.c
 canvas.addEventListener('pointerup',e=>{
   if(!demoReady){release(e);return;}
   const pointer=pointers.get(e.pointerId);
-  const isTap=pointer&&!pointer.moved&&!pointer.pan&&!e.shiftKey&&e.button===0&&pointers.size===1&&Math.hypot(e.clientX-pointer.startX,e.clientY-pointer.startY)<=5;
+  const isTap=pointer&&!pointer.moved&&!pointer.rotate&&!e.shiftKey&&e.button===0&&pointers.size===1&&Math.hypot(e.clientX-pointer.startX,e.clientY-pointer.startY)<=5;
   release(e);
   if(isTap)planner.tap(e.clientX,e.clientY);
   else if(!pointers.size)planner.hover(e.clientX,e.clientY);

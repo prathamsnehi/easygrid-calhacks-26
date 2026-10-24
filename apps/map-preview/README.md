@@ -39,7 +39,7 @@ The host registers a handler through `window.easygridDemo.setHandoffHandler(hand
 
 ## Map controls and fixtures
 
-Drag to rotate; Shift-drag or right-drag to pan. Scroll/pinch to zoom up to 5× the overview; two-finger drag pans. Keyboard: arrows rotate, Shift+arrows pan, +/− zoom, 0/Home reset the view, 1/2 select A/B, Enter confirms a preview, Escape leaves placement mode. Double-click no longer resets the camera, so it cannot conflict with placement clicks. Pointer drags and pinch gestures do not place buildings.
+One-finger drag or ordinary primary-button mouse drag pans. Two-finger drag rotates and tilts; pinch distance still controls zoom during that gesture. Shift-drag or right-drag also rotates and tilts. Scroll or pinch to zoom up to 5× the overview. Keyboard: arrows rotate, Shift+arrows pan, +/− zoom, 0/Home reset the view, 1/2 select A/B, Enter confirms a preview, Escape leaves placement mode. Double-click no longer resets the camera, so it cannot conflict with placement clicks. Pointer drags and pinch gestures do not place buildings.
 
 The A/B plan is saved in this browser's local storage when available; participant registration is not. Reloaded coordinates are validated again against the current fixture; all parcel IDs, heights and connection points are rebuilt. The startup gate remains closed until new participant registration succeeds. Storage failure is reported without preventing placement after registration. Local file URL storage support depends on the browser.
 

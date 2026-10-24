@@ -21,7 +21,7 @@
     <div class="toolbar-actions"><button id="edit-participant" class="quiet-button" type="button">Participant</button><button id="inspect-parcels" class="quiet-button" type="button" aria-pressed="false">Parcels <span id="parcel-count">24</span></button><button id="reset-plan" class="quiet-button muted" type="button" disabled>Reset plan</button></div>
   </header>
   <main id="viewport">
-    <canvas id="map-canvas" tabindex="0" aria-label="Fictional 3D map. Click to place a facility, drag to rotate, Shift-drag or right-drag to pan, and scroll to zoom. Keyboard users can use Find open site and Place here."></canvas>
+    <canvas id="map-canvas" tabindex="0" aria-label="Fictional 3D map. Click to place a facility. Drag with one finger or the primary mouse button to pan. Drag with two fingers, Shift-drag or right-drag to rotate and tilt. Pinch or scroll to zoom. Keyboard users can use Find open site and Place here."></canvas>
     <div class="facility-labels"><button id="label-a" class="facility-label" type="button" hidden><b>A</b>Substation <span>Move</span></button><button id="label-b" class="facility-label" type="button" hidden><b>B</b>Data center <span>Move</span></button></div>
   </main>
   <aside id="context-card" class="context-card" aria-label="Site selection details">
@@ -127,7 +127,7 @@
       </aside>
     </div>
   </section>
-  <div class="map-tools"><button id="reset-view" class="quiet-button" type="button">↗ Fit map</button><span id="map-help">Drag to rotate · Shift-drag to pan · Scroll to zoom</span></div>
+  <div class="map-tools"><button id="reset-view" class="quiet-button" type="button">↗ Fit map</button><span id="map-help">Drag to pan · Two fingers / Shift-drag to rotate · Pinch / scroll to zoom</span></div>
   <p id="save-note" class="save-note" role="status" hidden></p>
   </div>
   <section id="demo-onboarding" class="demo-onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="user-phone-help">
