@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runFinanceReconciliation} from '../src/finance-agent.js';
+import {runFinanceReconciliation} from '../src/finance-agent.ts';
 const deps = {
   loadObligations: async () => [
     {obligationId:'rent-1',agreementId:'A',period:'2026-11',expectedCents:50000,contractHash:'h1'},
