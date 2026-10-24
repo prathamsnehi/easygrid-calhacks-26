@@ -38,9 +38,9 @@ test('complete package signatures and confirmed payments gate one route construc
   await assert.rejects(workflow.submit(drafts[0], actors.requester), /Every final-route/);
   await signAll(workflow, drafts);
   const first = await workflow.submit(drafts[0], actors.requester);
-  assert.equal(first.construction.status, 'awaiting-initial-payments');
+  assert.equal(first.construction.status, 'awaiting-payments');
   assert.equal(first.construction.paidCount, 1);
-  await assert.rejects(workflow.submit(drafts[0], actors.requester, {stage:'balance'}), /construction completion/);
+  await assert.rejects(workflow.submit(drafts[0], actors.requester, {stage:'balance'}), /Only the full/);
   const second = await workflow.submit(drafts[1], actors.requester);
   assert.equal(second.construction.status, 'in-progress');
   assert.equal(workflow.snapshot().audit.filter(row => row.action === 'construction-started').length, 1);
@@ -48,7 +48,7 @@ test('complete package signatures and confirmed payments gate one route construc
   assert.equal(workflow.snapshot().journal.length, 2);
 });
 
-test('host completion is version bound, role gated, immutable and never pays the balance itself', async () => {
+test('optional host completion is version bound, role gated and cannot trigger another payment', async () => {
   const {workflow, drafts} = fixture();
   await assert.rejects(workflow.completeConstruction(drafts[0], {}, actors.construction), /current construction run/);
   const funded = await fund(workflow, drafts);
@@ -59,7 +59,8 @@ test('host completion is version bound, role gated, immutable and never pays the
   const done = await workflow.completeConstruction(drafts[0], completion(funded), actors.construction);
   const replay = await workflow.completeConstruction(drafts[0], completion(funded), actors.construction);
   assert.equal(done.construction.status, 'completed');
-  assert.equal(done.balancePayment, null);
+  assert.equal(done.balancePayment, undefined);
+  assert.equal(done.payment.amountCents, 1200001);
   assert.equal(replay.construction.completedAt, done.construction.completedAt);
   assert.equal(workflow.snapshot().audit.filter(row => row.action === 'construction-completed').length, 1);
   assert.equal(workflow.snapshot().journal.length, 2);
@@ -73,45 +74,41 @@ test('an unsigned replacement of another parcel invalidates complete-package pay
   await assert.rejects(workflow.submit(drafts[0], actors.requester), /Every final-route/);
 });
 
-test('explicit balance payment uses the exact remainder once across concurrency and restart', async () => {
+test('full compensation pays exact cents once without construction completion, including concurrency and restart', async () => {
   const {workflow, drafts, source, bank} = fixture();
-  const funded = await fund(workflow, drafts);
-  await workflow.completeConstruction(drafts[0], completion(funded), actors.construction);
-  const [paid] = await Promise.all([workflow.submit(drafts[0], actors.requester, {stage:'balance'}), workflow.submit(drafts[0], actors.requester, {stage:'balance'})]);
-  assert.equal(paid.payment.amountCents, 240000);
-  assert.equal(paid.balancePayment.amountCents, 960001);
-  assert.equal(paid.payment.amountCents + paid.balancePayment.amountCents, source.parcels[0].compensationCents);
-  assert.equal(workflow.snapshot().journal.length, 3);
-  const restored = createContractWorkflow({source, bank, initialState:workflow.snapshot()});
-  const replay = await restored.submit(drafts[0], actors.requester, {stage:'balance'});
-  assert.equal(replay.balancePayment.status, 'paid');
-  assert.equal(restored.snapshot().journal.length, 3);
-  await restored.submit(drafts[1], actors.requester, {stage:'balance'});
-  assert.equal(restored.snapshot().journal.length, 4);
+  await signAll(workflow,drafts);
+  const [paid] = await Promise.all([workflow.submit(drafts[0],actors.requester,{stage:'full'}),workflow.submit(drafts[0],actors.requester)]);
+  assert.equal(paid.payment.amountCents,1200001);
+  assert.equal(paid.payment.amountCents,source.parcels[0].compensationCents);
+  assert.equal(paid.construction.status,'awaiting-payments');
+  assert.equal(workflow.snapshot().journal.length,1);
+  const restored = createContractWorkflow({source,bank,initialState:workflow.snapshot()});
+  const replay = await restored.submit(drafts[0],actors.requester);
+  assert.equal(replay.payment.status,'paid');assert.equal(restored.snapshot().journal.length,1);
+  const second = await restored.submit(drafts[1],actors.requester);
+  assert.equal(second.payment.amountCents,source.parcels[1].compensationCents);
+  assert.equal(second.construction.status,'in-progress');
+  assert.equal(restored.snapshot().journal.length,2);
+  assert.equal(restored.snapshot().journal.reduce((sum,row)=>sum+row.debitCents,0),source.parcels.reduce((sum,p)=>sum+p.compensationCents,0));
 });
 
-test('held and uncertain initial payments cannot start construction; uncertain balance requires reconciliation', async () => {
-  const baseBank = createDemoBank(); let loseBalanceResponse = true, transfers = 0;
-  const bank = {...baseBank, transfer: async input => {
+test('held and uncertain full payments cannot start construction; reconciliation never resubmits', async () => {
+  const baseBank = createDemoBank(); let loseResponse = true, transfers = 0;
+  const bank = {...baseBank,transfer:async input => {
     transfers++; const evidence = await baseBank.transfer(input);
-    if (input.obligationId.startsWith('balance-') && loseBalanceResponse) { loseBalanceResponse = false; throw new Error('Lost bank response'); }
+    if (loseResponse) {loseResponse = false;throw new Error('Lost bank response');}
     return evidence;
   }};
-  const {workflow, drafts} = fixture({bank});
-  await signAll(workflow, drafts);
-  const held = await workflow.submit(drafts[0], actors.requester, {scenario:'insufficient-funds'});
-  assert.equal(held.payment.status, 'held');
-  assert.equal(held.construction.status, 'awaiting-initial-payments');
-  await workflow.submit(drafts[0], actors.requester);
-  const funded = await workflow.submit(drafts[1], actors.requester);
-  await workflow.completeConstruction(drafts[0], completion(funded), actors.construction);
-  const unknown = await workflow.submit(drafts[0], actors.requester, {stage:'balance'});
-  assert.equal(unknown.balancePayment.status, 'unknown');
-  await workflow.submit(drafts[0], actors.requester, {stage:'balance'});
-  assert.equal(transfers, 3);
-  const resolved = await workflow.reconcile(drafts[0], actors.requester, {stage:'balance'});
-  assert.equal(resolved.balancePayment.status, 'paid');
-  assert.equal(transfers, 3);
+  const {workflow,drafts} = fixture({bank});await signAll(workflow,drafts);
+  const held = await workflow.submit(drafts[0],actors.requester,{scenario:'insufficient-funds'});
+  assert.equal(held.payment.status,'held');assert.equal(held.construction.status,'awaiting-payments');
+  const unknown = await workflow.submit(drafts[0],actors.requester);
+  assert.equal(unknown.payment.status,'unknown');assert.equal(unknown.construction.paidCount,0);
+  await workflow.submit(drafts[0],actors.requester);assert.equal(transfers,1);
+  const resolved = await workflow.reconcile(drafts[0],actors.requester);
+  assert.equal(resolved.payment.status,'paid');assert.equal(resolved.payment.amountCents,1200001);assert.equal(transfers,1);
+  const funded = await workflow.submit(drafts[1],actors.requester);
+  assert.equal(funded.construction.status,'in-progress');assert.equal(transfers,2);
 });
 
 test('pending evidence, changed approved recipient and regenerated contracts cannot bypass payment gates', async () => {
@@ -125,17 +122,15 @@ test('pending evidence, changed approved recipient and regenerated contracts can
   assert.equal(submitted.construction.paidCount, 0);
   pending = false;
   await workflow.reconcile(drafts[0], actors.requester);
-  const funded = await workflow.submit(drafts[1], actors.requester);
-  await workflow.completeConstruction(drafts[0], completion(funded), actors.construction);
   recipient = 'changed-recipient';
-  assert.equal((await workflow.submit(drafts[0], actors.requester, {stage:'balance'})).balancePayment.status, 'held');
+  assert.equal((await workflow.submit(drafts[1], actors.requester)).payment.status, 'held');
   const changed = updateContractDraft(drafts[0], {specialConditions:'Different approved document'}, source);
   await assert.rejects(workflow.inspect(changed), /locks this parcel/);
-  await assert.rejects(workflow.submit(drafts[0], actors.requester, {stage:'monthly_fee'}), /Only initial/);
+  await assert.rejects(workflow.submit(drafts[0], actors.requester, {stage:'monthly_fee'}), /Only the full/);
   assert.doesNotMatch(renderContractDocument(drafts[0], source), /Monthly usage fee|monthly anniversaries/);
 });
 
-test('HTTP adapter persists completion and exact balance through a service restart', async () => {
+test('HTTP adapter persists the full payment once through a service restart', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'easygrid-cal38-'));
   const stateURL = pathToFileURL(join(directory, 'ledger.json'));
   let server;
@@ -162,12 +157,14 @@ test('HTTP adapter persists completion and exact balance through a service resta
     await command('submit', drafts[0]);
     const funded = await command('submit', drafts[1]);
     await command('construction-complete', drafts[0], {completion:completion(funded)});
-    await command('submit', drafts[0], {stage:'balance'});
+    await command('submit', drafts[0], {stage:'full'});
     await stop(); await start();
-    const restored = await command('submit', drafts[0], {stage:'balance'});
+    const restored = await command('submit', drafts[0], {stage:'full'});
     assert.equal(restored.construction.status, 'completed');
-    assert.equal(restored.balancePayment.status, 'paid');
-    assert.equal(restored.journal.length, 2);
+    assert.equal(restored.payment.status, 'paid');
+    assert.equal(restored.payment.amountCents, source.parcels[0].compensationCents);
+    assert.equal(restored.balancePayment, undefined);
+    assert.equal(restored.journal.length, 1);
   } finally {
     if (server?.listening) await stop();
     assert(directory.startsWith(join(tmpdir(), 'easygrid-cal38-')));

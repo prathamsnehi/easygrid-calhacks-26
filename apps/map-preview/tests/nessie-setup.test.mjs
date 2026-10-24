@@ -40,6 +40,9 @@ test('setup owner coverage includes all map owners and independent standalone ex
   assert.equal(owners.length,26);assert(owners.includes('O001'));assert(owners.includes('O024'));
   assert(owners.includes('OWNER-DEMO-004'));assert(owners.includes('OWNER-DEMO-009'));
   assert.equal(nessieDemoTarget('CAL-POWER').account.balance,10000000);
+  assert.equal(nessieDemoTarget('CAL-POWER').customer.first_name,'EasyGrid');
+  assert.equal(nessieDemoTarget('CAL-POWER').customer.last_name,'Payer Sandbox');
+  assert.equal(nessieDemoTarget('CAL-POWER').account.nickname,'EasyGrid Payer Sandbox');
   assert.equal(nessieDemoTarget('O001').account.balance,0);
 });
 
@@ -71,6 +74,22 @@ test('create checkpoints each account, funds payer once, enables provider only a
   assert.equal(saved.config.NESSIE_ALLOW_SANDBOX_TRANSFERS,'no');
   const checks = await run().run();assert.equal(checks.ready,true);
   for (const row of [...api.customers,...api.accounts]) assert(!JSON.stringify(result).includes(row._id));
+});
+
+test('legacy payer display names reuse the same saved accounts without new provider writes', async () => {
+  const api = provider(), saved = checkpoint();
+  const run = () => createNessieSetup({config:saved.config,persist:saved.persist,fetcher:api.fetcher,ownerIds:['O001']});
+  await run().run({createAccounts:true});
+  const payerId = saved.config.NESSIE_PAYER_ACCOUNT_ID;
+  api.customers[0].last_name = 'Cal Power Sandbox';
+  api.accounts[0].nickname = 'EasyGrid Cal Power Sandbox';
+  const posts = api.calls.filter(call => call.method === 'POST').length;
+  assert.equal((await run().run()).ready,true);
+  assert.equal((await run().run({createAccounts:true})).ready,true);
+  assert.equal(saved.config.NESSIE_PAYER_ACCOUNT_ID,payerId);
+  assert.equal(api.calls.filter(call => call.method === 'POST').length,posts);
+  api.customers.push({...nessieDemoTarget('CAL-POWER').customer,_id:'second-payer'});
+  await assert.rejects(run().run(),/More than one fictional customer/);
 });
 
 test('ambiguous same-name customers fail without creating duplicates', async () => {

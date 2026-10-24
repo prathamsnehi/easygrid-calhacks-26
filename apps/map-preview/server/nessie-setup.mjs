@@ -21,7 +21,7 @@ export function nessieDemoOwners() {
 
 export function nessieDemoTarget(id) {
   requireSetup(id === PAYER || validId(id), 'Invalid fictional owner identifier.');
-  const label = id === PAYER ? 'Cal Power' : id;
+  const label = id === PAYER ? 'Payer' : id;
   return {id, customer:{first_name:'EasyGrid',last_name:`${label} Sandbox`,address:{...ADDRESS}},
     account:{type:'Checking',nickname:`EasyGrid ${label} Sandbox`,rewards:0,balance:id === PAYER ? 10000000 : 0}};
 }
@@ -70,7 +70,9 @@ export function createNessieSetup({config, fetcher = fetch, persist = async () =
     requireSetup(Array.isArray(rows), 'Nessie customer list was not an array.');return rows;
   }
   function findCustomer(rows, target) {
-    const matches = rows.filter(row => row?.first_name === target.customer.first_name && row?.last_name === target.customer.last_name);
+    // Recognize existing fictional payer records without renaming or replacing them.
+    const names = target.id === PAYER ? [target.customer.last_name, 'Cal Power Sandbox'] : [target.customer.last_name];
+    const matches = rows.filter(row => row?.first_name === target.customer.first_name && names.includes(row?.last_name));
     requireSetup(matches.length <= 1, 'More than one fictional customer matches a setup name. Resolve the ambiguity before continuing.');
     const row = matches[0];
     if (row) requireSetup(validId(row._id) && Object.entries(ADDRESS).every(([key,value]) => String(row.address?.[key]) === value),
@@ -81,7 +83,8 @@ export function createNessieSetup({config, fetcher = fetch, persist = async () =
   async function findAccount(customerId, target) {
     const rows = await request(`/customers/${encodeURIComponent(customerId)}/accounts`);
     requireSetup(Array.isArray(rows), 'Nessie account list was not an array.');
-    const matches = rows.filter(row => row?.nickname === target.account.nickname);
+    const names = target.id === PAYER ? [target.account.nickname, 'EasyGrid Cal Power Sandbox'] : [target.account.nickname];
+    const matches = rows.filter(row => names.includes(row?.nickname));
     requireSetup(matches.length <= 1, 'More than one account matches a fictional nickname. Resolve the ambiguity before continuing.');
     const row = matches[0];
     if (row) requireSetup(validId(row._id) && row.customer_id === customerId && row.type === 'Checking' && Number.isFinite(Number(row.balance)) && Number(row.balance) >= 0,

@@ -41,9 +41,9 @@ test('approval gate, authoring, both click signatures, submission and restored p
     ui.app.open(createContractExample('pending'),{demo:true}); assert.equal(ui.nodes.get('cg-proceed').disabled,true);
     ui.app.setSource(createContractExample()); assert.equal(ui.nodes.get('cg-proceed').disabled,false);
     await ui.click('cg-proceed'); await ui.flush();
-    assert.equal(ui.nodes.get('cg-editor').hidden,false); assert(ui.nodes.get('cg-preview').innerHTML.includes('$2,400.00'));
+    assert.equal(ui.nodes.get('cg-editor').hidden,false); assert(ui.nodes.get('cg-preview').innerHTML.includes('$12,000.00'));
     assert.equal(ui.nodes.get('cg-payment-panel').hidden,true);
-    assert.equal(ui.nodes.get('cg-completion-panel').hidden,true);
+    assert.equal(ui.nodes.has('cg-completion-panel'),false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-sign-utility'); assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-sign-landowner'); assert.equal(ui.nodes.get('cg-submit').disabled,true);
@@ -53,23 +53,22 @@ test('approval gate, authoring, both click signatures, submission and restored p
     ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
     assert.equal(ui.nodes.get('cg-submit').disabled,false);
     await ui.click('cg-submit'); assert(ui.nodes.get('cg-execution-status').textContent.includes('payment complete'));
-    assert.equal(ui.nodes.get('cg-completion-panel').hidden,false);
+    assert.equal(ui.nodes.has('cg-completion-panel'),false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true); assert.equal(ui.nodes.get('cg-notes').disabled,true);
-    assert(ui.nodes.get('cg-journal-summary').textContent.includes('$2,400.00'));
+    assert(ui.nodes.get('cg-journal-summary').textContent.includes('$12,000.00'));
     assert.equal(ui.flow.snapshot().journal.length,1);
     let run = null, complete = null, notices = 0;
     ui.app.setConstructionHandler(({construction,onComplete}) => {run=construction;complete=onComplete;notices++;});
-    assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
+    assert.equal(ui.nodes.has('cg-pay-balance'),false);
     ui.nodes.get('cg-parcel').value='P-009'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
     await ui.click('cg-submit');
     assert.equal(notices,1); assert.equal(run.status,'in-progress');
-    assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
+    assert.equal(ui.nodes.has('cg-pay-balance'),false);
     await complete();
-    assert.equal(ui.nodes.get('cg-pay-balance').disabled,false);
+    assert.equal(ui.flow.snapshot().construction.status,'completed');
     assert.equal(ui.flow.snapshot().journal.length,2);
-    await ui.click('cg-pay-balance');
-    assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
-    assert.equal(ui.flow.snapshot().journal.length,3);
+    assert.equal(ui.flow.snapshot().journal.reduce((sum,row) => sum + row.debitCents,0),2000000);
+    assert.equal(ui.flow.snapshot().journal.length,2);
     assert.equal(notices,1);
   } finally {ui.restore();}
 });
@@ -81,7 +80,7 @@ async function signEveryAgreement(ui) {
   ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
 }
 
-test('Nessie deposit requires an explicit click, locks repeated sends and shows pending evidence until reconciliation', async () => {
+test('Nessie full payment requires an explicit click, locks repeated sends and shows pending evidence until reconciliation', async () => {
   let transferCount = 0, releaseTransfer, bankEvidence = null;
   const bank = {...createDemoBank(), mode:'nessie-sandbox',
     inspect:async input => ({recipientMatches:true,balanceCents:10000000,existingEvidence:bankEvidence?.obligationId === input.obligationId ? bankEvidence : null}),
@@ -97,43 +96,43 @@ test('Nessie deposit requires an explicit click, locks repeated sends and shows 
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
     await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Waiting for all signatures');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Waiting for all signatures');
     assert.equal(transferCount,0);
     await signEveryAgreement(ui);
-    assert.equal(ui.nodes.get('cg-deposit-provider').textContent,'Nessie sandbox');
-    assert.equal(ui.nodes.get('cg-submit').textContent,'Pay deposit · $2,400.00');
-    assert.equal(ui.nodes.get('cg-deposit-basis').textContent,'20% of $12,000.00 approved compensation');
-    assert.equal(ui.nodes.get('cg-deposit-recipient').textContent,'To Willow Creek Orchard');
-    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Ready to send');
+    assert.equal(ui.nodes.get('cg-payout-provider').textContent,'Nessie sandbox');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Pay full amount · $12,000.00');
+    assert.equal(ui.nodes.get('cg-payout-basis').textContent,'100% of $12,000.00 approved compensation');
+    assert.equal(ui.nodes.get('cg-payout-recipient').textContent,'To Willow Creek Orchard');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Ready to send');
     assert.equal(ui.nodes.get('cg-scenario-wrap').hidden,true);
-    assert.equal(ui.nodes.get('cg-preview-completion').hidden,true);
+    assert.equal(ui.nodes.has('cg-preview-completion'),false);
     assert.equal(transferCount,0,'collecting signatures alone cannot send money');
     const sending = ui.click('cg-submit'); await ui.flush();
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    assert.equal(ui.nodes.get('cg-submit').textContent,'Sending deposit…');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Sending payment…');
     await ui.nodes.get('cg-submit').emit('click');
     assert.equal(transferCount,1,'even a direct duplicate event cannot send while busy');
     releaseTransfer(); await sending;
-    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Pending confirmation');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Pending confirmation');
     assert.equal(ui.nodes.get('cg-transfer-reference').hidden,false);
     assert.equal(ui.nodes.get('cg-transfer-reference-value').textContent,'nessie-transfer-fixture-001');
     assert.equal(ui.nodes.get('cg-reconcile').hidden,false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    assert.equal(ui.nodes.get('cg-completion-panel').hidden,true);
+    assert.equal(ui.nodes.has('cg-completion-panel'),false);
     assert.equal(ui.flow.snapshot().journal.length,0,'pending bank acknowledgement is not payment');
     bankEvidence.status='completed'; await ui.click('cg-reconcile');
-    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Paid');
-    assert.equal(ui.nodes.get('cg-submit').textContent,'Deposit paid · $2,400.00');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Paid');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Paid in full · $12,000.00');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.nodes.get('cg-reconcile').hidden,true);
-    assert.equal(ui.nodes.get('cg-completion-panel').hidden,false);
-    assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
+    assert.equal(ui.nodes.has('cg-completion-panel'),false);
+    assert.equal(ui.nodes.has('cg-pay-balance'),false);
     assert.equal(ui.flow.snapshot().journal.length,1);
     assert.equal(transferCount,1,'reconciliation never submits another transfer');
   } finally {ui.restore();}
 });
 
-test('disabled Nessie writes keep a signed deposit locked and explain the missing setup', async () => {
+test('disabled Nessie writes keep a signed full payment locked and explain the missing setup', async () => {
   let transferCount=0;
   const bank={...createDemoBank(),mode:'nessie-sandbox',canTransfer:false,transfer:async () => {transferCount++;throw new Error('Writes are disabled.');}};
   const ui=boot({workflow:createContractWorkflow({source:createContractExample(),bank}),paymentsEnabled:false});
@@ -141,8 +140,8 @@ test('disabled Nessie writes keep a signed deposit locked and explain the missin
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
     await signEveryAgreement(ui);
     assert.equal(ui.nodes.get('cg-payment-panel').hidden,false);
-    assert.equal(ui.nodes.get('cg-deposit-status').textContent,'Setup required');
-    assert.match(ui.nodes.get('cg-deposit-help').textContent,/not enabled/);
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Setup required');
+    assert.match(ui.nodes.get('cg-payout-help').textContent,/not enabled/);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-submit');
     assert.equal(transferCount,0);
@@ -163,7 +162,7 @@ test('editing invalidates signatures, parcel switches preserve edits, and source
   } finally {ui.restore();}
 });
 
-test('handler resolution never unlocks the balance and invalidation aborts late construction callbacks', async () => {
+test('optional construction never triggers another payment and invalidation aborts late callbacks', async () => {
   const ui = boot();
   try {
     let signal, complete, notices = 0;
@@ -175,11 +174,11 @@ test('handler resolution never unlocks the balance and invalidation aborts late 
     await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner'); await ui.click('cg-submit');
     ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
     await ui.click('cg-submit'); await ui.flush();
-    assert.equal(notices,1); assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
+    assert.equal(notices,1); assert.equal(ui.nodes.has('cg-pay-balance'),false);
     ui.app.setConstructionHandler(handler); assert.equal(notices,1);
     ui.app.invalidate(); assert.equal(signal.aborted,true);
     await assert.rejects(complete(),/context changed/);
-    assert.equal(ui.nodes.get('cg-pay-balance').disabled,true);
+    assert.equal(ui.nodes.has('cg-pay-balance'),false);
     assert.equal(ui.flow.snapshot().construction.status,'in-progress');
   } finally {ui.restore();}
 });

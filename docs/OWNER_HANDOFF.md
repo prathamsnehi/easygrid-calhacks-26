@@ -1,5 +1,13 @@
 # Owner data for voice and simulated settlement — CAL-27
 
+The shared package described here retains its legacy deposit/tranche/rent shapes
+for adapter compatibility. EasyGrid's current contract demo instead uses one
+100% compensation payment per owner after every final-route agreement has both
+signatures; see [Contract authoring](CONTRACT_AUTHORING.md). The settlement-plan
+examples below are legacy schema examples, not instructions for the current
+full-payment API. Owner, parcel, consent and negotiation packet validation still
+applies at that adapter boundary.
+
 The existing map already bundled owners, parcels, contact references and proposed compensation. CAL-27 adds the missing owner-linked mock banking profiles and one executable shared validation contract, rather than creating another set of unrelated owners.
 
 Every one of the map's 24 fictional owners now has a distinct mock recipient. `createHandoff(...).ownerHandoff` joins the original owner, affected parcel geometry/impact, contact reference, current terms and banking profile. The user role only changes the contact overlay: it never changes the fictional owner's payment identity.
@@ -63,7 +71,7 @@ This projection never dials. The calling adapter must check current server state
 
 Record structured negotiation outcomes against current IDs/versions. Only explicit accepted terms for every final-route parcel can pass `assertAgreementReady(packet, currentState)`. A completed call or counteroffer is not acceptance. Missing confirmation, refused access, approximate accepted rent, caps, budget and simulation-check failures block readiness.
 
-For standalone development:
+For legacy shared-package adapter development only:
 
 ```ts
 import {
@@ -82,7 +90,7 @@ const plan = createSettlementPlan(packet, context);
 
 Fixture context factories manufacture trusted-looking state only for tests. A real host must load authoritative current state, signed contracts, approval bindings and settled obligations from its service, not derive them from a submitted packet or accept client booleans as approval. Recheck and persist each state transition atomically. Pure helpers do not supply authentication, durable duplicate protection or provider behavior.
 
-## Sample pack navigation
+## Legacy sample pack navigation
 
 | JSON section | Scenario |
 | --- | --- |
@@ -100,9 +108,9 @@ Fixture context factories manufacture trusted-looking state only for tests. A re
 | `negativeCases` | Inputs plus the expected schema/policy rejection code |
 | `adapterScenarios` | Explicitly unimplemented lifecycle expectations for the host |
 
-## Worked settlement amounts
+## Legacy worked settlement amounts
 
-The accepted compensation is $12,000 for O001 and $8,000 for O002. Monthly fees are $300 and $200. The fixture additionally sets an invented $100,000 construction cost and $150,000 comparison budget; neither is a real project estimate.
+This retained shared-package example uses the superseded staged schedule. The active contract UI pays each owner's compensation once in full. In this legacy fixture, accepted compensation is $12,000 for O001 and $8,000 for O002, and monthly fees are $300 and $200. The fixture additionally sets an invented $100,000 construction cost and $150,000 comparison budget; neither is a real project estimate.
 
 | Stage | O001 | O002 | Total |
 | --- | ---: | ---: | ---: |

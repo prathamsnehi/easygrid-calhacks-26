@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {createContractExample} from '../src/contract-fixtures.js';
 import {createContractDraft, updateContractDraft} from '../src/contract-authoring.js';
 import {createContractWorkflow, createDemoBank, DEMO_ACTORS} from '../server/contract-workflow.mjs';
@@ -18,15 +19,19 @@ async function signBoth(app, draft = app.draft) {
   return app.flow.sign(draft,'landowner',DEMO_ACTORS.landowner);
 }
 
-test('both version-bound click signatures are required before a 20 percent payment', async () => {
+test('both version-bound click signatures are required before one full payment', async () => {
   const app = setup();
   await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester), /Both current/);
   await app.flow.sign(app.draft,'utility',DEMO_ACTORS.utility);
   await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester), /Both current/);
   await app.flow.sign(app.draft,'landowner',DEMO_ACTORS.landowner);
   const result = await app.flow.submit(app.draft,DEMO_ACTORS.requester);
-  assert.equal(result.payment.status,'paid'); assert.equal(result.payment.amountCents,240000);
+  assert.equal(result.payment.status,'paid'); assert.equal(result.payment.amountCents,1200000);
   assert.equal(result.bankMode,'simulation'); assert.equal(result.journal.length,1);
+  assert.equal(result.signatures.utility.approvedPaymentCents,1200000);
+  assert.equal(result.journal[0].stage,'full');
+  assert.equal(result.journal[0].debitAccount,'demo-land-use-compensation');
+  assert.equal(result.balancePayment,undefined);
   assert.equal(result.journal[0].debitCents,result.journal[0].creditCents);
   assert(result.audit.some(row => row.action === 'payment-reconciled'));
 });
@@ -96,7 +101,7 @@ test('a planted bank amount mismatch is escalated and never creates a replacemen
   const app = setup(); await signBoth(app);
   const result = await app.flow.submit(app.draft,DEMO_ACTORS.requester,{scenario:'bank-mismatch'});
   assert.equal(result.payment.status,'review-required'); assert.equal(result.journal.length,0);
-  assert(result.audit.some(row => row.observedCents === 239900));
+  assert(result.audit.some(row => row.observedCents === 1199900));
   assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'review-required');
 });
 
@@ -169,4 +174,51 @@ test('the durable pre-transfer save must succeed and read-only sandbox mode cann
   await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester),/disk unavailable/); assert.equal(calls,0);
   const readOnly = setup({bank:{...createDemoBank(),canTransfer:false}}); await signBoth(readOnly);
   assert.equal((await readOnly.flow.submit(readOnly.draft,DEMO_ACTORS.requester)).payment.status,'held');
+});
+
+
+test('legacy stages are rejected by every payment command without contacting the bank', async () => {
+  const app = setup(); await signBoth(app);
+  for (const stage of ['initial','balance','monthly_fee']) {
+    await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester,{stage}), /Only the full/);
+    await assert.rejects(app.flow.reconcile(app.draft,DEMO_ACTORS.requester,{stage}), /Only the full/);
+    await assert.rejects(app.flow.reject(app.draft,DEMO_ACTORS.utility,{stage}), /Only the full/);
+  }
+  assert.equal(app.transfers,0);
+  assert.deepEqual(app.flow.snapshot().obligations,{});
+});
+
+test('legacy staged attempts and journal evidence cannot be bypassed by a new full obligation', async () => {
+  for (const stage of ['initial','balance']) {
+    for (const status of ['checking','processing','unknown','submitted','paid','review-required']) {
+      const base = setup(), state = base.flow.snapshot();
+      const id = `${stage}-${createHash('sha256').update(JSON.stringify([base.source.sessionId,base.draft.parcelId])).digest('hex').slice(0,32)}`;
+      state.obligations[id] = {id,stage,parcelId:base.draft.parcelId,status,amountCents:240000,documentHash:'legacy-hash'};
+      const restored = setup({initialState:state});
+      await assert.rejects(signBoth(restored), /legacy staged-payment attempt/);
+      await assert.rejects(restored.flow.submit(restored.draft,DEMO_ACTORS.requester), /legacy staged-payment attempt/);
+      assert.equal(restored.transfers,0);
+      assert.deepEqual(restored.flow.snapshot(),state,'legacy payment evidence must remain intact');
+    }
+  }
+  for (const evidence of ['transaction','journal','orphaned-journal']) {
+    const base = setup(), state = base.flow.snapshot();
+    const id = `initial-${createHash('sha256').update(JSON.stringify([base.source.sessionId,base.draft.parcelId])).digest('hex').slice(0,32)}`;
+    if (evidence !== 'orphaned-journal') state.obligations[id] = {id,stage:'initial',parcelId:base.draft.parcelId,status:'held',...(evidence === 'transaction' ? {transactionRef:'legacy-transfer'} : {})};
+    if (evidence !== 'transaction') state.journal.push({obligationId:id,debitCents:240000,creditCents:240000});
+    const restored = setup({initialState:state});
+    await assert.rejects(signBoth(restored), /legacy staged-payment attempt/);
+    assert.deepEqual(restored.flow.snapshot(),state);
+  }
+});
+
+test('legacy unattempted holds remain preserved while freshly signed full terms can pay once', async () => {
+  const base = setup(), state = base.flow.snapshot();
+  const id = `initial-${createHash('sha256').update(JSON.stringify([base.source.sessionId,base.draft.parcelId])).digest('hex').slice(0,32)}`;
+  const previous = {id,stage:'initial',parcelId:base.draft.parcelId,status:'held',amountCents:240000,reason:'Insufficient funds'};
+  state.obligations[id] = previous;
+  const restored = setup({initialState:state});await signBoth(restored);
+  const paid = await restored.flow.submit(restored.draft,DEMO_ACTORS.requester);
+  assert.equal(paid.payment.status,'paid');assert.equal(paid.payment.amountCents,1200000);
+  assert.equal(restored.transfers,1);assert.deepEqual(restored.flow.snapshot().obligations[id],previous);
 });

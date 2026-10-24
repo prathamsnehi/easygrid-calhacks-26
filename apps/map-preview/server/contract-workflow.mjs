@@ -14,6 +14,12 @@ export function contractContentHash(draft, source) {
 }
 export function createWorkflowState() { return {schemaVersion: 1, documents: {}, obligations: {}, audit: [], journal: []}; }
 
+// A held/rejected record is safe only when it contains no evidence of a bank side effect.
+export function paymentMayHaveBeenAttempted(payment, journal = []) {
+  return !['held', 'rejected'].includes(payment.status) || Boolean(payment.transactionRef) ||
+    journal.some(row => row.obligationId === payment.id);
+}
+
 /** Event-driven AP worker. Rules, actor capabilities and evidence control execution, not browser state. */
 export function createContractWorkflow({source, bank, initialState = createWorkflowState(), persist = async () => {}, now = () => new Date().toISOString()}) {
   const approvedSource = normalizeContractSource(source), state = copy(initialState);
@@ -25,13 +31,27 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     const result = queue.then(action); queue = result.catch(() => {}); return result;
   };
   const save = () => persist(copy(state));
-  const obligationId = (draft, stage = 'initial') => `${stage}-${digest([approvedSource.sessionId, draft.parcelId]).slice(0, 32)}`;
+  const obligationId = (draft, stage = 'full') => `${stage}-${digest([approvedSource.sessionId, draft.parcelId]).slice(0, 32)}`;
   const record = (actor, action, reason, draft, evidence = {}) => state.audit.push({sequence: state.audit.length + 1, at: now(), actorId: actor.id, role: actor.role, action, reason,
     draftId: draft.id, parcelId: draft.parcelId, negotiationId: approvedSource.negotiation.id, routeVersion: approvedSource.route.version, ...evidence});
   function authorize(actor, role) { if (!actor?.id || actor.role !== role) throw new Error('This role cannot perform that action.'); }
+  function assertNoLegacyPayment(draft) {
+    const legacyIds = ['initial', 'balance'].map(stage => obligationId(draft, stage));
+    const legacy = Object.entries(state.obligations).some(([id, payment]) =>
+      (legacyIds.includes(id) || legacyIds.includes(payment.id) ||
+        payment.parcelId === draft.parcelId && ['initial', 'balance'].includes(payment.stage)) &&
+      paymentMayHaveBeenAttempted({...payment, id: payment.id ?? id}, state.journal));
+    if (legacy || state.journal.some(row => legacyIds.includes(row.obligationId))) {
+      throw new Error('This parcel has a legacy staged-payment attempt. Preserve its ledger and reconcile it before switching to a full payment.');
+    }
+  }
+  function requireFullStage(stage) {
+    if (stage !== 'full') throw new Error('Only the full one-time payment stage is supported.');
+  }
   function register(draft) {
     const validation = validateContractDraft(draft, approvedSource);
     if (!validation.valid) throw new Error(validation.errors.join(' '));
+    assertNoLegacyPayment(draft);
     const hash = contractContentHash(draft, approvedSource), existing = state.documents[draft.id];
     const submitted = state.obligations[obligationId(draft)];
     if (submitted && submitted.status !== 'held' && submitted.documentHash !== hash) throw new Error('A submitted obligation locks this parcel to its approved document. Reconcile before changing terms.');
@@ -45,8 +65,8 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     return state.documents[draft.id];
   }
   function constructionState() {
-    const initial = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
-    return state.construction ? copy(state.construction) : {status: 'awaiting-initial-payments', paidCount: initial.filter(payment => payment?.status === 'paid').length, parcelCount: initial.length};
+    const payments = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
+    return state.construction ? copy(state.construction) : {status: 'awaiting-payments', paidCount: payments.filter(payment => payment?.status === 'paid').length, parcelCount: payments.length};
   }
   function packageReady() {
     return approvedSource.parcels.every(parcel => Object.values(state.documents).some(doc => doc.parcelId === parcel.parcelId && doc.sourceHash === sourceHash &&
@@ -55,14 +75,14 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
   }
   function startConstruction(draft, actor) {
     if (state.construction) return;
-    const initial = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
-    if (!initial.every(payment => payment?.status === 'paid')) return;
-    const packageHash = digest({source: contractSourceKey(approvedSource), documents: initial.map(payment => payment.documentHash)});
+    const payments = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
+    if (!payments.every(payment => payment?.status === 'paid')) return;
+    const packageHash = digest({source: contractSourceKey(approvedSource), documents: payments.map(payment => payment.documentHash)});
     state.construction = {constructionId: `construction-${packageHash.slice(0, 32)}`, packageHash,
       sessionId: approvedSource.sessionId, routeId: approvedSource.route.id, routeVersion: approvedSource.route.version,
       status: 'in-progress', startedAt: now(), completedAt: null, completionEventId: null,
-      paidCount: initial.length, parcelCount: initial.length};
-    record(actor, 'construction-started', 'All current initial payments are confirmed. Construction may begin.', draft, {constructionId: state.construction.constructionId});
+      paidCount: payments.length, parcelCount: payments.length};
+    record(actor, 'construction-started', 'All current full payments are confirmed. Construction may begin.', draft, {constructionId: state.construction.constructionId});
   }
   function paymentView(payment, hash) {
     return payment ? {obligationId: payment.id, amountCents: payment.amountCents, status: payment.status, reason: payment.reason,
@@ -71,12 +91,12 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
   function project(draft) {
     const doc = state.documents[draft.id], hash = contractContentHash(draft, approvedSource), payment = state.obligations[obligationId(draft)];
     return {documentHash: hash, draftId: draft.id, signatures: doc?.hash === hash ? copy(doc.signatures) : {},
-      payment: paymentView(payment, hash), balancePayment: paymentView(state.obligations[obligationId(draft, 'balance')], hash),
+      payment: paymentView(payment, hash),
       construction: constructionState(),
       packageReady: packageReady(),
       bankMode: bank.mode, agentMode: 'rule-based-event-worker',
       audit: copy(state.audit.filter(row => row.parcelId === draft.parcelId)),
-      journal: copy(state.journal.filter(row => [obligationId(draft), obligationId(draft, 'balance')].includes(row.obligationId)))};
+      journal: copy(state.journal.filter(row => row.obligationId === obligationId(draft)))};
   }
   function reconcileEvidence(payment, evidence, draft, actor) {
     const matches = evidence && evidence.amountCents === payment.amountCents && evidence.obligationId === payment.id && evidence.recipientMatches === true && typeof evidence.transactionRef === 'string' && evidence.transactionRef.length > 0;
@@ -95,7 +115,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     }
     payment.status = 'paid'; payment.reason = 'Approved contract, bank transaction and ledger amount match.';
     if (!state.journal.some(row => row.obligationId === payment.id)) {
-      state.journal.push({obligationId: payment.id, stage: payment.stage ?? 'initial', at: now(), debitAccount: payment.stage === 'balance' ? 'demo-land-use-balance' : 'demo-land-use-advance', creditAccount: 'demo-cash', debitCents: payment.amountCents, creditCents: payment.amountCents, documentHash: payment.documentHash});
+      state.journal.push({obligationId: payment.id, stage: 'full', at: now(), debitAccount: 'demo-land-use-compensation', creditAccount: 'demo-cash', debitCents: payment.amountCents, creditCents: payment.amountCents, documentHash: payment.documentHash});
     }
     record(actor, 'payment-reconciled', payment.reason, draft, {obligationId: payment.id, amountCents: payment.amountCents, journalBalanced: true});
     startConstruction(draft, actor);
@@ -114,29 +134,28 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       if (Object.values(doc.signatures).some(signature => signature.actorId === actor.id)) throw new Error('Utility and landowner signatures require distinct identities.');
       const document = contractDocument(draft, approvedSource);
       doc.signatures[side] = {side, actorId: actor.id, role: actor.role, signedAt: now(), documentHash: doc.hash, simulated: true,
-        approvedInitialCents: side === 'utility' ? document.initialCents : null,
-        approvedBalanceCents: side === 'utility' ? document.completionCents : null,
+        approvedPaymentCents: side === 'utility' ? document.paymentCents : null,
         approvedRecipientBinding: side === 'utility' ? bank.recipientBinding(document.ownerId) : null};
-      record(actor, `signature-${side}`, side === 'utility' ? 'Utility controller approved this exact document and its initial and completion obligations.' : 'Landowner confirmed this exact fictional contract.', draft, {documentHash: doc.hash});
+      record(actor, `signature-${side}`, side === 'utility' ? 'Utility controller approved this exact document and its one-time full compensation payment.' : 'Landowner confirmed this exact fictional contract.', draft, {documentHash: doc.hash});
       await save(); return project(draft);
     }),
-    submit: (draft, actor, {scenario = 'normal', stage = 'initial'} = {}) => serial(async () => {
+    submit: (draft, actor, {scenario = 'normal', stage = 'full'} = {}) => serial(async () => {
       authorize(actor, 'payment-requester');
-      if (!['initial','balance'].includes(stage)) throw new Error('Only initial and completion-balance payments are supported.');
+      requireFullStage(stage);
       const doc = register(draft), document = contractDocument(draft, approvedSource), id = obligationId(draft, stage);
       const utility = doc.signatures.utility, landowner = doc.signatures.landowner;
       if (!utility || !landowner || utility.documentHash !== doc.hash || landowner.documentHash !== doc.hash) throw new Error('Both current click signatures are required before submission.');
       if (!packageReady()) throw new Error('Every final-route contract requires current utility approval and landowner signatures before payment.');
       if (utility.actorId === actor.id || landowner.actorId === actor.id || utility.actorId === landowner.actorId) throw new Error('Payment request, utility approval and landowner consent must use distinct identities.');
-      const amountCents = stage === 'initial' ? document.initialCents : document.completionCents;
-      if ((stage === 'initial' ? utility.approvedInitialCents : utility.approvedBalanceCents) !== amountCents) throw new Error('The requested amount is not covered by utility approval.');
-      if (stage === 'balance' && (state.construction?.status !== 'completed' || state.obligations[obligationId(draft)]?.status !== 'paid')) throw new Error('Confirmed initial payments and construction completion are required before paying the balance.');
+      const amountCents = document.paymentCents;
+      if (document.paymentSchedule !== 'full-after-signatures' || !Number.isSafeInteger(amountCents) || amountCents !== document.totalCents) throw new Error('The payment must cover the exact full approved compensation.');
+      if (utility.approvedPaymentCents !== amountCents) throw new Error('The requested amount is not covered by utility approval.');
       let payment = state.obligations[id];
       if (payment && payment.documentHash !== doc.hash && payment.status !== 'held') throw new Error('This parcel already has a different contract payment. A new draft cannot create another obligation.');
       if (payment && !['held'].includes(payment.status)) return project(draft);
       payment = state.obligations[id] = {id, stage, documentHash: doc.hash, amountCents, parcelId: draft.parcelId,
         status: 'checking', requestedBy: actor.id, approvedBy: utility.actorId, reason: 'Validating approved contract against banking evidence.'};
-      record(actor, 'payment-requested', stage === 'initial' ? 'Explicit initial-payment request for the approved 20%.' : 'Explicit completion-payment request for the exact approved remainder.', draft, {obligationId: id, amountCents: payment.amountCents, documentHash: doc.hash});
+      record(actor, 'payment-requested', 'Explicit one-time payment request for 100% of the approved compensation.', draft, {obligationId: id, amountCents: payment.amountCents, documentHash: doc.hash});
       let currentRecipientBinding;
       try { currentRecipientBinding = bank.recipientBinding(document.ownerId); }
       catch {
@@ -178,16 +197,15 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       authorize(actor, 'construction-reporter'); register(draft);
       const construction = state.construction;
       if (!construction || !['constructionId','packageHash','sessionId','routeId','routeVersion'].every(key => completion?.[key] === construction[key])) throw new Error('Completion must match the current construction run and approved route package.');
-      if (!approvedSource.parcels.every(parcel => state.obligations[obligationId(parcel)]?.status === 'paid')) throw new Error('All initial payments must be confirmed before construction completion.');
+      if (!approvedSource.parcels.every(parcel => state.obligations[obligationId(parcel)]?.status === 'paid')) throw new Error('All full payments must be confirmed before construction completion.');
       if (typeof completion.eventId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(completion.eventId)) throw new Error('A stable construction completion event ID is required.');
       if (construction.status === 'completed') return project(draft);
       construction.status = 'completed'; construction.completedAt = now(); construction.completionEventId = completion.eventId;
-      record(actor, 'construction-completed', 'The construction host reported completion for the current run. The balance is now available for explicit payment.', draft, {constructionId: construction.constructionId, eventId: completion.eventId});
+      record(actor, 'construction-completed', 'The construction host reported completion for the current run. Compensation was already paid in full.', draft, {constructionId: construction.constructionId, eventId: completion.eventId});
       await save(); return project(draft);
     }),
-    reconcile: (draft, actor, {stage = 'initial'} = {}) => serial(async () => {
-      authorize(actor, 'payment-requester'); register(draft);
-      if (!['initial','balance'].includes(stage)) throw new Error('Unknown payment stage.');
+    reconcile: (draft, actor, {stage = 'full'} = {}) => serial(async () => {
+      authorize(actor, 'payment-requester'); requireFullStage(stage); register(draft);
       const payment = state.obligations[obligationId(draft, stage)];
       if (!payment || payment.documentHash !== contractContentHash(draft, approvedSource)) throw new Error('No current payment obligation can be reconciled.');
       if (['paid','rejected','held'].includes(payment.status)) return project(draft);
@@ -198,9 +216,8 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       } catch { payment.status = 'unknown'; payment.reason = 'Bank evidence is unavailable. No replacement transfer was sent.'; }
       await save(); return project(draft);
     }),
-    reject: (draft, actor, {stage = 'initial'} = {}) => serial(async () => {
-      authorize(actor, 'utility-approver'); register(draft);
-      if (!['initial','balance'].includes(stage)) throw new Error('Unknown payment stage.');
+    reject: (draft, actor, {stage = 'full'} = {}) => serial(async () => {
+      authorize(actor, 'utility-approver'); requireFullStage(stage); register(draft);
       const payment = state.obligations[obligationId(draft, stage)];
       if (!payment || payment.status !== 'held' || actor.id === payment.requestedBy) throw new Error('Only an independent controller may reject a held, unattempted payment.');
       payment.status = 'rejected'; payment.reason = 'The utility controller rejected this payment request.';

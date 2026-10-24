@@ -78,7 +78,7 @@ export function createSettlementController({getHandoff}){
     attempts.set(key,{requestKey,status:'unknown'});
     const controller=new AbortController(),ticket=++generation;active=controller;feedback.textContent='';render();
     try{
-      const result=await handler({handoff:copy(handoff),approval:receipt,stage:'contract_tranche',requestKey,signal:controller.signal});
+      const result=await handler({handoff:copy(handoff),approval:receipt,stage:'full',paymentSchedule:'full-after-signatures',requestKey,signal:controller.signal});
       // Completion from an old route, participant or revoked approval must never restore UI state.
       if(ticket!==generation||controller.signal.aborted)return;
       if(!matching(current())){invalidate();return;}

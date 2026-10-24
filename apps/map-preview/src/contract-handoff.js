@@ -26,8 +26,8 @@ export function contractSourceFromAgreement(agreement, handoff) {
   requireState(packet?.kind === 'easygrid-owner-handoff' && packet.sourceMode === 'fixture' && packet.routeStatus === 'ready_for_agreements' && packet.referenceBinding === 'local-fixture', 'A complete approved development agreement packet is required.');
   const proposal = handoff.ownerHandoff;
   requireState(['sessionId','projectId','routeId','routeVersion'].every(key => packet[key] === proposal[key]) && packet.parcels.length === proposal.parcels.length && new Set(packet.parcels.map(p => p.parcelId)).size === proposal.parcels.length, 'The agreement must cover exactly the current route parcels.');
-  const source = {sourceMode:'fixture', sessionId:packet.sessionId,
-    project:{name:'Valley transmission project',developerName:'Cal Power',signerName:'Ethan Cole'},
+  const source = {sourceMode:'fixture', sessionId:packet.sessionId, paymentSchedule:'full-after-signatures',
+    project:{name:'Valley transmission project',developerName:'EasyGrid',signerName:'Ethan Cole'},
     route:{id:packet.routeId,version:packet.routeVersion,name:`Selected corridor / ${packet.routeId}`},
     negotiation:{id:agreement.negotiationId,version:agreement.negotiationVersion,status:'approved',approvedAt:agreement.approvedAt},
     parcels:packet.parcels.map(parcel => {

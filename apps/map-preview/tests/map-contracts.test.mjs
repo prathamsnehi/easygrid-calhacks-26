@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {mkdtemp, readFile, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
@@ -10,7 +11,7 @@ import {computeTransmissionRoutes} from '../src/routing.js';
 import {analyzeRouteParcels} from '../src/parcel-analysis.js';
 import {createHandoff} from '../src/handoff.js';
 import {mapContractRequest, contractSourceFromAgreement, simulatedMapAgreement} from '../src/contract-handoff.js';
-import {createContractDraft, contractDocument} from '../src/contract-authoring.js';
+import {createContractDraft, contractDocument, contractSourceKey} from '../src/contract-authoring.js';
 import {createContractAPI} from '../server/contract-api.mjs';
 import {createMapContractService, reconstructMapProposal} from '../server/map-contracts.mjs';
 import {createDemoBank} from '../server/contract-workflow.mjs';
@@ -51,7 +52,8 @@ test('map contract inputs preserve the selected session, route, all original own
     const original = handoff.ownerHandoff.parcels.find(p => p.parcelId === parcel.parcelId);
     assert.equal(parcel.ownerId,original.ownerId);assert.equal(parcel.compensationCents,original.terms.compensationCents);
     const doc = contractDocument(createContractDraft(source,parcel.parcelId),source);
-    assert.equal(doc.initialCents + doc.completionCents,original.terms.compensationCents);
+    assert.equal(doc.paymentCents,original.terms.compensationCents);
+    assert.equal(doc.paymentSchedule,'full-after-signatures');
     assert.equal(doc.ownerName,world.ownerById.get(parcel.ownerId).alias);
   }
   const serialized = JSON.stringify({context,source});
@@ -82,7 +84,7 @@ test('the server reconstructs trusted geometry/prices and rejects altered propos
   assert.throws(() => reconstructMapProposal({...context,substation:{x:999,z:999}},world),/placements/);
 });
 
-test('approved map context drives actual contract API, both tranches and persistent state with the same owners/amounts', async () => withAPI(async (api,options,directory) => {
+test('approved map context drives actual contract API, one full payment and persistent state with the same owners/amounts', async () => withAPI(async (api,options,directory) => {
   const context = mapContractRequest(proposal(),placements);
   const approved = await call(api,'approve-map',{context});assert.equal(approved.status,200,approved.body.error);
   const {packageId,input:source} = approved.body;
@@ -101,19 +103,20 @@ test('approved map context drives actual contract API, both tranches and persist
   await command('construction-complete',drafts[0],{completion:{...funded.construction,eventId:'map-preview-completion'}});
   let paidTotal=0;
   for(const draft of drafts) {
-    const result=await command('submit',draft,{stage:'balance'});
-    assert.equal(result.balancePayment.status,'paid');assert.equal(result.journal.length,2);
-    paidTotal+=result.payment.amountCents+result.balancePayment.amountCents;
+    const result=await command('submit',draft,{stage:'full'});
+    assert.equal(result.payment.status,'paid');assert.equal(result.journal.length,1);
+    assert.equal(result.balancePayment,undefined);
+    paidTotal+=result.payment.amountCents;
   }
   assert.equal(paidTotal,source.parcels.reduce((sum,p)=>sum+p.compensationCents,0));
   const restarted=await createContractAPI(options);
-  const restored=await call(restarted,'submit',{draft:drafts[0],packageId,stage:'balance'});
-  assert.equal(restored.body.balancePayment.status,'paid');assert.equal(restored.body.journal.length,2);
+  const restored=await call(restarted,'submit',{draft:drafts[0],packageId,stage:'full'});
+  assert.equal(restored.body.payment.status,'paid');assert.equal(restored.body.journal.length,1);
   assert.equal((await call(api,'state',{draft:drafts[0]})).status,409);
   assert.equal((await call(api,'approve-map',{context:mapContractRequest(proposal(2),placements)})).status,409);
   const persisted=await readFile(join(directory,'map-contracts.json'),'utf8');
   const saved=JSON.parse(persisted).packages[packageId].ledger;
-  assert.equal(Object.values(saved.obligations).filter(p=>p.status==='paid').length,drafts.length*2);
+  assert.equal(Object.values(saved.obligations).filter(p=>p.status==='paid').length,drafts.length);
   assert.equal(saved.journal.reduce((sum,p)=>sum+p.debitCents,0),paidTotal);
   assert(!persisted.includes('Private participant name'));assert(!persisted.includes('+12025550123'));
 }));
@@ -156,9 +159,9 @@ test('a refusal reroute signs and pays only final-route owners, with server-vali
   assert.equal(initial.construction.status,'in-progress');
   assert.equal((await call(api,'submit',{packageId,draft:drafts[0],stage:'balance'})).status,409);
   await command('construction-complete',drafts[0],{completion:{...initial.construction,eventId:'reroute-complete'}});
-  for (const draft of drafts) assert.equal((await command('submit',draft,{stage:'balance'})).balancePayment.status,'paid');
+  for (const draft of drafts) assert.equal((await command('submit',draft,{stage:'full'})).payment.status,'paid');
   const persisted=JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).packages[packageId];
-  assert.equal(Object.keys(persisted.ledger.obligations).length,drafts.length*2);
+  assert.equal(Object.keys(persisted.ledger.obligations).length,drafts.length);
   assert.equal(persisted.ledger.journal.reduce((sum,p)=>sum+p.debitCents,0),handoff.snapshot.routes[0].upfrontCompensationCents);
 }));
 
@@ -212,7 +215,7 @@ test('map contracts use Nessie only after all signatures, preserve exact amounts
   for(const draft of drafts.slice(1)) {await command('sign/utility',draft);await command('sign/landowner',draft);}
   const first = await command('submit',drafts[0]);
   assert.equal(first.payment.status,'paid');assert.equal(first.payment.mode,'nessie-sandbox');
-  assert.equal(first.payment.amountCents,Math.floor(input.parcels[0].compensationCents/5));
+  assert.equal(first.payment.amountCents,input.parcels[0].compensationCents);
   assert.equal(mock.rows[0].amount,first.payment.amountCents/100);
   assert.equal(first.payment.transactionRef,'nessie-test-transfer-1');
   await Promise.all([command('submit',drafts[0]),command('submit',drafts[0])]);
@@ -253,7 +256,7 @@ test('pending Nessie payment reconciles after restart without resubmitting and s
   for(const draft of nessieDrafts) {await call(api,'sign/utility',{packageId,draft});await call(api,'sign/landowner',{packageId,draft});}
   const pending = await call(api,'submit',{packageId,draft:nessieDrafts[0]});
   assert.equal(pending.body.payment.status,'submitted');assert.equal(pending.body.journal.length,0);
-  assert.equal(pending.body.construction.status,'awaiting-initial-payments');
+  assert.equal(pending.body.construction.status,'awaiting-payments');
   const restarted = await createContractAPI(nessieOptions);
   await call(restarted,'submit',{packageId,draft:nessieDrafts[0]});assert.equal(mock.rows.length,1);
   mock.rows[0].status='completed';
@@ -273,4 +276,67 @@ test('provider-tagged and legacy simulation ledgers cannot be loaded as Nessie e
   await assert.rejects(createMapContractService({stateURL,bank}),/Invalid map contract registry/);
   const restoredSimulation = await createMapContractService({stateURL});
   assert.equal((await restoredSimulation.approve(mapContractRequest(proposal(),placements))).bankMode,'simulation');
+}));
+
+
+test('upgrading an existing map package preserves staged evidence and blocks full-payment or route-change bypasses', async () => withAPI(async (api,options,directory) => {
+  const context = mapContractRequest(proposal(),placements);
+  const approved = await call(api,'approve-map',{context}), {packageId,input:source} = approved.body;
+  const stateURL = pathToFileURL(join(directory,'map-contracts.json'));
+  const registry = JSON.parse(await readFile(stateURL,'utf8')), record = registry.packages[packageId];
+  delete record.source.paymentSchedule;record.source.project.developerName='Cal Power';
+  const parcel = source.parcels[0];
+  const id = `initial-${createHash('sha256').update(JSON.stringify([source.sessionId,parcel.parcelId])).digest('hex').slice(0,32)}`;
+  const previous = {id,stage:'initial',parcelId:parcel.parcelId,status:'paid',amountCents:Math.floor(parcel.compensationCents/5),transactionRef:'old-simulated-payment',documentHash:'old-split-document'};
+  record.ledger.obligations[id] = previous;
+  record.ledger.journal.push({obligationId:id,debitCents:previous.amountCents,creditCents:previous.amountCents});
+  await writeFile(stateURL,JSON.stringify(registry));
+  const restarted = await createContractAPI(options), updated = await call(restarted,'approve-map',{context});
+  assert.equal(updated.status,200,updated.body.error);assert.equal(updated.body.packageId,packageId);
+  assert.equal(updated.body.input.paymentSchedule,'full-after-signatures');
+  assert.equal(updated.body.input.project.developerName,'EasyGrid');
+  assert.equal(contractSourceKey(updated.body.input),contractSourceKey(contractSourceFromAgreement(updated.body.agreement,proposal())));
+  const draft = createContractDraft(updated.body.input,parcel.parcelId,{id:'new-full-terms'});
+  const blocked = await call(restarted,'sign/utility',{packageId,draft});
+  assert.equal(blocked.status,409);assert.match(blocked.body.error,/legacy staged-payment attempt/);
+  assert.equal((await call(restarted,'submit',{packageId,draft})).status,409);
+  assert.equal((await call(restarted,'approve-map',{context:mapContractRequest(proposal(2),placements)})).status,409);
+  const saved = JSON.parse(await readFile(stateURL,'utf8')).packages[packageId].ledger;
+  assert.deepEqual(saved,record.ledger,'migration must retain previous payment and journal evidence');
+}));
+
+
+test('same-package company migration evicts a cached worker and requires fresh EasyGrid signatures', async () => withAPI(async (api,options,directory) => {
+  const context = mapContractRequest(proposal(),placements);
+  const approved = await call(api,'approve-map',{context}), {packageId} = approved.body;
+  const stateURL = pathToFileURL(join(directory,'map-contracts.json'));
+  const registry = JSON.parse(await readFile(stateURL,'utf8')), record = registry.packages[packageId];
+  record.source.project.developerName='Cal Power';
+  await writeFile(stateURL,JSON.stringify(registry));
+  const restarted = await createContractAPI(options);
+  const oldDrafts = record.source.parcels.map((parcel,index)=>createContractDraft(record.source,parcel.parcelId,{id:`previous-company-${index}`}));
+  // Open and sign through the old source before approve() upgrades this existing package.
+  for (const draft of oldDrafts) {
+    assert.equal((await call(restarted,'sign/utility',{packageId,draft})).status,200);
+    assert.equal((await call(restarted,'sign/landowner',{packageId,draft})).status,200);
+  }
+  const priorLedger = JSON.parse(await readFile(stateURL,'utf8')).packages[packageId].ledger;
+  const updated = await call(restarted,'approve-map',{context});
+  assert.equal(updated.status,200,updated.body.error);assert.equal(updated.body.packageId,packageId);
+  assert.equal(updated.body.input.project.developerName,'EasyGrid');
+  assert.equal(contractSourceKey(updated.body.input),contractSourceKey(contractSourceFromAgreement(updated.body.agreement,proposal())));
+  const migrated = JSON.parse(await readFile(stateURL,'utf8')).packages[packageId];
+  assert.deepEqual(migrated.ledger,priorLedger,'company migration must preserve the existing ledger');
+  assert.equal(migrated.source.project.developerName,'EasyGrid');
+  assert.equal((await call(restarted,'submit',{packageId,draft:oldDrafts[0]})).status,409);
+  const drafts = updated.body.input.parcels.map((parcel,index)=>createContractDraft(updated.body.input,parcel.parcelId,{id:`easygrid-company-${index}`}));
+  const first = await call(restarted,'state',{packageId,draft:drafts[0]});
+  assert.equal(first.status,200,first.body.error);assert.deepEqual(first.body.signatures,{});assert.equal(first.body.packageReady,false);
+  for (const draft of drafts) {
+    assert.equal((await call(restarted,'sign/utility',{packageId,draft})).status,200);
+    assert.equal((await call(restarted,'sign/landowner',{packageId,draft})).status,200);
+  }
+  const paid = await call(restarted,'submit',{packageId,draft:drafts[0]});
+  assert.equal(paid.status,200,paid.body.error);assert.equal(paid.body.payment.status,'paid');
+  assert.equal(paid.body.payment.amountCents,updated.body.input.parcels[0].compensationCents);
 }));

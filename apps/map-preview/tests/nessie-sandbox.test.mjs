@@ -2,17 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNessieSandboxBank, dollarsToCents} from '../server/nessie-sandbox.mjs';
 
-const input = {ownerId:'OWNER-DEMO-004',obligationId:'initial-fixture',amountCents:240000,documentHash:'a'.repeat(64)};
+const input = {ownerId:'OWNER-DEMO-004',obligationId:'full-fixture',amountCents:1200000,documentHash:'a'.repeat(64)};
 const config = {apiKey:'test-only-key',baseUrl:'https://prod-api.nessieisreal.com',payerId:'sandbox-payer',recipients:{'OWNER-DEMO-004':{accountId:'sandbox-payee',customerId:'sandbox-customer'}}};
 function transport({complete = true, wrongAccount = false, failPost = false, missingTransactionId = false} = {}) {
   const calls = []; let created = false;
-  const row = () => ({_id:'transfer-fixture',payer_id:'sandbox-payer',payee_id:'sandbox-payee',amount:2400,status:complete?'completed':'pending',description:`EasyGrid ${input.obligationId} ${input.documentHash}`});
+  const row = () => ({_id:'transfer-fixture',payer_id:'sandbox-payer',payee_id:'sandbox-payee',amount:12000,status:complete?'completed':'pending',description:`EasyGrid ${input.obligationId} ${input.documentHash}`});
   return {calls, fetcher:async (url, options) => {
     assert.equal(url.searchParams.get('key'),'test-only-key'); assert.equal(options.redirect,'error');
     calls.push({path:url.pathname,method:options.method,body:options.body});
     if (options.method === 'POST') {
       if (failPost) throw new Error('private upstream key must not escape');
-      assert.deepEqual(JSON.parse(options.body),{medium:'balance',payee_id:'sandbox-payee',amount:2400,description:row().description});
+      assert.deepEqual(JSON.parse(options.body),{medium:'balance',payee_id:'sandbox-payee',amount:12000,description:row().description});
       created = true; return Response.json({objectCreated:{_id:'transfer-fixture'}},{status:201});
     }
     if (url.pathname === '/accounts/sandbox-payer') return Response.json({_id:wrongAccount?'different':'sandbox-payer',balance:10000});
@@ -26,7 +26,7 @@ function transport({complete = true, wrongAccount = false, failPost = false, mis
 test('Nessie uses verified account-scoped reads and a single explicitly enabled sandbox transfer', async () => {
   const mock = transport(), bank = createNessieSandboxBank({...config,allowTransfers:true,fetcher:mock.fetcher});
   const before = await bank.inspect(input); assert.equal(before.balanceCents,1000000); assert.equal(before.existingEvidence,null);
-  const receipt = await bank.transfer(input); assert.equal(receipt.status,'completed'); assert.equal(receipt.amountCents,240000); assert.equal(receipt.recipientMatches,true);
+  const receipt = await bank.transfer(input); assert.equal(receipt.status,'completed'); assert.equal(receipt.amountCents,1200000); assert.equal(receipt.recipientMatches,true);
   assert.equal(mock.calls.filter(row => row.method === 'POST').length,1);
   const after = await bank.inspect(input); assert.equal(after.existingEvidence.transactionRef,'nessie-transfer-fixture');
   const exposed = JSON.stringify(receipt); for (const secret of ['test-only-key','sandbox-payer','sandbox-payee']) assert(!exposed.includes(secret));

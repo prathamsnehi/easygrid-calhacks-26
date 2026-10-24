@@ -1,6 +1,6 @@
 # Finance track implementation and evidence
 
-Reviewed October 24, 2026. Current contract flow: approved fictional negotiation -> authoring -> utility and landowner click signatures -> explicit submission -> exact initial 20% payment -> bank/ledger reconciliation.
+Updated October 24, 2026. Current EasyGrid contract flow: approved fictional negotiation -> authoring -> both simulated signatures on every final-route agreement -> explicit submission -> one full compensation payment per owner -> bank/ledger reconciliation. Deposits, completion balances and construction payment gates are superseded.
 
 ## Confirmed event sources
 
@@ -10,7 +10,7 @@ Reviewed October 24, 2026. Current contract flow: approved fictional negotiation
 
 ## Hyphenate: the company and seats
 
-**Company:** a fictional utility acquiring transmission-corridor rights.
+**Company:** EasyGrid, a fictional utility acquiring transmission-corridor rights.
 
 **Seats:** contract accountant and accounts-payable execution/reconciliation worker, supervised by a utility controller.
 
@@ -24,11 +24,11 @@ This is a **rule-based event worker**, not a live LLM agent or a connected Hyphe
 | Limited access and independent sign-off | Separate requester/controller/landowner capabilities, exact signature binding | Authenticated shared-service identities; current actors are explicit simulations |
 | Explainability and accountability | Source-bound audit events, reconciliation and balanced demo journal | Capture an inspectable run and explain each held decision |
 | Recovery and working with people | Controller rejection, recovery from an unattempted hold, no blind retry after uncertainty | Live presentation of a refusal/exception and safe recovery |
-| Behavior across time | Versioned saved drafts and restart-restored obligations/signatures | Longer construction/balance scenarios belong to the separate workstream |
+| Behavior across time | Versioned saved drafts and restart-restored obligations/signatures | Demonstrate refresh recovery without submitting another full payment |
 
 The brief asks for code, a video opening with the distinctive failure-catching/recovery moment, a working live judging demo, a one-line description of the seats filled, and evidence separating real and simulated behavior. It does not require recurring-rent functionality.
 
-## Capital One: Nessie sandbox
+## Capital One: retained Nessie adapter for future connection
 
 `apps/map-preview/server/nessie-sandbox.mjs` is a server-only HTTP adapter. It verifies payer/payee identities and balances, reads account-scoped transfers, submits at most one explicitly enabled sandbox transfer, then reads the specific bank record. Amount, source/destination, exact obligation/document marker and completed status must match before posting a paid journal.
 
@@ -49,6 +49,6 @@ Confirm the current API origin and create funded fictional accounts using the pr
 
 **Verified in tests:** HTTP request paths/body, exact cents, ID checks, redaction, enabled-write guard, pending/completed distinction and failure handling with mocked fetch.
 
-**Browser verified:** approval gating, contract generation and editing, browser draft save/restore, simulated click signatures, the complete-package signature gate, changed-recipient hold/recovery, initial-payment completion, refresh restoration, duplicate-payment lock and HTML download. The contract screen was inspected at the browser's normal desktop and narrow panel widths. These checks do not establish the map's GPU behavior or authoritative shared-state integration.
+**Historical browser evidence:** the earlier staged-payment version was checked for approval gating, contract generation/editing, browser draft save/restore, simulated click signatures, complete-package signature gating, changed-recipient hold/recovery, initial-payment completion, refresh restoration, duplicate-payment lock and HTML download at desktop and narrow widths. This evidence does not by itself verify the revised full-payment UI, the map's GPU behavior or authoritative shared-state integration.
 
-**Not verified:** actual Nessie credentials, a live sandbox request/transfer, a live LLM reasoning trace or full SpacetimeDB/map integration. Do not claim sponsor qualification from mocked tests or the existence of the adapter. Capture a sanitized real sandbox execution and select the sponsor category in the actual submission.
+**Not established by this change:** a live Nessie transfer, a live LLM reasoning trace or full SpacetimeDB/map integration. See [historical account-setup evidence](NESSIE_SETUP.md) for the narrower prior provider check. The single full-payment demo uses local simulation by default; future provider connection must preserve its exact amount, signatures, recipient binding and duplicate protection. Do not claim sponsor qualification from mocked tests or the existence of the adapter.

@@ -1,7 +1,9 @@
 # CAL-37: Nessie fictional-account setup
 
-This CLI prepares Capital One Nessie sandbox accounts for EasyGrid's existing
-20% initial payment and exact completion balance. It never creates a transfer.
+This CLI prepares Capital One Nessie sandbox accounts for EasyGrid's optional
+future provider connection. The current contract flow pays full compensation
+once after every final-route agreement has both signatures. Setup itself never
+creates a transfer.
 Balances and account holders are fictional. A provider connection does not turn
 the development click signatures into authenticated signatures.
 
@@ -43,8 +45,8 @@ contains no key, provider account/customer identifiers, request URL or raw respo
 
 ## Account plan and rerun behavior
 
-The payer customer is `EasyGrid / Cal Power Sandbox`; its account nickname is
-`EasyGrid Cal Power Sandbox`. Its initial simulated balance is **$10,000,000**,
+New payer records use customer `EasyGrid / Payer Sandbox` and account nickname
+`EasyGrid Payer Sandbox`. The initial simulated balance is **$10,000,000**,
 set only when creating that account. Reruns never top up or overwrite a balance.
 Each recipient uses `EasyGrid / <ownerId> Sandbox`, nickname
 `EasyGrid <ownerId> Sandbox`, and starts at $0. All accounts use `Checking` and
@@ -61,6 +63,12 @@ matches the stable names/nicknames. It refuses duplicate matches, a changed
 synthetic identity, or replacement of an existing payout mapping. It verifies
 created records through a subsequent GET, rather than treating the creation
 acknowledgement as sufficient evidence.
+
+The opaque payer key remains `CAL-POWER` for checkpoint compatibility. Existing
+legacy payer names (`Cal Power Sandbox` / `EasyGrid Cal Power Sandbox`) are
+recognized only to reuse the same provider records; setup does not rename them,
+replace their IDs or create a second payer to reflect a branding change. If both
+legacy and current names match different records, setup stops for ambiguity.
 
 The private file holds `NESSIE_PAYER_ACCOUNT_ID`, `NESSIE_OWNER_RECIPIENTS` and a
 `NESSIE_SETUP_STATE` checkpoint. Each confirmed account mapping is saved through
@@ -94,15 +102,16 @@ and obligations. Custom callers of `createContractAPI` must enforce exclusive
 ownership themselves; this local lock is not a distributed payment store.
 
 Setup is only account preparation. Demonstrate payments through the approved
-contract workflow: all required signatures, explicit 20% request, provider
-reconciliation, construction-completion event, then the explicit completion
-balance. Check the current map-service integration before claiming that a
+contract workflow: all required signatures, one explicit full-payment request
+per owner, then provider reconciliation. There is no construction gate or second
+payout. Check the current map-service integration before claiming that a
 standalone fixture transfer also proves the selected-map path.
 
-## Validation and live evidence
+## Validation and historical live evidence
 
-On October 24, 2026, the authenticated official Nessie documentation UI returned
-HTTP 200 for customer listing and HTTP 201 for a synthetic Cal Power customer
+Before the EasyGrid/full-payment revision, the authenticated official Nessie
+documentation UI on October 24, 2026 returned HTTP 200 for customer listing and
+HTTP 201 for a synthetic customer under the former utility display name
 and Checking account. The local execution environment could not resolve the
 Nessie API hostname, so CLI setup and a live transfer have **not** been verified.
 The current Swagger Transfers section did not expose transfer creation; the
@@ -111,11 +120,12 @@ verification. Do not interpret mocked adapter tests as a successful bank payment
 
 The map and standalone workflows use separate provider ledgers and bind saved
 state to the API origin and payer. All route signatures and approval must match
-before a deposit request is accepted. Signing does not send money: the operator
-clicks **Pay deposit** separately. Only matching completed bank evidence marks
-the exact 20% obligation paid. Unknown outcomes require reconciliation; a failed
-or rejected transfer requires review. The completion balance remains locked
-until the construction-completion event. All signatures and balances remain
+before a full-payment request is accepted. Signing does not send money: the
+operator submits the full payment separately. Only matching completed bank
+evidence marks the exact full-compensation obligation paid. Unknown outcomes
+require reconciliation; a failed or rejected transfer requires review. No new
+provider connection or transfer was tested for this simplification. All
+signatures and balances remain
 demonstration data; SpacetimeDB/authenticated signer integration is separate.
 
 ```sh

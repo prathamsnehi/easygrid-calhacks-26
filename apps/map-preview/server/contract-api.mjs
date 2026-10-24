@@ -4,7 +4,7 @@ import {createContractWorkflow, createWorkflowState, createDemoBank, DEMO_ACTORS
 import {createNessieSandboxBank} from './nessie-sandbox.mjs';
 import {createMapContractService} from './map-contracts.mjs';
 
-export async function createContractAPI({environment = process.env, stateURL = new URL('../.local/contract-ledger.json', import.meta.url), fetcher = fetch} = {}) {
+export async function createContractAPI({environment = process.env, stateURL = new URL('../.local/full-contract-ledger.json', import.meta.url), fetcher = fetch} = {}) {
   const port = Number(environment.EASYGRID_PREVIEW_PORT ?? 4177);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid local preview port.');
   const provider = environment.EASYGRID_PAYMENT_PROVIDER ?? 'simulation';
@@ -16,7 +16,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
       allowTransfers:environment.NESSIE_ALLOW_SANDBOX_TRANSFERS === 'yes',fetcher});
   } else bank = createDemoBank();
   // Providers use separate ledgers so a local simulated payment cannot be mistaken for Nessie evidence.
-  const target = new URL(provider === 'nessie' ? 'nessie-contract-ledger.json' : 'contract-ledger.json', stateURL);
+  const target = new URL(provider === 'nessie' ? 'nessie-full-contract-ledger.json' : 'full-contract-ledger.json', stateURL);
   let initialState;
   try { initialState = JSON.parse(await readFile(target, 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw new Error('The local development ledger could not be loaded. Preserve it for review.'); initialState = createWorkflowState(); }
@@ -66,11 +66,11 @@ export async function createContractAPI({environment = process.env, stateURL = n
         else if (pathname === '/api/contracts/sign/landowner') result = await workflow.sign(input.draft, 'landowner', DEMO_ACTORS.landowner);
         else if (pathname === '/api/contracts/submit') {
           if (!['normal','recipient-changed','bank-mismatch','insufficient-funds'].includes(input.scenario ?? 'normal')) throw new Error('Unknown development scenario.');
-          result = await workflow.submit(input.draft, DEMO_ACTORS.requester, {scenario:input.scenario ?? 'normal', stage:input.stage ?? 'initial'});
+          result = await workflow.submit(input.draft, DEMO_ACTORS.requester, {scenario:input.scenario ?? 'normal', stage:input.stage ?? 'full'});
         }
         else if (pathname === '/api/contracts/construction-complete') result = await workflow.completeConstruction(input.draft, input.completion, DEMO_ACTORS.construction);
-        else if (pathname === '/api/contracts/reconcile') result = await workflow.reconcile(input.draft, DEMO_ACTORS.requester, {stage:input.stage ?? 'initial'});
-        else if (pathname === '/api/contracts/reject') result = await workflow.reject(input.draft, DEMO_ACTORS.utility, {stage:input.stage ?? 'initial'});
+        else if (pathname === '/api/contracts/reconcile') result = await workflow.reconcile(input.draft, DEMO_ACTORS.requester, {stage:input.stage ?? 'full'});
+        else if (pathname === '/api/contracts/reject') result = await workflow.reject(input.draft, DEMO_ACTORS.utility, {stage:input.stage ?? 'full'});
         else throw new Error('Unknown contract operation.');
         return result;
       };

@@ -29,6 +29,8 @@ test('local API signs, submits, persists and restores the same outcome without t
     await call(api,'/api/contracts/sign/utility',{draft:other});
     await call(api,'/api/contracts/sign/landowner',{draft:other});
     const paid = await call(api,'/api/contracts/submit',{draft}); assert.equal(paid.body.payment.status,'paid');
+    assert.equal(paid.body.payment.amountCents,1200000);
+    for (const stage of ['initial','balance']) assert.equal((await call(api,'/api/contracts/submit',{draft,stage})).status,409);
     const restarted = await createContractAPI(options), result = await call(restarted,'/api/contracts/submit',{draft});
     assert.equal(result.body.payment.obligationId,paid.body.payment.obligationId); assert.equal(result.body.journal.length,1);
     assert.equal(result.body.signatures.utility.actorId,'demo-utility-controller');
@@ -72,7 +74,7 @@ test('Nessie readiness is explicit in config and contract state without exposing
     const execution = await call(api,'/api/contracts/state',{draft});
     assert.equal(execution.status,200);assert.equal(execution.body.bankMode,'nessie-sandbox');assert.equal(execution.body.paymentsEnabled,false);
     for(const value of ['private-test-key','private-payer-account','private-owner-account','private-owner-customer']) assert(!JSON.stringify({config:result.body,state:execution.body}).includes(value));
-    const persisted = JSON.parse(await readFile(join(directory,'nessie-contract-ledger.json'),'utf8'));
+    const persisted = JSON.parse(await readFile(join(directory,'nessie-full-contract-ledger.json'),'utf8'));
     assert.equal(persisted.bankMode,'nessie-sandbox');assert.match(persisted.bankIdentity,/^[a-f0-9]{64}$/);
     for (const change of [{NESSIE_PAYER_ACCOUNT_ID:'other-payer-account'},{NESSIE_API_ORIGIN:'https://api.nessieisreal.com'}]) {
       await assert.rejects(createContractAPI({environment:{...environment,...change},stateURL:pathToFileURL(join(directory,'state.json'))}),/different bank identity/);
@@ -87,13 +89,28 @@ test('a copied local simulation contract ledger is never accepted as Nessie proo
     const options = {environment:{},stateURL:pathToFileURL(join(directory,'state.json'))};
     const simulation = await createContractAPI(options), draft = createContractDraft(createContractExample(),'P-004',{id:'provider-tagged'});
     await call(simulation,'/api/contracts/state',{draft});
-    const state = JSON.parse(await readFile(join(directory,'contract-ledger.json'),'utf8'));
-    await writeFile(join(directory,'nessie-contract-ledger.json'),JSON.stringify(state));
+    const state = JSON.parse(await readFile(join(directory,'full-contract-ledger.json'),'utf8'));
+    await writeFile(join(directory,'nessie-full-contract-ledger.json'),JSON.stringify(state));
     const environment = {EASYGRID_PAYMENT_PROVIDER:'nessie',NESSIE_API_ORIGIN:'https://prod-api.nessieisreal.com',NESSIE_API_KEY:'test-key',
       NESSIE_PAYER_ACCOUNT_ID:'test-payer',NESSIE_OWNER_RECIPIENTS:JSON.stringify({'OWNER-DEMO-004':{accountId:'test-payee',customerId:'test-customer'}})};
     await assert.rejects(createContractAPI({...options,environment}),/different payment provider/);
     delete state.bankMode;
-    await writeFile(join(directory,'nessie-contract-ledger.json'),JSON.stringify(state));
+    await writeFile(join(directory,'nessie-full-contract-ledger.json'),JSON.stringify(state));
     await assert.rejects(createContractAPI({...options,environment}),/untagged contract ledger/);
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
+
+
+test('the new standalone demo preserves an earlier staged-payment fixture ledger untouched', async () => {
+  const directory = await mkdtemp(join(tmpdir(),'easygrid-full-fixture-'));
+  try {
+    const legacy = JSON.stringify({schemaVersion:1,documents:{},obligations:{'initial-legacy':{status:'paid',amountCents:240000}},audit:[],journal:[],construction:{sessionId:'earlier-demo',routeId:'old-route',routeVersion:1}});
+    const oldPath = join(directory,'contract-ledger.json');await writeFile(oldPath,legacy);
+    const api = await createContractAPI({environment:{},stateURL:pathToFileURL(join(directory,'ledger.json'))});
+    const source = createContractExample(),draft = createContractDraft(source,'P-004',{id:'new-full-fixture'});
+    const state = await call(api,'/api/contracts/state',{draft});
+    assert.equal(state.status,200,state.body.error);assert.equal(state.body.payment,null);
+    assert.equal(await readFile(oldPath,'utf8'),legacy);
+    assert.deepEqual(JSON.parse(await readFile(join(directory,'full-contract-ledger.json'),'utf8')).obligations,{});
   } finally {await rm(directory,{recursive:true,force:true});}
 });

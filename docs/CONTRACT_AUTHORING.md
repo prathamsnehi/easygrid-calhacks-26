@@ -1,4 +1,4 @@
-# Contract authoring, click signatures and initial settlement
+# Contract authoring, click signatures and full payment
 
 CAL-36 / CAL-37. This implementation starts from temporary fictional negotiation examples. Pratham and Theo will agree the authoritative SpacetimeDB handoff separately; this patch does not freeze or replace their schema.
 
@@ -15,14 +15,14 @@ node serve.mjs
 Set `EASYGRID_PREVIEW_PORT` to use another local port when needed. Open `http://127.0.0.1:4177/contracts.html` for the development example. The normal map remains at `/`. The example page fetches approved fixture terms from `GET /api/contracts/example`, which returns the same source the local workflow validates. It opens the first agreement automatically. The local server is required to load the example and to sign or submit; exported HTML remains self-contained.
 
 1. Expand **Example data** and switch to Pending or Refused to verify that **Review agreements** is disabled.
-2. Choose Approved to reopen the document. Two fictional landowner agreements are available in the parcel selector. Willow Creek Orchard / P-004 shows $12,000 total, $2,400 initially and $9,600 after completion.
+2. Choose Approved to reopen the document. Two fictional landowner agreements are available in the parcel selector. Willow Creek Orchard / P-004 shows $12,000 total, payable in one $12,000 payment after every final-route agreement has both signatures.
 3. Review the generated document. Compensation and recipient ownership come from the approved source. Expand **Edit draft details** for optional changes to developer display name, document date, draft access description and reviewer notes. The original approved access terms remain visible and cannot be overwritten by editing a description.
 4. Save the draft in this browser or download a self-contained HTML copy. It can be printed to PDF using the browser's normal print action.
-5. Click **Developer** and **Landowner** in the signing panel. Each simulated signature is recorded against the exact server-computed document hash and revision. Changing a field invalidates the current signatures. The utility signature approves the precise initial 20% amount and the configured recipient binding.
-6. Both signatures are required for every parcel on the approved final route before the initial-payment submission is enabled. Submission triggers the server's accounts-payable worker; it rechecks both signatures, distinct actor identities, approved amount, current destination, existing bank evidence and available balance.
+5. Click **Developer** and **Landowner** in the signing panel. Each simulated signature is recorded against the exact server-computed document hash and revision. Changing a field invalidates the current signatures. The utility signature approves the full compensation amount, single-payment schedule and configured recipient binding.
+6. Both signatures are required for every parcel on the approved final route before full-payment submission is enabled. Submission triggers the server's accounts-payable worker; it rechecks both signatures, distinct actor identities, approved amount, current destination, existing bank evidence and available balance.
 7. A normal local simulation posts one matching transaction and a balanced demonstration journal. Retries and concurrent submissions reuse the same business obligation and cannot pay it twice. A new draft ID cannot bypass this guard.
 
-No legally executed signatures or real funds are involved. The draft includes the agreed 20% and completion-balance terms, but this patch executes only the initial tranche. Monthly-rent fields and functionality are excluded. The construction and balance journey is supplied by the CAL-38 prerequisite; see `CONSTRUCTION_PAYMENTS.md`. No recurring-payment functionality is included.
+No legally executed signatures or real funds are involved in the default local simulation. Each agreement specifies one payment of 100% of the approved compensation after all final-route agreements are signed. There is no deposit, completion balance, construction gate or recurring payment. The existing Capital One Nessie adapter is retained for a later connection; this change does not establish a live bank integration.
 
 ## Judge scenarios and answer key
 
@@ -30,7 +30,7 @@ Expand **Demo settings & activity** to find the **Payment scenario** selector an
 
 | Scenario | Correct result | Evidence |
 | --- | --- | --- |
-| Normal payment | Exact 20% completes once in local simulation | Matching transaction, stable obligation, balanced journal |
+| Normal payment | Exact full compensation completes once in local simulation | Matching transaction, stable obligation, balanced journal |
 | Payout destination changed | Hold before any transfer; controller review | `approved-recipient-binding` audit reason |
 | Bank amount differs by $1 | Escalate to review; never send a replacement | Expected and observed cents in audit, no completed-payment journal |
 | Insufficient balance | Hold before transfer | `sufficient-balance` rule |
@@ -45,7 +45,7 @@ An unattempted hold can be retried after the simulated underlying issue is corre
 
 `src/contract-fixtures.js` defines the examples; `src/contract-authoring.js` validates and normalizes them. The normalization allowlist excludes transcripts, participant contact and bank data. It requires an approved negotiation and accepted, versioned terms for every final-route parcel.
 
-The integrated QuickGrid map connects confirmed refusal reroutes through **Continue to contract & settlement**, followed by **Review agreements**. See [the CAL-41 bridge](MAP_CONTRACT_HANDOFF.md) for the full journey and server reconstruction. A development host can also project a matching fixture approval:
+The integrated EasyGrid map connects confirmed refusal reroutes through **Continue to contract & settlement**, followed by **Review agreements**. See [the CAL-41 bridge](MAP_CONTRACT_HANDOFF.md) for the full journey and server reconstruction. A development host can also project a matching fixture approval:
 
 ```js
 window.easygridDemo.setContractNegotiation({
@@ -57,6 +57,8 @@ window.easygridDemo.setContractNegotiation({
 The host must verify that its fixture corresponds to the exact displayed proposal before providing this value. Route/participant/context changes revoke readiness. This is a presentation boundary, not authenticated authorization. The HTTP service retains the fixed standalone example and now separately registers validated local map packages. Its development approval endpoint reconstructs proposals from trusted geometry and owner fixtures; it is not a live negotiation or property-consent service.
 
 `createContractWorkspace({api})` accepts an injected operation adapter. The current adapter uses same-origin `/api/contracts/*`; replace it with the agreed shared service when canonical session/route/owner/terms mapping is ready.
+
+`contractDocument` exposes `totalCents`, `paymentCents` equal to the full total, and `paymentSchedule: 'full-after-signatures'`. The payment API accepts `stage: 'full'`; old staged requests are rejected. These local workflow fields are separate from the unchanged legacy shared-package deposit/tranche schemas. Any existing attempted staged payment must be reconciled before migrating its obligation; a new full-payment request cannot be used to bypass it.
 
 ## State and roles
 
@@ -78,12 +80,12 @@ UI-controller/VM tests verify behavior, not actual browser layout, WebGL or visu
 
 ## Review layout
 
-The main document shows parties, parcel, date, approved access terms, exact milestone amounts and signature status. Identical draft/approved access descriptions are shown once; reviewer notes appear only when present. Source IDs and versions remain available under **Approval reference & versions**.
+The main document shows EasyGrid and the landowner, parcel, date, approved access terms, total compensation, the single full-payment condition and signature status. Identical draft/approved access descriptions are shown once; reviewer notes appear only when present. Source IDs and versions remain available under **Approval reference & versions**.
 
-The right column prioritizes confirmed compensation and two simulated signatures. The initial-payment panel appears after both selected-contract signatures; execution still requires every final-route contract to be signed. Construction controls appear only after the selected initial payment is confirmed. Money, owners, source bindings and server validation are unchanged.
+The right column prioritizes confirmed compensation and two simulated signatures. The payment panel appears after both selected-contract signatures; execution still requires every final-route contract to be signed. A single full-payment action completes each owner's compensation. Construction controls are outside this payment journey.
 
 ## Named sample signatures
 
-The approved local example uses **Cal Power**, represented by fictional **Ethan Cole**; **Olivia Bennett** represents Willow Creek Orchard and **Daniel Brooks** represents Meadow Ridge Farm. The integrated map also uses Cal Power / Ethan Cole and retains each original synthetic owner alias. Optional `project.signerName` and `parcels[].signerName` values are validated, allowlisted and bound to the source key and document hash. Changing a representative invalidates the prior draft and signatures. Sources without representative names retain their existing canonical shape.
+The approved local example uses **EasyGrid**, represented by fictional **Ethan Cole**; **Olivia Bennett** represents Willow Creek Orchard and **Daniel Brooks** represents Meadow Ridge Farm. The integrated map also uses EasyGrid / Ethan Cole and retains each original synthetic owner alias. Optional `project.signerName` and `parcels[].signerName` values are validated, allowlisted and bound to the source key and document hash. Changing a representative invalidates the prior draft and signatures. Sources without representative names retain their existing canonical shape.
 
 Handwritten-style names appear only after the service records each simulated signature. The document and standalone HTML export include the signer name, organization, date and simulation label. Unsigned agreements retain an empty signature line. This example has a separate session ID so previous demo signatures and payment records are not reused.

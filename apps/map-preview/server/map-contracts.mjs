@@ -9,7 +9,7 @@ import {analyzeRouteParcels} from '../src/parcel-analysis.js';
 import {createHandoff} from '../src/handoff.js';
 import {settlementBinding} from '../src/settlement-controller.js';
 import {contractSourceFromAgreement, simulatedMapAgreement, matchesContractBinding} from '../src/contract-handoff.js';
-import {createContractWorkflow, createDemoBank, createWorkflowState} from './contract-workflow.mjs';
+import {createContractWorkflow, createDemoBank, createWorkflowState, paymentMayHaveBeenAttempted} from './contract-workflow.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -87,8 +87,20 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
     approve: context => serial(async () => {
       const handoff = reconstructMapProposal(context,world), mapBinding = settlementBinding(handoff);
       const packageId = `map-contract-${digest(mapBinding).slice(0,40)}`, previous = state.packages[state.current[context.sessionId]];
-      if (previous?.packageId === packageId) return response(previous);
-      requireState(!previous || !Object.values(previous.ledger.obligations).some(p => !['held','rejected'].includes(p.status)), 'This session already has a payment attempt. Reconcile it before changing the route or package.');
+      if (previous?.packageId === packageId) {
+        // Preserve payment evidence, but bind fresh signatures to the current schedule and company.
+        if (previous.source.paymentSchedule !== 'full-after-signatures' || previous.source.project.developerName !== 'EasyGrid') {
+          const priorSource = previous.source;
+          previous.source = {...priorSource, paymentSchedule:'full-after-signatures',
+            project:{...priorSource.project,developerName:'EasyGrid'}};
+          try {await save();}
+          catch (error) {previous.source=priorSource;throw error;}
+          // A previously opened worker captured the old source and its approval hash.
+          workers.delete(previous.packageId);
+        }
+        return response(previous);
+      }
+      requireState(!previous || (!Object.values(previous.ledger.obligations).some(p => paymentMayHaveBeenAttempted(p,previous.ledger.journal)) && !previous.ledger.journal.length), 'This session already has a payment attempt. Reconcile it before changing the route or package.');
       requireState(!previous || context.routeVersion > previous.source.route.version, 'A changed proposal requires a newer route version.');
       const agreement = simulatedMapAgreement(handoff,{negotiationId:`neg-${digest(mapBinding).slice(0,32)}`,approvedAt:now()});
       const source = contractSourceFromAgreement(agreement,handoff);
