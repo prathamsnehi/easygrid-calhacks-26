@@ -245,3 +245,18 @@ export async function settleCal37Authoritatively(
   fail('STALE_VERSION','Atomic state commit rejected a concurrent settlement');
  return result;
 }
+
+/** Manager approval also uses CAL-29 atomic state commit, not an independent store. */
+export async function approveCal37Authoritatively(
+ store:Cal37AuthoritativeStore,sessionId:string,
+ request:Pick<Parameters<typeof approveCal37>[0],
+ 'operatorAlias'|'managerAlias'|'managerConfirmed'|'approvedAt'>
+):Promise<Cal37State>{
+ const snapshot=await store.load(sessionId);
+ if(snapshot.packet.sessionId!==sessionId||snapshot.current.sessionId!==sessionId)
+  fail('STALE_VERSION','Authoritative session mismatch');
+ const next=approveCal37({...snapshot,...request,expectedStateRevision:snapshot.state.revision});
+ if(!await store.compareAndSwap(sessionId,snapshot.state.revision,next))
+  fail('STALE_VERSION','Atomic manager approval commit rejected a concurrent update');
+ return next;
+}
