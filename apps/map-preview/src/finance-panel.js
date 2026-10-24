@@ -20,19 +20,20 @@ export function financeHandoffView(handoff){
   assert(typeof p.upfrontCents==='number'&&Number.isSafeInteger(p.upfrontCents)&&p.upfrontCents>=0,'Invalid route compensation');
   assert(typeof p.monthlyRentEquivalentCents==='number'&&Number.isSafeInteger(p.monthlyRentEquivalentCents)&&p.monthlyRentEquivalentCents>=0,'Invalid rent');
   return {id:p.parcelId,ownerId:p.ownerId,alias:p.ownerAlias,comp:p.upfrontCents,
-   rent:p.monthlyRentEquivalentCents,rentApproximate:p.monthlyRentIsApproximate===true,account:'****'+String(1001+i).slice(-4)};
+   rent:p.monthlyRentEquivalentCents,rentApproximate:p.monthlyRentIsApproximate===true,landUse:p.landUse||'Fictional property',termsVersion:1,account:'NOT CONNECTED'};
  });
  assert(new Set(parcels.map(p=>p.id)).size===parcels.length,'Duplicate parcel IDs');
  assert(new Set(parcels.map(p=>p.ownerId)).size<=parcels.length,'Invalid owners');
  return {key:JSON.stringify([handoff.sessionId,route.id,handoff.routeVersion,parcels.map(p=>[p.id,p.ownerId,p.comp,p.rent,p.rentApproximate])]),
-  sessionId:handoff.sessionId,routeId:route.id,routeVersion:handoff.routeVersion,parcels};
+  sessionId:handoff.sessionId,routeId:route.id,routeVersion:handoff.routeVersion,source:'map-estimate-not-approved',parcels};
 }
 function handOffParcels(h){return Array.isArray(h?.parcelAnalysis)?h.parcelAnalysis:[]}
 export function emptyFinanceState(view){return {key:view.key,revision:0,prepared:false,signed:[],approved:false,first:false,
- completion:null,balance:false,month:0,ledger:[]}}
+ completion:null,balance:false,month:0,ledger:[],contractVersion:1,signatureReceipts:{},managerReceipt:null,attempts:[]}}
 export function financeAction(view,prev,action){
  assert(prev?.key===view.key,'Route, version or agreed amounts changed. Reset settlement simulation.');
  const s=copy(prev),ids=new Set(view.parcels.map(p=>p.id));
+ s.contractVersion??=1;s.signatureReceipts??={};s.attempts??=[];
  const record=(stage,fail=false,mismatch=false,period='')=>{
   let added=0;
   for(const p of view.parcels){
@@ -43,6 +44,7 @@ export function financeAction(view,prev,action){
    const row={id:key,parcelId:p.id,stage,period,expected,amount,status:fail?'attempted':amount===expected?'paid':'discrepant',
     receipt:fail?null:'SIM-'+String(s.ledger.length+1).padStart(4,'0'),simulated:true};
    if(existing)Object.assign(existing,row);else s.ledger.push(row);
+   s.attempts.push({obligationId:key,stage,parcelId:p.id,status:row.status,simulated:true,sequence:s.attempts.length+1});
    added++;
   }
   assert(added>0,'All eligible obligations are already recorded');
@@ -51,13 +53,20 @@ export function financeAction(view,prev,action){
   assert(!s.prepared,'Fixture terms already prepared');
   // Does not assert landowner consent or negotiation result.
   s.prepared=true;
+ }else if(action==='regenerate'){
+  assert(s.prepared&&!s.approved,'Only unapproved fictional agreements can be regenerated');
+  s.contractVersion++;s.signed=[];s.signatureReceipts={};
  }else if(action.startsWith('sign:')){
   const id=action.slice(5);assert(s.prepared&&!s.approved&&ids.has(id),'Prepare terms and choose a valid unsigned parcel');
   assert(!s.signed.includes(id),'Signature already simulated');
   s.signed.push(id);
+  s.signatureReceipts[id]={parcelId:id,routeId:view.routeId,routeVersion:view.routeVersion,contractVersion:s.contractVersion,
+   receipt:'SIM-SIGN-'+s.contractVersion+'-'+id,simulated:true};
  }else if(action==='approve'){
   assert(s.prepared&&s.signed.length===view.parcels.length&&view.parcels.every(p=>s.signed.includes(p.id)),'Every current fictional agreement needs a simulated signature');
-  assert(!s.approved,'Already approved');s.approved=true;
+  assert(!s.approved,'Already approved');
+  assert(view.parcels.every(p=>s.signatureReceipts[p.id]?.contractVersion===s.contractVersion&&s.signatureReceipts[p.id]?.routeVersion===view.routeVersion),'Signed contract or route version is stale');
+  s.approved=true;s.managerReceipt={id:'SIM-APPROVAL-'+s.contractVersion,routeVersion:view.routeVersion,contractVersion:s.contractVersion,simulated:true};
  }else if(action==='first'||action==='first-fail'){
   assert(s.approved&&!s.first,'Current manager approval and unsettled 20% required');
   record('20%',action.endsWith('fail'));if(action==='first')s.first=true;
@@ -128,20 +137,26 @@ export function mountFinancePanel(){
   if(!view||!s)return;content.replaceChildren();
   const head=div('div','','finance-overview');
   const comp=view.parcels.reduce((n,p)=>n+p.comp,0),rent=view.parcels.reduce((n,p)=>n+p.rent,0);
-  row(head,'Approved demo compensation basis',money(comp));row(head,'20% initial tranche',money(view.parcels.reduce((n,p)=>n+Math.floor(p.comp/5),0)));
+  row(head,'UNAPPROVED ROUTE ESTIMATE · fictional',money(comp));row(head,'20% initial tranche',money(view.parcels.reduce((n,p)=>n+Math.floor(p.comp/5),0)));
   row(head,'80% remaining balance',money(view.parcels.reduce((n,p)=>n+p.comp-Math.floor(p.comp/5),0)));
   row(head,'Monthly demo rent basis',money(rent));
   content.append(head);
   const first=group(content,'CAL-36 · Versioned agreements & simulated signatures');
   first.append(div('p','Owner negotiation is pending in the map. “Prepare fictional terms” is an explicit local demo override, NOT real owner consent or an authoritative approved package.','finance-note'));
-  controls(first,[['Prepare fictional accepted terms','prepare',!s.prepared]]);
+  row(first,'Current route',view.routeId+' · v'+view.routeVersion);
+  row(first,'Fictional agreement version','v'+s.contractVersion);
+  controls(first,[['Prepare fictional accepted terms','prepare',!s.prepared],['Regenerate agreements (void signatures)','regenerate',s.prepared&&!s.approved]]);
   for(const p of view.parcels){
-   row(first,p.id+' · '+p.alias, money(p.comp)+' / month '+money(p.rent)+(p.rentApproximate?' (rounded draft)':''));
+   const terms=financeContractPreview(view,s,p.id);
+   const details=div('details','','finance-contract');details.append(div('summary','View '+p.id+' simulated easement agreement'));
+   const body=div('pre',terms.text,'finance-contract-text');details.append(body);first.append(details);
+   row(first,p.id+' · '+p.alias, money(p.comp)+' / month '+money(p.rent)+(p.rentApproximate?' (rounded estimate)':''));
+   row(first,'Signature '+p.id,s.signatureReceipts[p.id]?.receipt??'Not signed');
    controls(first,[['Simulate '+p.id+' signature','sign:'+p.id,s.prepared&&!s.approved&&!s.signed.includes(p.id)]]);
   }
   const second=group(content,'CAL-37 · Manager approval and 20%');
   row(second,'Signed contracts',s.signed.length+' / '+view.parcels.length);
-  row(second,'Manager approval',s.approved?'Approved (fixture)':'Not approved');
+  row(second,'Manager approval',s.approved?'Approved (fixture) · '+s.managerReceipt?.id:'Not approved');
   row(second,'Contract tranche',s.first?'Paid (simulated)':'Not settled');
   controls(second,[['Approve current package','approve',s.prepared&&!s.approved&&s.signed.length===view.parcels.length],
    ['Simulate 20% payment','first',s.approved&&!s.first],['Show failed 20% attempt','first-fail',s.approved&&!s.first]]);
@@ -163,7 +178,20 @@ export function mountFinancePanel(){
   for(const [label,value] of [['Expected',totals.expected],['Simulated paid (matched)',totals.paid],['Unmatched attempts',totals.unmatched],['Discrepancies',totals.discrepant]])row(ledger,label,money(value));
   for(const x of s.ledger)row(ledger,x.parcelId+' · '+x.stage+(x.period?' '+x.period:''),
     money(x.expected)+' expected / '+money(x.amount)+' recorded · '+x.status+(x.receipt?' · '+x.receipt:''));
+  ledger.append(div('h4','Simulated attempt history (including failures)'));
+  for(const item of s.attempts??[])row(ledger,'#'+item.sequence+' · '+item.parcelId+' · '+item.stage,item.status+' · '+item.obligationId);
   ledger.append(div('p','All receipts and bank destinations are simulated. No actual account or transfer. State is stored only in this browser tab, not in SpacetimeDB.','finance-note'));
+  const monitor=group(content,'Hyphenate · AI finance monitoring');
+  const audit=financeMonitoring(view,s);
+  row(monitor,'Connection','NOT CONNECTED · rules-only preview');
+  row(monitor,'Risk level',audit.level.toUpperCase());
+  for(const issue of audit.issues)monitor.append(div('p','• '+issue,'finance-note'));
+  monitor.append(div('p','Real Hyphenate AI execution requires a backend agent. This panel performs deterministic rule checks only; it cannot authorize a payment.','finance-note'));
+  const bank=group(content,'Capital One Nessie · bank transaction evidence');
+  row(bank,'Connection','NOT CONNECTED · sandbox credentials required');
+  row(bank,'Bank transaction matches','UNVERIFIED');
+  row(bank,'Approved payout recipient','Not supplied by SpacetimeDB');
+  bank.append(div('p','Nessie sandbox account, transaction ID, expected amount, status and one-to-one obligation reconciliation will appear here when a server adapter is connected. Demo receipt IDs are NOT bank transfers.','finance-note'));
   controls(content,[['Reset local demo','reset',true]]);
  }
  document.querySelector('#finance-refresh').addEventListener('click',refresh);
@@ -171,4 +199,43 @@ export function mountFinancePanel(){
  document.querySelector('#recalculate-route')?.addEventListener('click',()=>{view=null;s=null;});
  document.querySelector('#finance-summary')?.addEventListener('click',refresh);
  refresh();
+}
+
+/** Renderable document preview; explicitly not an executed real contract. */
+export function financeContractPreview(view,state,parcelId){
+ const p=view.parcels.find(x=>x.id===parcelId);
+ assert(p&&state.prepared,'Prepare fictional terms before reading an agreement.');
+ const first=Math.floor(p.comp/5),balance=p.comp-first;
+ const text=[
+ 'EASYGRID — SIMULATED EASEMENT AGREEMENT · NOT LEGALLY BINDING',
+ 'Project session: '+view.sessionId,
+ 'Selected route: '+view.routeId+' (version '+view.routeVersion+')',
+ 'Contract version: '+state.contractVersion,
+ 'Property: '+p.id+' / synthetic owner '+p.alias+' ('+p.ownerId+')',
+ 'Land use: '+p.landUse,
+ 'Access rights: fictional transmission corridor — requires actual owner consent',
+ 'Illustrative compensation (NOT negotiated/approved): '+money(p.comp),
+ 'On manager approval and signing: initial 20% '+money(first),
+ 'After simulated construction completion: remaining 80% '+money(balance),
+ 'No separate deposit; two tranches sum exactly to total compensation.',
+ 'Monthly fee (after recorded completion, 1 calendar month later): '+money(p.rent)+(p.rentApproximate?' [rounded non-contract estimate]':''),
+ 'Simulated signature receipt: '+(state.signatureReceipts?.[p.id]?.receipt??'NOT SIGNED'),
+ 'Bank account: NOT PROVIDED · NO REAL FUNDS TRANSFERRED',
+ 'Terms source: MAP ESTIMATE — NOT SPACETIMEDB APPROVED CONTRACT'
+ ].join('\\n');
+ return {parcelId:p.id,contractVersion:state.contractVersion,routeVersion:view.routeVersion,simulated:true,text};
+}
+/** Pure, explainable pre-integration alerts, NOT a connected Hyphenate provider. */
+export function financeMonitoring(view,state){
+ const issues=[];
+ if(!state.prepared)issues.push('Accepted contract terms not received from authoritative backend.');
+ if(state.prepared&&state.signed.length!==view.parcels.length)issues.push('Missing simulated owner signatures.');
+ if(!state.approved)issues.push('Manager approval not recorded.');
+ if(state.attempts?.some(a=>a.status==='attempted'))issues.push('Failed payment attempts require reconciliation/review.');
+ const total=financeTotals(state);
+ if(total.discrepant)issues.push('Monthly payment amount mismatch: '+money(total.discrepant)+'.');
+ if(state.completion&&!state.first)issues.push('Completion exists without successful 20% payment — BLOCK.');
+ issues.push('SpacetimeDB authorization and uniqueness are NOT verified.');
+ return {level:total.discrepant?'blocked':state.attempts?.some(a=>a.status==='attempted')?'review':'pending',
+  issues,source:'local-deterministic-rules',autoExecute:false,simulated:true};
 }
