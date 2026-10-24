@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {collectNessieEvidence,planFinanceAgent} from '../src/finance-agent-workflow.ts';
+import {collectNessieEvidence,planFinanceAgent,reconcileNessieEvidence} from '../src/finance-agent-workflow.ts';
 import {emptyCal37State} from '../src/cal37-approval.ts';
 import {emptyLaterState} from '../src/cal38-39-settlement.ts';
 
@@ -52,4 +52,19 @@ test('Hyphenate-themed agent marks mismatches as blocked and requires manual res
  assert.equal(report.severity,'blocked');
  assert.ok(report.actions.some(a=>a.kind==='review_discrepancy'));
  assert.equal(later.payments.length,1);
+});
+
+test('Capital One obligations reconcile only via unique explicit transaction references',()=>{
+ const evidence={source:'capital-one-nessie-sandbox' as const,simulated:true as const,accountId:'sandbox-1',
+ accountVerified:true,transactions:[{id:'tx1',type:'withdrawal' as const,amountCents:240000,status:'completed'},
+ {id:'tx2',type:'withdrawal' as const,amountCents:10000,status:'pending'}],
+ note:'READ-ONLY SANDBOX — NOT PROOF OF EASYGRID PAYMENT' as const};
+ const expected=[{obligationId:'first-L001',amountCents:240000},{obligationId:'rent-L002',amountCents:20000},{obligationId:'second-L002',amountCents:40000}];
+ const result=reconcileNessieEvidence(evidence,expected,[{obligationId:'first-L001',transactionId:'tx1'},{obligationId:'rent-L002',transactionId:'tx2'}]);
+ assert.deepEqual(result.matched,[{obligationId:'first-L001',transactionId:'tx1'}]);
+ assert.deepEqual(result.unmatched,['second-L002']);
+ assert.equal(result.discrepant[0]?.obligationId,'rent-L002');
+ assert.throws(()=>reconcileNessieEvidence(evidence,expected,[{obligationId:'first-L001',transactionId:'tx1'},
+ {obligationId:'rent-L002',transactionId:'tx1'}]),/only once/);
+ assert.equal(evidence.transactions[0].amountCents,240000);
 });
