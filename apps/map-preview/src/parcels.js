@@ -1,5 +1,5 @@
 /** Synthetic property fixtures. These coordinates and prices are demo data only. */
-export const PARCEL_FIXTURE_VERSION = 'california-valley-parcels-v2';
+export const PARCEL_FIXTURE_VERSION = 'california-valley-parcels-v3';
 
 const PARCEL_OWNER_ALIASES = [
   'Elena Brooks', 'Mateo Ruiz', 'Nora Bennett', 'Daniel Park',
@@ -119,8 +119,8 @@ export function createParcelFixtures({ tiles, width, depth }) {
       accessConsent:'unknown',negotiationStatus:'pending',
       compensation:{sourceMode:'fixture',currency:'USD',basis:'demo-grid-tile',
         upfrontPerTileCents,monthlyPerTileCents:25+(index%5)*10,
-        initialOfferCents,offerCapCents:Math.ceil(initialOfferCents*1.4),
-        note:'Fictional whole-parcel starting offer; no appraisal or route-specific estimate.'},
+        initialOfferCents,
+        note:'Fictional whole-parcel reference only. Route recommendations use crossed line length and allocated tower pads; negotiation limits are 120% of that route recommendation, rounded down to cents.'},
     };
   });
   return {

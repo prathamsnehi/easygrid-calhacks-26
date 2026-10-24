@@ -1,4 +1,5 @@
 import { ROUTING_ASSUMPTIONS, evaluateTransmissionSpan, evaluateTowerSite, traceSpanCells } from './routing.js';
+import { negotiationLimitCents, createOfferPolicy } from './offer-policy.js';
 
 const EPSILON=1e-7;
 const sum=(values)=>values.reduce((total,value)=>total+value,0);
@@ -38,7 +39,7 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
     check(parcel.synthetic===true&&owner.synthetic===true,`parcel ${parcelId} is not a fictional owner record.`);
     check(owner.dialTarget==null,`parcel ${parcelId} must not expose a live dial target in its fixture.`);
     const prices=parcel.compensation;
-    check(prices&&cents(prices.upfrontPerTileCents)&&cents(prices.monthlyPerTileCents)&&cents(prices.offerCapCents),`parcel ${parcelId} has invalid compensation rates.`);
+    check(prices&&cents(prices.upfrontPerTileCents)&&cents(prices.monthlyPerTileCents),`parcel ${parcelId} has invalid compensation rates.`);
     check(typeof owner.alias==='string'&&owner.alias.length>0,`parcel ${parcelId} has no owner alias.`);
     rows.set(parcelId,{
       parcelId,name:parcel.name,ownerId:owner.id,ownerAlias:owner.alias,
@@ -46,7 +47,8 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
       landUse:parcel.landUse,areaTiles:parcel.areaTiles,sourceMode:'fixture',synthetic:true,
       lineLengthTiles:0,towerCount:0,towerIds:[],foundationAreaTiles:0,
       upfrontCents:0,rentTotalCents:0,monthlyRentCents:0,monthlyRentIsApproximate:false,
-      offerCapCents:prices.offerCapCents,withinOfferCap:true,
+      lineCompensationCents:0,foundationCompensationCents:0,
+      recommendedOfferCents:0,offerCapCents:0,withinOfferCap:true,
       accessConsent:parcel.accessConsent,negotiationStatus:parcel.negotiationStatus,
       affectReasons:[],corridorOnly:false,
     });
@@ -72,7 +74,7 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
     uniqueTowerCount++;
     for(let z=f.z0;z<f.z1;z++)for(let x=f.x0;x<f.x1;x++){
       const tile=world.tileAt(x+.5,z+.5),row=rowFor(tile.parcelId),prices=world.parcelById.get(tile.parcelId).compensation;
-      row.foundationAreaTiles++;row.upfrontCents+=prices.upfrontPerTileCents;row.rentTotalCents+=prices.monthlyPerTileCents*months;
+      row.foundationAreaTiles++;row.foundationCompensationCents+=prices.upfrontPerTileCents;row.rentTotalCents+=prices.monthlyPerTileCents*months;
       if(!row.towerIds.includes(node.id))row.towerIds.push(node.id);
     }
   }
@@ -92,17 +94,24 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
       upfront.set(tile.parcelId,(upfront.get(tile.parcelId)??0)+length*prices.upfrontPerTileCents);
       rent.set(tile.parcelId,(rent.get(tile.parcelId)??0)+length*prices.monthlyPerTileCents*months);
     }
-    allocateSpanCents(upfront,evaluated.costs.compensationCents,rows,'upfrontCents');
+    allocateSpanCents(upfront,evaluated.costs.compensationCents,rows,'lineCompensationCents');
     allocateSpanCents(rent,evaluated.costs.rentCents,rows,'rentTotalCents');
   }
   check(sameIds([...affected],route.parcelIds),'the route contains parcels that its geometry does not affect.');
   const parcels=[...rows.values()].sort((a,b)=>a.parcelId.localeCompare(b.parcelId));
   for(const row of parcels){
     row.towerCount=row.towerIds.length;
+    row.upfrontCents=row.lineCompensationCents+row.foundationCompensationCents;
+    row.recommendedOfferCents=row.upfrontCents;
+    row.offerCapCents=negotiationLimitCents(row.recommendedOfferCents);
+    row.offerPolicy=createOfferPolicy(row.recommendedOfferCents);
+    row.compensationBreakdown={lineCents:row.lineCompensationCents,foundationCents:row.foundationCompensationCents};
     row.monthlyRentCents=months===0?0:Math.round(row.rentTotalCents/months);
     row.monthlyRentIsApproximate=row.monthlyRentCents*months!==row.rentTotalCents;
     row.withinOfferCap=row.upfrontCents<=row.offerCapCents;
     row.corridorOnly=row.lineLengthTiles<=EPSILON&&row.towerCount===0;
+    // A corridor touched without priced centerline/pad impact is not a verified zero-dollar valuation.
+    row.recommendationStatus=row.corridorOnly?'review-required':'estimated';
     if(corridor.has(row.parcelId))row.affectReasons.push('line-corridor');
     if(row.lineLengthTiles>EPSILON)row.affectReasons.push('line-centerline');
     if(row.towerCount>0)row.affectReasons.push('tower-foundation');

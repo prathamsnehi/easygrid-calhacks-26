@@ -1,23 +1,24 @@
 import { analyzeRouteParcels, chooseUserParcel } from './parcel-analysis.js';
 import { createHandoff, validateDemoParticipant, normalizeDemoPhone } from './handoff.js';
-import { DEMO_BUDGET_CENTS } from './cost-model.js';
+import { DEMO_METERS_PER_TILE } from './cost-model.js';
 
 /** Local analysis and an explicit call-request boundary. No direct network or contact storage. */
 export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{}}) {
-  const ids=['open-analysis','analysis-entry-status','analysis-panel','close-analysis','analysis-route-note','analysis-count','analysis-upfront',
+  const ids=['open-analysis','analysis-entry-status','analysis-panel','close-analysis','analysis-route-note','analysis-count','analysis-upfront-label','analysis-upfront',
     'analysis-rent-label','analysis-rent','analysis-consent-note','analysis-parcel-list','analysis-parcel-detail',
-    'analysis-parcel-title','analysis-parcel-badge','focus-analysis-parcel','analysis-parcel-copy','analysis-owner','analysis-contact','analysis-email',
-    'analysis-land-use','analysis-line-length','analysis-foundation','analysis-offer','analysis-parcel-rent-label',
+    'analysis-parcel-title','analysis-parcel-badge','focus-analysis-parcel','analysis-parcel-copy','analysis-owner',
+    'analysis-land-use','analysis-line-length','analysis-foundation','analysis-offer','analysis-limit','analysis-parcel-rent-label',
     'analysis-parcel-rent','analysis-negotiation','analysis-parcel-impact','focus-user-parcel','user-parcel-label',
-    'user-contact-status','user-role-note','user-form','user-alias','user-phone','user-consent','save-user',
-    'clear-user','user-form-status','handoff-status-badge','handoff-connection-note','agent-call',
-    'handoff-result','handoff-budget-note','reset-plan','step-a','step-b','label-a','label-b','inspect-parcels',
+    'user-form','user-alias','user-phone','user-consent','save-user',
+    'clear-user','user-form-status','handoff-status-badge','agent-call',
+    'handoff-result','reset-plan','step-a','step-b','label-a','label-b','inspect-parcels',
     'demo-workspace','demo-onboarding','edit-participant','edit-analysis-participant',
-    'registered-participant-name','registered-participant-contact','registered-participant-consent'];
+    'registered-participant-name','registered-participant-contact'];
   const el=Object.fromEntries(ids.map(id=>[id,document.querySelector(`#${id}`)]));
   const money=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
   const moneyOf=value=>money.format(value/100);
   const number=value=>new Intl.NumberFormat('en-US',{maximumFractionDigits:1}).format(value);
+  const distance=tiles=>`${number(tiles*DEMO_METERS_PER_TILE)} m`;
   const write=(id,value)=>{el[id].textContent=String(value);};
   const sessionId=`map-${window.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,12)}`}`;
   let snapshot=null,analysis=null,userParcelId=null,priorUserParcelId=null,selectedParcelId=null;
@@ -51,39 +52,38 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     const current=getHandoff(),ready=current?.callPreparation.status==='ready-for-host-adapter';
     el['agent-call'].disabled=!ready||!handler||Boolean(pending)||callRequested;
     write('agent-call',pending?'Requesting call…':'Agent call');
-    write('handoff-status-badge',callRequested?'REQUEST SENT':handler?'CONNECTED':'NOT CONNECTED');
+    write('handoff-status-badge',callRequested?'REQUEST SENT':pending?'REQUESTING':!handler?'OFFLINE':ready?'READY':'REVIEW');
     el['handoff-status-badge'].className=`role-badge${callRequested?' ready':''}`;
-    write('handoff-connection-note',handler?
-      'Sends your number and selected parcel to the calling agent.':
-      'Calling agent is not connected.');
-    write('handoff-budget-note',`Fixture budget: ${moneyOf(current?.snapshot.project.budgetCents??DEMO_BUDGET_CENTS)}. This is a demo limit, not an approved project budget.`);
-    if(current?.callPreparation.status==='review-required')feedback('handoff-result','Review the route budget, offer limits or refused access before requesting a call.','error');
+    if(current?.callPreparation.status==='review-required')feedback('handoff-result','Review parcel estimates, access and budget before calling.','error');
   }
   function renderDetail() {
     const row=analysis?.parcels.find(item=>item.parcelId===selectedParcelId);
     el['analysis-parcel-detail'].hidden=!row;
     el['focus-analysis-parcel'].disabled=!row;
     if(!row)return;
-    const isUser=row.parcelId===userParcelId,role=getParcelRole(row.parcelId);
-    write('analysis-parcel-title',row.name);
-    write('analysis-parcel-badge',isUser?'USER ROLEPLAY':'FICTIONAL OWNER');
+    const isUser=row.parcelId===userParcelId,role=getParcelRole(row.parcelId),needsEstimate=row.recommendationStatus==='review-required';
+    write('analysis-parcel-title',row.parcelId);
+    write('analysis-parcel-badge','DEMO ROLE');
+    el['analysis-parcel-badge'].hidden=!isUser;
     el['analysis-parcel-badge'].className=`role-badge${isUser?' user':''}`;
     write('analysis-parcel-copy',isUser?
-      `The user plays the landowner for ${row.parcelId}. Fictional role: ${row.ownerAlias}.`:
-      `${row.parcelId} · Synthetic owner and contact details for this simulation.`);
+      `${row.parcelId}: you play ${row.ownerAlias} for the demo call.`:
+      `${row.parcelId}: fictional owner ${row.ownerAlias}.`);
     write('analysis-owner',role?.ownerAlias??row.ownerAlias);
-    write('analysis-contact',role?.phoneDisplay??row.phoneDisplay);
-    write('analysis-email',isUser?'Not collected for demo participant':row.email);
     write('analysis-land-use',row.landUse.replaceAll('-',' '));
-    write('analysis-line-length',`${number(row.lineLengthTiles)} tiles${row.corridorOnly?' · corridor only':''}`);
-    write('analysis-foundation',`${row.towerCount} / ${number(row.foundationAreaTiles)} tiles²`);
-    write('analysis-offer',`${moneyOf(row.upfrontCents)} / ${moneyOf(row.offerCapCents)}${row.withinOfferCap?'':' · review needed'}`);
-    write('analysis-parcel-rent-label',`Rent · ${analysis.rentHorizonMonths} months`);
-    write('analysis-parcel-rent',moneyOf(row.rentTotalCents));
-    write('analysis-negotiation',`${row.accessConsent} / ${row.negotiationStatus.replaceAll('_',' ')}`);
-    write('analysis-parcel-impact',row.corridorOnly?
-      'The conductor corridor touches this parcel. It has no modeled centerline length or foundation charge, but owner review is still required.':
-      `The proposal includes ${number(row.lineLengthTiles)} centerline tiles and ${number(row.foundationAreaTiles)} foundation tiles². Land access is separate from consent to a demo call.`);
+    write('analysis-line-length',row.corridorOnly?'Corridor only':distance(row.lineLengthTiles));
+    write('analysis-foundation',row.towerCount);
+    write('analysis-offer',needsEstimate?'Review required':moneyOf(row.upfrontCents));
+    write('analysis-limit',needsEstimate?'Review required':moneyOf(row.offerCapCents));
+    write('analysis-parcel-rent-label','Monthly fee');
+    write('analysis-parcel-rent',`${row.monthlyRentIsApproximate?'≈ ':''}${moneyOf(row.monthlyRentCents)}`);
+    const status=row.accessConsent==='refused'||row.negotiationStatus==='refused'?'Declined':needsEstimate?'Review required':
+      row.accessConsent==='allowed'&&row.negotiationStatus==='accepted'?'Agreed':
+      row.negotiationStatus==='counteroffer'?'Counteroffer':row.negotiationStatus==='review_required'?'Review needed':'Pending';
+    write('analysis-negotiation',status);
+    const breakdown=row.compensationBreakdown;
+    const components=breakdown?`Line allowance: ${moneyOf(breakdown.lineCents)}. Tower pad allowance: ${moneyOf(breakdown.foundationCents)}. `:'';
+    write('analysis-parcel-impact',`${components}${row.corridorOnly?'Corridor contact requires owner review. ':''}Negotiation limit: recommended offer × 1.2, rounded down to cents. ${analysis.rentHorizonMonths}-month fees: ${moneyOf(row.rentTotalCents)}.`);
   }
   function selectParcel(parcelId,focus=true) {
     if(!analysis?.parcels.some(row=>row.parcelId===parcelId))return;
@@ -98,13 +98,13 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       const title=document.createElement('span');title.className='analysis-row-title';
       title.textContent=row.parcelId===userParcelId?(participant?.alias??'User participant'):row.ownerAlias;
       const code=document.createElement('small');code.textContent=row.parcelId;title.appendChild(code);
-      const cost=document.createElement('span');cost.className='analysis-row-cost';cost.textContent=moneyOf(row.upfrontCents);
+      const cost=document.createElement('span');cost.className='analysis-row-cost';cost.textContent=row.recommendationStatus==='review-required'?'Review required':`${moneyOf(row.upfrontCents)} – ${moneyOf(row.offerCapCents)}`;
       const meta=document.createElement('span');meta.className='analysis-row-meta';
-      meta.textContent=`${number(row.lineLengthTiles)} tiles · ${row.towerCount} ${row.towerCount===1?'pylon':'pylons'} · ${row.landUse.replaceAll('-',' ')}${row.withinOfferCap?'':' · offer cap exceeded'}`;
+      meta.textContent=`${row.towerCount} ${row.towerCount===1?'tower':'towers'} · ${row.corridorOnly?'corridor only':distance(row.lineLengthTiles)}${row.withinOfferCap?'':' · review needed'}`;
       button.appendChild(title);button.appendChild(cost);button.appendChild(meta);
       if(row.parcelId===userParcelId){
         const badge=document.createElement('span');badge.className='analysis-row-role';
-        badge.textContent=participant?'USER ROLE · PARTICIPANT READY':'USER ROLE · CONTACT NEEDED';button.appendChild(badge);
+        badge.textContent='DEMO CALL';button.appendChild(badge);
       }
       button.addEventListener('click',()=>selectParcel(row.parcelId));return button;
     });
@@ -112,16 +112,11 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   }
   function renderParticipant() {
     write('user-parcel-label',userParcelId??'No route selected');
-    write('user-contact-status',participant?'PARTICIPANT READY':'CONTACT NEEDED');
-    el['user-contact-status'].className=`role-badge${participant?' ready':''}`;
-    const row=analysis?.parcels.find(item=>item.parcelId===userParcelId);
-    write('user-role-note',row?`Fictional role: ${row.ownerAlias}. This assignment does not claim real ownership.`:'A role in this fictional simulation, not a claim of real ownership.');
     el['focus-user-parcel'].disabled=!userParcelId;
     canvas.dataset.userParcelId=userParcelId??'';
     canvas.dataset.participantReady=String(Boolean(participant));
     write('registered-participant-name',participant?.alias??'Participant required');
     write('registered-participant-contact',participant?`Phone ending in ${participant.phoneE164.slice(-4)}`:'Contact required');
-    write('registered-participant-consent',participant?'AI roleplay call consent recorded for this page.':'AI roleplay call consent required.');
     el['open-analysis'].disabled=!participant||!snapshot||!analysis;
     renderRows();renderDetail();renderHandoff();onUserRoleChange();syncDemoGate();
   }
@@ -147,11 +142,13 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       const computed=analyzeRouteParcels(world,next.route,next.assumptions);
       snapshot=next;analysis=computed;userParcelId=chooseUserParcel(computed,priorUserParcelId);priorUserParcelId=userParcelId;
       selectedParcelId=userParcelId;getHandoff();
-      write('analysis-route-note',`${next.route.label} · route version ${next.routeVersion} · ${number(next.route.lengthTiles)} demo tiles`);
+      write('analysis-route-note',`${distance(next.route.lengthTiles)} connection`);
       write('analysis-count',analysis.parcels.length);write('analysis-upfront',moneyOf(analysis.totals.upfrontCents));
-      write('analysis-rent-label',`Rent · ${analysis.rentHorizonMonths} months`);write('analysis-rent',moneyOf(analysis.totals.rentTotalCents));
+      write('analysis-rent-label',`Fees · ${analysis.rentHorizonMonths} months`);write('analysis-rent',moneyOf(analysis.totals.rentTotalCents));
       const pendingCount=analysis.parcels.filter(row=>row.accessConsent!=='allowed').length;
-      write('analysis-consent-note',`${pendingCount} pending land consent`);
+      const reviewCount=analysis.parcels.filter(row=>row.recommendationStatus==='review-required').length;
+      write('analysis-upfront-label',reviewCount?'Priced subtotal':'Recommended total');
+      write('analysis-consent-note',`${pendingCount} pending${reviewCount?` · ${reviewCount} need pricing`:''}`);
       el['open-analysis'].disabled=false;renderParticipant();
       if(!el['analysis-panel'].hidden)onFocusParcel(selectedParcelId);
     } catch {

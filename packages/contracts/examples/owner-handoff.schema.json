@@ -277,6 +277,45 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "offerPolicy": {
+                "type": "object",
+                "properties": {
+                  "policyId": {
+                    "type": "string",
+                    "const": "recommended-times-1.2-v1"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "const": "route-impact-v1"
+                  },
+                  "recommendedOfferCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "multiplierNumerator": {
+                    "type": "number",
+                    "const": 6
+                  },
+                  "multiplierDenominator": {
+                    "type": "number",
+                    "const": 5
+                  },
+                  "rounding": {
+                    "type": "string",
+                    "const": "floor-cent"
+                  }
+                },
+                "required": [
+                  "policyId",
+                  "basis",
+                  "recommendedOfferCents",
+                  "multiplierNumerator",
+                  "multiplierDenominator",
+                  "rounding"
+                ],
+                "additionalProperties": false
+              },
               "terms": {
                 "type": "object",
                 "properties": {
@@ -448,6 +487,43 @@
             "minimum": 1,
             "maximum": 9007199254740991
           }
+        },
+        "offerPolicies": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "policyId": {
+                "type": "string",
+                "const": "recommended-times-1.2-v1"
+              },
+              "basis": {
+                "type": "string",
+                "const": "route-impact-v1"
+              },
+              "recommendedOfferCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "offerCapCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "policyId",
+              "basis",
+              "recommendedOfferCents",
+              "offerCapCents"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
@@ -499,6 +575,43 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9007199254740991
+              }
+            },
+            "offerPolicies": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "policyId": {
+                    "type": "string",
+                    "const": "recommended-times-1.2-v1"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "const": "route-impact-v1"
+                  },
+                  "recommendedOfferCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "offerCapCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "policyId",
+                  "basis",
+                  "recommendedOfferCents",
+                  "offerCapCents"
+                ],
+                "additionalProperties": false
               }
             }
           },

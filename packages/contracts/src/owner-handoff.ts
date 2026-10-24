@@ -18,11 +18,18 @@ export const HandoffTerms = z.strictObject({
   compensationCents: Cents, monthlyRentCents: Cents, comparisonRentTotalCents: Cents,
   monthlyRentIsApproximate: z.boolean(),
 });
+/** A route recommendation is a fixed negotiation basis, not the current counteroffer. */
+export const HandoffOfferPolicy = z.strictObject({
+  policyId: z.literal('recommended-times-1.2-v1'), basis: z.literal('route-impact-v1'),
+  recommendedOfferCents: Cents,
+  multiplierNumerator: z.literal(6), multiplierDenominator: z.literal(5),
+  rounding: z.literal('floor-cent'),
+});
 export const HandoffParcel = z.strictObject({
   parcelId: Id, ownerId: Id, landUse: Text, geometry: Polygon,
   areaSqM: z.number().positive().finite(),
   impact: z.strictObject({ towerCount: z.number().int().min(0).max(100000), wireLengthMeters: z.number().min(0).finite() }),
-  offerCapCents: Cents, terms: HandoffTerms,
+  offerCapCents: Cents, offerPolicy: HandoffOfferPolicy.optional(), terms: HandoffTerms,
 });
 export const OwnerHandoff = z.strictObject({
   schemaVersion: z.literal(1), kind: z.literal('easygrid-owner-handoff'), sourceMode: z.literal('fixture'),
@@ -46,6 +53,11 @@ export const OwnerHandoff = z.strictObject({
   }
   for (const parcel of packet.parcels) {
     if (!ownerIds.includes(parcel.ownerId)) fail('Every parcel must reference an existing owner');
+    if (parcel.offerPolicy && Number.isSafeInteger(parcel.offerPolicy.recommendedOfferCents) && parcel.offerPolicy.recommendedOfferCents >= 0) {
+      const expectedCap = BigInt(parcel.offerPolicy.recommendedOfferCents) * 6n / 5n;
+      if (expectedCap > BigInt(Number.MAX_SAFE_INTEGER)) fail('The 120 percent offer cap exceeds safe integer cents');
+      else if (Number.isSafeInteger(parcel.offerCapCents) && BigInt(parcel.offerCapCents) !== expectedCap) fail('The offer cap must be 120 percent of the fixed recommendation, rounded down to cents');
+    }
     const exactRent = BigInt(parcel.terms.monthlyRentCents) * BigInt(packet.rentHorizonMonths);
     if (!parcel.terms.monthlyRentIsApproximate && exactRent !== BigInt(parcel.terms.comparisonRentTotalCents)) fail('Exact monthly rent must reconcile to the comparison horizon');
     if (parcel.terms.outcome === 'accepted' && (!parcel.terms.explicitConfirmation || !parcel.terms.confirmationRef || parcel.terms.accessConsent !== 'allowed' || parcel.terms.monthlyRentIsApproximate)) fail('Accepted terms require confirmed access and exact agreed monthly rent');
@@ -60,9 +72,14 @@ export const OwnerHandoff = z.strictObject({
 });
 export type OwnerHandoff = z.infer<typeof OwnerHandoff>;
 
+export const CurrentOfferPolicy = z.strictObject({
+  policyId: z.literal('recommended-times-1.2-v1'), basis: z.literal('route-impact-v1'),
+  recommendedOfferCents: Cents, offerCapCents: Cents,
+});
 export const CurrentHandoffState = z.strictObject({
   sessionId: Id, projectId: Id, routeId: Id, routeVersion: Version, revision: Revision,
   termsVersions: z.record(Id, Version),
+  offerPolicies: z.record(Id, CurrentOfferPolicy).optional(),
 });
 export type CurrentHandoffState = z.infer<typeof CurrentHandoffState>;
 export const SettlementStage = z.enum(['contract_tranche', 'completion_balance', 'monthly_fee']);
@@ -133,7 +150,11 @@ export function settlementObligationId(sessionId: string, parcelId: string, stag
   else if (period !== undefined) throw new HandoffError('INVALID_INPUT', 'Only monthly fees have a period');
   return JSON.stringify([sessionId, parcelId, stage, period ?? null]);
 }
-/** The caller must obtain current state from its authoritative service, not the submitted packet. */
+/**
+ * Current state, including fixed offer policies, must come from the authoritative service.
+ * Packet arithmetic is not authorization: never populate trusted policies from a submitted
+ * counteroffer or allow the calling model to replace the stored recommendation and cap.
+ */
 export function assertAgreementReady(input: unknown, currentInput: unknown): OwnerHandoff {
   const packet = parse(OwnerHandoff, input), current = parse(CurrentHandoffState, currentInput);
   for (const key of ['sessionId', 'projectId', 'routeId', 'routeVersion', 'revision'] as const) {
@@ -141,6 +162,12 @@ export function assertAgreementReady(input: unknown, currentInput: unknown): Own
   }
   const ids = packet.parcels.map(p => p.parcelId);
   if (Object.keys(current.termsVersions).length !== ids.length || packet.parcels.some(p => current.termsVersions[p.parcelId] !== p.terms.termsVersion)) throw new HandoffError('STALE_VERSION', 'Current parcel terms versions do not match the complete route');
+  const policyParcels = packet.parcels.filter(p => p.offerPolicy), trustedPolicies = current.offerPolicies ?? {};
+  if (Object.keys(trustedPolicies).length !== policyParcels.length || policyParcels.some(parcel => {
+    const trusted = trustedPolicies[parcel.parcelId], policy = parcel.offerPolicy!;
+    return !trusted || trusted.policyId !== policy.policyId || trusted.basis !== policy.basis ||
+      trusted.recommendedOfferCents !== policy.recommendedOfferCents || trusted.offerCapCents !== parcel.offerCapCents;
+  })) throw new HandoffError('STALE_VERSION', 'Fixed offer policies do not match the authoritative route recommendation');
   requireState(packet.routeStatus === 'ready_for_agreements', 'Route is still selected for negotiation');
   requireState(packet.simulationChecksPassed, 'Simulation constraints have not passed');
   requireState(packet.parcels.every(p => p.terms.outcome === 'accepted'), 'Every affected parcel must have accepted current terms');
@@ -158,11 +185,14 @@ export function createVoiceHandoff(input: unknown) {
     schemaVersion: 1 as const, kind: 'easygrid-voice-context' as const, sourceMode: 'fixture' as const,
     sessionId: packet.sessionId, projectId: packet.projectId, routeId: packet.routeId,
     routeVersion: packet.routeVersion, revision: packet.revision, referenceBinding: packet.referenceBinding,
+    simulationChecksPassed: packet.simulationChecksPassed,
     currency: packet.currency, userRole: packet.userRole, roleOnRoute,
     parcels: packet.parcels.map(p => {
       const owner = packet.owners.find(o => o.ownerId === p.ownerId)!;
       return { parcelId: p.parcelId, ownerId: p.ownerId, ownerAlias: owner.alias,
-        contact: { ...owner.contact }, offerCapCents: p.offerCapCents, impact: { ...p.impact }, terms: { ...p.terms } };
+        contact: { ...owner.contact }, offerCapCents: p.offerCapCents,
+        ...(p.offerPolicy ? { offerPolicy: { ...p.offerPolicy } } : {}),
+        impact: { ...p.impact }, terms: { ...p.terms } };
     }),
     note: 'Context only. The host must verify current session, role, consent and contact registration before any call.',
   };

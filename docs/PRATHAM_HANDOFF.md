@@ -11,7 +11,7 @@ This slice collects a consented demo participant before planning, then prepares 
 1. On **Start demo**, enter the participant's name and phone number, then check the explicit AI roleplay call consent box. All three are required. US 10-digit numbers receive `+1` automatically; an 11-digit number starting with `1` is also accepted, and explicit international prefixes are preserved. The private callback receives the normalized `phoneE164` value. Select **Start demo** to validate registration and unlock planning. This does not deliver private data to the host or start a call.
 2. Place **A · Substation** and **B · Data center**. Review the recommended connection or choose another route.
 3. The app binds the registered participant to exactly one affected parcel on the selected route, including the recommended optimal route. It retains that parcel on route changes when possible; otherwise it chooses another affected parcel deterministically. The base owner and parcel fixtures remain unchanged.
-4. Choose **Analyze affected parcels** to open **Land & people**. Each affected parcel shows its owner role, crossed centerline length, pylons/foundation area, fictional upfront compensation and rent. The participant summary uses the startup registration; there is no second participant-entry form.
+4. Choose **Analyze affected parcels** to open **Land & compensation**. Each affected parcel shows its recommended offer and negotiation limit. Details include the owner, wire length, towers, monthly fee and status, with calculation details collapsed. The participant summary uses the startup registration; there is no second participant-entry form.
 5. Select **Agent call** after the host registers the calling-agent callback. This is the only action that delivers the private participant to the handler. The button stays disabled if the agent is disconnected, consent is missing or the route is ineligible. No JSON download control is shown. A successful callback reports request delivery, not that a phone connected.
 
 The user role's call consent and the fictional parcel's land-access consent are separate. Entering a phone number never marks a parcel allowed or an agreement accepted.
@@ -50,14 +50,16 @@ The callback is a same-page integration seam. It does not automatically cross an
 | `snapshot` | A snapshot that passes the shared `Snapshot` Zod schema. Owners and parcels remain fictional; no negotiations, agreements, approvals or payments are fabricated. |
 | `ownerHandoff` | Additive CAL-27 packet joining original owners, contact references, mock banking recipients, affected parcel impacts and proposed terms. Validate with `OwnerHandoff`; use `createVoiceHandoff` for the bank-free voice view. Local contact references remain unregistered. |
 | `costModel` | Additive map-envelope metadata describing the construction benchmark and demo allowances; the legacy snapshot and owner-handoff schema versions are unchanged. |
-| `parcelAnalysis` | Per-parcel length, foundations, exact allocated upfront/rent cents, cap, pending status, fictional contacts, and display-role overlay. |
+| `parcelAnalysis` | Per-parcel length, foundations, exact allocated upfront/rent cents, recommendation, 120% cap, offer policy, calculation breakdown, review status, fictional contacts and display-role overlay. |
 | `userRole` | One affected `parcelId`, original fictional owner, generic `displayAlias: "User participant"`, local opaque contact reference, and participant readiness. The entered participant alias is not exported. |
 | `coordinateTransform` | Explicit, invented local-grid-to-WGS84 conversion described below. |
 | `callPreparation` | Preparation status, selected role's proposed amounts, and `backendBindingRequired: true`, `contactRegistered: false`, `canStartCall: false`. |
 
 The local `userRole.participantContactRef` is a correlation identifier. **It is not a registered dial destination.** It must not be submitted directly to the live call service. The host needs to register the private participant and obtain a server-owned contact reference.
 
-The snapshot preserves `accessConsent: "unknown"` and `negotiationStatus: "pending"` from the fixture, and `readyToApprove: false`. Parcel cap or budget failures set `eligible: false` and `callPreparation.status: "review-required"`. The handoff's default USD 5,000,000 budget is a fictional fixture parameter, configurable through `createHandoff({ ..., budgetCents })`; it is not the user's approval of a real budget.
+The snapshot preserves `accessConsent: "unknown"` and `negotiationStatus: "pending"` from the fixture, and `readyToApprove: false`. Parcel cap, budget or unpriced corridor-only impact failures set `eligible: false` and `callPreparation.status: "review-required"`. Unpriced corridor-only impacts also set `ownerHandoff.simulationChecksPassed: false`. The handoff's default USD 5,000,000 budget is a fictional fixture parameter, configurable through `createHandoff({ ..., budgetCents })`; it is not the user's approval of a real budget.
+
+Every current map parcel includes `offerPolicy` with its fixed `recommendedOfferCents`; `offerCapCents` is 120% rounded down to cents. Preserve this policy when recording counteroffers. Before `assertAgreementReady`, the host must provide authoritative `currentState.offerPolicies` bound to the approved route, rather than copying policy values from incoming negotiation messages. See [Offer policy](OFFER_POLICY.md) for the exact fields and integration boundary.
 
 ## Coordinate and money interpretation
 
@@ -67,7 +69,7 @@ The map uses local x/z tiles. To exercise the team's existing GeoJSON/meters con
 - Scale: **25 meters per tile**, shared with route pricing; adapter ID `california-valley-synthetic-wgs84-v2`. Earlier v1 packets used 100 m/tile: read each packet's declared transform rather than hard-coding a scale.
 - x increases east; z increases south.
 - Conversion: local equirectangular approximation at origin latitude, spherical Earth radius **6,371,008.8 m**.
-- `lengthMeters = lengthTiles × 100`; `areaSqM = areaTiles × 100²`.
+- `lengthMeters = lengthTiles × 25`; `areaSqM = areaTiles × 625`.
 - Project endpoint points are the facilities' line connection terminals, matching the first and last exported line coordinates.
 
 These are invented geographic positions, not actual California parcel boundaries. The adapter does not make the rendered tower dimensions or clearance assumptions real engineering measurements. Geometry transformation metadata lives outside the strict shared-contract objects.

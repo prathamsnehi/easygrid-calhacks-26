@@ -1084,6 +1084,7 @@
       "routeVersion": 1,
       "revision": 0,
       "referenceBinding": "local-fixture",
+      "simulationChecksPassed": true,
       "currency": "USD",
       "userRole": {
         "ownerId": "O001",
@@ -1156,6 +1157,7 @@
       "routeVersion": 1,
       "revision": 3,
       "referenceBinding": "canonical",
+      "simulationChecksPassed": true,
       "currency": "USD",
       "userRole": {
         "ownerId": "O001",
@@ -1228,6 +1230,7 @@
       "routeVersion": 2,
       "revision": 5,
       "referenceBinding": "canonical",
+      "simulationChecksPassed": true,
       "currency": "USD",
       "userRole": {
         "ownerId": "O001",
