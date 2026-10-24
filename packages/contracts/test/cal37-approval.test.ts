@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createAcceptedOwnerHandoff,createInitialOwnerHandoff,createOwnerHandoffCurrent} from '../src/owner-handoff-fixtures.ts';
 import {buildCal36FromOwnerHandoff} from '../src/cal36-shared-handoff.ts';
 import {signDemoAgreement} from '../src/cal36-easement.ts';
-import {approveCal37,settleCal37,emptyCal37State,cal37Status} from '../src/cal37-approval.ts';
+import {approveCal37,settleCal37,emptyCal37State,cal37Status,cal37PublicView,settleCal37Authoritatively} from '../src/cal37-approval.ts';
 import {settlementObligationId} from '../src/owner-handoff.ts';
 function fixture(){
  const packet=createAcceptedOwnerHandoff(),current=createOwnerHandoffCurrent(packet);
@@ -71,4 +71,43 @@ test('CAL-37 rejects stale route, terms, owner bank, package and concurrent writ
  assert.throws(()=>approveCal37({...f,packet:pending,current:createOwnerHandoffCurrent(pending),
  operatorAlias:'EasyGrid',managerAlias:'Operator',managerConfirmed:true,
  approvedAt:'2026-10-24T11:00:00Z',state:emptyCal37State(),expectedStateRevision:0}));
+});
+
+test('CAL-37 partial owner retry pays only remaining approved obligations',()=>{
+ const f=fixture(),approved=approval(f),first=f.packet.parcels[0]!.parcelId;
+ const paidOne=settleCal37({...f,state:approved,expectedStateRevision:1,
+  attemptedAt:'2026-10-24T11:10:00Z',outcome:'simulated_success',requestKey:'partial-1',selectedParcelIds:[first]});
+ assert.equal(paidOne.receipts.length,1);
+ assert.equal(paidOne.state.ledger.length,1);
+ const rest=settleCal37({...f,state:paidOne.state,expectedStateRevision:2,
+  attemptedAt:'2026-10-24T11:11:00Z',outcome:'simulated_success',requestKey:'partial-2'});
+ assert.equal(rest.receipts.length,1);
+ assert.equal(rest.state.ledger.length,2);
+ assert.equal(rest.state.ledger.filter(e=>e.status==='paid').length,2);
+ assert.equal(cal37PublicView(rest.state).payments.length,2);
+ assert.equal(JSON.stringify(cal37PublicView(rest.state)).includes('paymentRecipientRef'),false);
+ assert.throws(()=>settleCal37({...f,state:rest.state,expectedStateRevision:3,
+  attemptedAt:'2026-10-24T11:12:00Z',outcome:'simulated_success',requestKey:'partial-3',selectedParcelIds:[first]}),{code:'BLOCKED_STATE'});
+});
+test('CAL-37 refuses forged paid rows, altered amount, and recipient reference',()=>{
+ const f=fixture(),approved=approval(f);
+ const paid=settleCal37({...f,state:approved,expectedStateRevision:1,
+  attemptedAt:'2026-10-24T11:10:00Z',outcome:'simulated_success',requestKey:'valid',selectedParcelIds:[f.packet.parcels[0]!.parcelId]});
+ for(const change of [(x:any)=>x.amountCents++, (x:any)=>x.paymentRecipientRef='mock-evil',
+   (x:any)=>x.termsVersion++, (x:any)=>x.obligationId='fake']){
+  const state=structuredClone(paid.state);change(state.ledger[0]);
+  assert.throws(()=>settleCal37({...f,state,expectedStateRevision:2,
+   attemptedAt:'2026-10-24T11:11:00Z',outcome:'simulated_success',requestKey:'retry'}),{code:'STALE_VERSION'});
+ }
+});
+test('CAL-37 authoritative CAS rejects concurrent writes without returning paid receipts',async()=>{
+ const f=fixture(),state=approval(f);let commits=0;
+ const store={async load(sessionId:string){assert.equal(sessionId,f.packet.sessionId);
+  return {...f,state};},async compareAndSwap(_sessionId:string,expectedRevision:number,next:any){
+   assert.equal(expectedRevision,1);assert.equal(next.revision,2);commits++;return false;
+  }};
+ await assert.rejects(settleCal37Authoritatively(store,f.packet.sessionId,{
+  attemptedAt:'2026-10-24T11:10:00Z',outcome:'simulated_success',requestKey:'cas'}),{code:'STALE_VERSION'});
+ assert.equal(commits,1);
+ assert.equal(state.ledger.length,0);
 });
