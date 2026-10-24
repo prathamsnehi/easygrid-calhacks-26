@@ -1,12 +1,13 @@
 import { computeTransmissionRoutes } from './routing.js';
 import { createTransmissionLayer } from './transmission-models.js';
-import { DEMO_METERS_PER_TILE } from './cost-model.js';
+import { DEMO_METERS_PER_TILE, DEMO_BUDGET_CENTS } from './cost-model.js';
+import { analyzeRouteParcels } from './parcel-analysis.js';
 
 // Keep the analysis transition readable; this is presentation time, not extra model reasoning.
 export const ROUTE_REVEAL_DELAY_MS = 1600;
 
 /** Connect the computed route, its physical geometry and its explanation to one state. */
-export function createRouteController({THREE,scene,world,landscape,canvas,getPlacements,onOverview,onDraw,onFitRoute,onRouteChange=()=>{},canRoute=()=>true}) {
+export function createRouteController({THREE,scene,world,landscape,canvas,getPlacements,onOverview,onDraw,onFitRoute,onRouteChange=()=>{},onNoRoute=()=>{},getRoutingOptions=()=>({}),canRoute=()=>true}) {
   const ids=['step-route','route-status','route-panel','route-summary','route-title','route-status-note','route-badge',
     'route-length','route-towers','route-owners','cost-line','cost-structures','cost-impact','cost-engineering','cost-contingency','cost-land','cost-rent','cost-rent-label','cost-total',
     'route-parcels','route-no-results','route-loading','recalculate-route'];
@@ -17,9 +18,20 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
   const compactMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
   const moneyOf=cents=>money.format(cents/100);
   const layer=createTransmissionLayer(THREE,world);scene.add(layer.group);
+  const previousLayer=new THREE.Group();previousLayer.name='Previous route';scene.add(previousLayer);
   let generation=0,timer=null,result=null,selectedId=null,state='incomplete',routeVersion=0;
 
   function hasEndpoints(){const p=getPlacements();return canRoute()&&Boolean(p.substation&&p.datacenter);}
+  function clearPrevious(){
+    for(const line of [...previousLayer.children]){line.geometry.dispose();line.material.dispose();previousLayer.remove(line);}
+    canvas.dataset.previousRouteVisible='false';
+  }
+  function rememberPrevious(){
+    clearPrevious();const route=result?.candidates.find(candidate=>candidate.id===selectedId);if(!route)return;
+    const points=route.nodes.map(node=>new THREE.Vector3(node.x,node.groundY+node.height,node.z));
+    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineDashedMaterial({color:0xb77e5b,dashSize:1.2,gapSize:.7,transparent:true,opacity:.72,depthWrite:false}));
+    line.computeLineDistances();previousLayer.add(line);canvas.dataset.previousRouteVisible='true';
+  }
   function clearGeometry(){
     layer.clear();landscape.setFoundationClearings([]);
     canvas.dataset.routeId='';canvas.dataset.routeTowerCount='0';canvas.dataset.routeParcelIds='';
@@ -87,12 +99,13 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       renderState();onRouteChange({route,assumptions:result.assumptions,routeVersion:++routeVersion});onDraw();return diagnostics;
     }catch(error){
       clearGeometry();selectedId=null;state='error';result={candidates:[],reasons:['The computed connection did not pass its geometry checks. Move a site or recalculate.']};
-      onRouteChange(null);console.error(error);renderState();onDraw();return null;
+      onRouteChange(null);onNoRoute();console.error(error);renderState();onDraw();return null;
     }
   }
-  function schedule(){
+  function schedule({keepPrevious=false}={}){
     const ticket=++generation;
     if(timer!==null)clearTimeout(timer);timer=null;
+    if(!keepPrevious)clearPrevious();
     clearGeometry();result=null;selectedId=null;onRouteChange(null);
     if(!hasEndpoints()){state='incomplete';renderState();onDraw();return;}
     const snapshot=getPlacements(),startedAt=performance.now();state='calculating';renderState();onDraw();
@@ -102,7 +115,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       if(result.status==='ok'){
         const diagnostics=showCandidate(result.recommendedId);
         if(diagnostics)onFitRoute(result.candidates.find(c=>c.id===selectedId),diagnostics);
-      }else{clearGeometry();renderState();onDraw();}
+      }else{clearGeometry();renderState();onNoRoute();onDraw();}
     };
     const revealWhenReady=computed=>{
       if(ticket!==generation||!canRoute())return;
@@ -114,7 +127,17 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     timer=setTimeout(()=>{
       if(ticket!==generation||!canRoute())return;timer=null;
       try{
-        const computed=computeTransmissionRoutes(world,snapshot);if(ticket!==generation)return;
+        const options=getRoutingOptions(),computed=computeTransmissionRoutes(world,snapshot,options);if(ticket!==generation)return;
+        const constrained=options.blockedParcelIds?.length||options.blockedTowerParcelIds?.length||options.exclusionZones?.length;
+        if(constrained&&computed.status==='ok'){
+          const candidate=computed.candidates.find(route=>{
+            if(route.totalCostCents>DEMO_BUDGET_CENTS)return false;
+            const analysis=analyzeRouteParcels(world,route,computed.assumptions);
+            return analysis.parcels.every(parcel=>parcel.recommendationStatus==='estimated'&&parcel.withinOfferCap&&parcel.accessConsent!=='refused'&&parcel.negotiationStatus!=='refused');
+          });
+          computed.candidates=candidate?[candidate]:[];computed.recommendedId=candidate?.id??null;
+          if(!candidate){computed.status='no-route';computed.reasons=['No eligible route within the current budget and parcel constraints.'];}
+        }
         revealWhenReady(computed);
       }catch(error){
         if(ticket!==generation)return;
@@ -130,5 +153,5 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
   elements['step-route'].addEventListener('click',()=>{if(!canRoute())return;onOverview();if(state==='calculating')updateVisibility();else if(!result||state==='error'||state==='no-route')schedule();else updateVisibility();});
   elements['recalculate-route'].addEventListener('click',schedule);
   renderState();
-  return {invalidate:schedule,updateVisibility,initialize:schedule};
+  return {invalidate:schedule,updateVisibility,initialize:schedule,replan:()=>{rememberPrevious();schedule({keepPrevious:true});}};
 }

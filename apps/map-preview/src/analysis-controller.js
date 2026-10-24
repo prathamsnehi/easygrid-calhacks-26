@@ -21,8 +21,11 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   const number=value=>new Intl.NumberFormat('en-US',{maximumFractionDigits:1}).format(value);
   const distance=tiles=>`${number(tiles*DEMO_METERS_PER_TILE)} m`;
   const write=(id,value)=>{el[id].textContent=String(value);};
-  const sessionId=`map-${window.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,12)}`}`;
-  let snapshot=null,analysis=null,userParcelId=null,priorUserParcelId=null,selectedParcelId=null;
+  let sessionSequence=0;
+  const newSessionId=()=>`map-${window.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,12)}`}-${++sessionSequence}`;
+  let sessionId=newSessionId();
+  let snapshot=null,analysis=null,userParcelId=null,selectedParcelId=null,liveCallLocked=false;
+  let negotiationDisplay=new Map();
   let participant=null,handler=null,pending=null,activeHandoff=null,revision=0,callRequested=false,lastDemoReady=false;
   const settlement=createSettlementController({getHandoff});
   el['demo-workspace'].dataset.analysisOpen='false';
@@ -41,22 +44,61 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   function getHandoff() {
     if(!participant||!snapshot||!analysis)return null;
     return createHandoff({world,route:snapshot.route,analysis,placements:getPlacements(),participant,
-      userParcelId,sessionId,routeVersion:snapshot.routeVersion});
+      userParcelId,sessionId,routeVersion:snapshot.routeVersion,liveCallLocked});
+  }
+  function getOriginalRole() {
+    const parcel=userParcelId&&world.parcelById.get(userParcelId);
+    return parcel?{sessionId,parcelId:parcel.id,ownerId:parcel.ownerId,
+      roleOnRoute:Boolean(snapshot?.route.parcelIds.includes(parcel.id)),liveCallLocked}:null;
+  }
+  function setLiveCallLockout(value=true) {
+    if(value!==true)throw new TypeError('Only a new demo can clear the live-call lock.');
+    if(liveCallLocked)return;
+    liveCallLocked=true;invalidateHandoff();renderHandoff();
+  }
+  function displayedOutcome(parcelId) {
+    const value=negotiationDisplay.get(parcelId);
+    if(!value)return null;
+    const label={accepted:'Accepted',refused:'Declined',counteroffer:'Counteroffer',pending:'Pending',review_required:'Review needed'}[value.outcome];
+    return `${label}${value.sourceMode==='live'?'':' · simulated'}`;
+  }
+  function renderConsent() {
+    if(!analysis)return;
+    const pendingCount=analysis.parcels.filter(row=>negotiationDisplay.get(row.parcelId)?.outcome!=='accepted'&&row.accessConsent!=='allowed').length;
+    const reviewCount=analysis.parcels.filter(row=>row.recommendationStatus==='review-required').length;
+    write('analysis-upfront-label',reviewCount?'Priced subtotal':'Recommended total');
+    write('analysis-consent-note',`${pendingCount} pending${reviewCount?` · ${reviewCount} need pricing`:''}`);
+  }
+  // Display projection only: this does not change proposed terms or create approval.
+  function setNegotiationDisplay(value) {
+    if(value===null){negotiationDisplay=new Map();renderRows();renderDetail();renderConsent();return true;}
+    if(!snapshot||value?.routeVersion!==snapshot.routeVersion)return false;
+    if(!Array.isArray(value.outcomes)||value.outcomes.length>analysis.parcels.length)throw new TypeError('Invalid negotiation display.');
+    const next=new Map();
+    for(const row of value.outcomes){
+      if(!row||!analysis.parcels.some(parcel=>parcel.parcelId===row.parcelId)||next.has(row.parcelId)||
+        !['accepted','refused','counteroffer','pending','review_required'].includes(row.outcome)||
+        !['mock','fixture','sandbox','live'].includes(row.sourceMode))throw new TypeError('Invalid negotiation display.');
+      next.set(row.parcelId,{outcome:row.outcome,sourceMode:row.sourceMode});
+    }
+    negotiationDisplay=next;renderRows();renderDetail();renderConsent();return true;
   }
   function getParcelRole(parcelId) {
-    const row=analysis?.parcels.find(item=>item.parcelId===parcelId);
-    if(!participant||!row||parcelId!==userParcelId)return null;
+    const parcel=world.parcelById.get(parcelId),owner=parcel&&world.ownerById.get(parcel.ownerId);
+    if(!participant||!owner||parcelId!==userParcelId)return null;
     return {ownerAlias:participant?.alias??'User participant',
       phoneDisplay:`Phone ending in ${participant.phoneE164.slice(-4)} · demo participant`,
-      email:'Not collected for demo participant',originalOwnerAlias:row.ownerAlias,roleplay:true};
+      email:'Not collected for demo participant',originalOwnerAlias:owner.alias,roleplay:true};
   }
   function renderHandoff() {
     const current=getHandoff(),ready=current?.callPreparation.status==='ready-for-host-adapter';
-    el['agent-call'].disabled=!ready||!handler||Boolean(pending)||callRequested;
+    el['agent-call'].disabled=liveCallLocked||!ready||!handler||Boolean(pending)||callRequested;
     write('agent-call',pending?'Requesting call…':'Agent call');
-    write('handoff-status-badge',callRequested?'REQUEST SENT':pending?'REQUESTING':!handler?'OFFLINE':ready?'READY':'REVIEW');
+    write('handoff-status-badge',liveCallLocked?'DECLINED':current?.userRole.roleOnRoute===false?'OFF ROUTE':callRequested?'REQUEST SENT':pending?'REQUESTING':!handler?'OFFLINE':ready?'READY':'REVIEW');
     el['handoff-status-badge'].className=`role-badge${callRequested?' ready':''}`;
-    if(current?.callPreparation.status==='review-required')feedback('handoff-result','Review parcel estimates, access and budget before calling.','error');
+    if(liveCallLocked)feedback('handoff-result','No further calls to this participant.');
+    else if(current?.userRole.roleOnRoute===false)feedback('handoff-result','Your original parcel is outside this route.');
+    else if(current?.callPreparation.status==='review-required')feedback('handoff-result','Review parcel estimates, access and budget before calling.','error');
   }
   function renderDetail() {
     const row=analysis?.parcels.find(item=>item.parcelId===selectedParcelId);
@@ -82,7 +124,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     const status=row.accessConsent==='refused'||row.negotiationStatus==='refused'?'Declined':needsEstimate?'Review required':
       row.accessConsent==='allowed'&&row.negotiationStatus==='accepted'?'Agreed':
       row.negotiationStatus==='counteroffer'?'Counteroffer':row.negotiationStatus==='review_required'?'Review needed':'Pending';
-    write('analysis-negotiation',status);
+    write('analysis-negotiation',displayedOutcome(row.parcelId)??status);
     const breakdown=row.compensationBreakdown;
     const components=breakdown?`Line allowance: ${moneyOf(breakdown.lineCents)}. Tower pad allowance: ${moneyOf(breakdown.foundationCents)}. `:'';
     write('analysis-parcel-impact',`${components}${row.corridorOnly?'Corridor contact requires owner review. ':''}Negotiation limit: recommended offer × 1.2, rounded down to cents. ${analysis.rentHorizonMonths}-month fees: ${moneyOf(row.rentTotalCents)}.`);
@@ -102,7 +144,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       const code=document.createElement('small');code.textContent=row.parcelId;title.appendChild(code);
       const cost=document.createElement('span');cost.className='analysis-row-cost';cost.textContent=row.recommendationStatus==='review-required'?'Review required':`${moneyOf(row.upfrontCents)} – ${moneyOf(row.offerCapCents)}`;
       const meta=document.createElement('span');meta.className='analysis-row-meta';
-      meta.textContent=`${row.towerCount} ${row.towerCount===1?'tower':'towers'} · ${row.corridorOnly?'corridor only':distance(row.lineLengthTiles)}${row.withinOfferCap?'':' · review needed'}`;
+      meta.textContent=`${row.towerCount} ${row.towerCount===1?'tower':'towers'} · ${row.corridorOnly?'corridor only':distance(row.lineLengthTiles)}${row.withinOfferCap?'':' · review needed'}${negotiationDisplay.has(row.parcelId)?` · ${displayedOutcome(row.parcelId)}`:''}`;
       button.appendChild(title);button.appendChild(cost);button.appendChild(meta);
       if(row.parcelId===userParcelId){
         const badge=document.createElement('span');badge.className='analysis-row-role';
@@ -113,7 +155,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     el['analysis-parcel-list'].replaceChildren(...rows);
   }
   function renderParticipant() {
-    write('user-parcel-label',userParcelId??'No route selected');
+    write('user-parcel-label',userParcelId?`${userParcelId}${snapshot&&!snapshot.route.parcelIds.includes(userParcelId)?' · off route':''}`:'No route selected');
     el['focus-user-parcel'].disabled=!userParcelId;
     canvas.dataset.userParcelId=userParcelId??'';
     canvas.dataset.participantReady=String(Boolean(participant));
@@ -135,26 +177,23 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     selectParcel(selectedParcelId??userParcelId);el['close-analysis'].focus({preventScroll:true});
   }
   function setRoute(next) {
-    invalidateHandoff();snapshot=null;analysis=null;userParcelId=null;selectedParcelId=null;
+    invalidateHandoff();snapshot=null;analysis=null;selectedParcelId=null;negotiationDisplay=new Map();
     el['open-analysis'].disabled=true;
     write('analysis-entry-status','');el['analysis-entry-status'].hidden=true;
     feedback('handoff-result','');
     if(!next){close({restoreFocus:false});renderParticipant();return;}
     try {
       const computed=analyzeRouteParcels(world,next.route,next.assumptions);
-      snapshot=next;analysis=computed;userParcelId=chooseUserParcel(computed,priorUserParcelId);priorUserParcelId=userParcelId;
-      selectedParcelId=userParcelId;getHandoff();
+      snapshot=next;analysis=computed;userParcelId??=chooseUserParcel(computed);
+      selectedParcelId=computed.parcels.some(row=>row.parcelId===userParcelId)?userParcelId:computed.parcels[0]?.parcelId;getHandoff();
       write('analysis-route-note',`${distance(next.route.lengthTiles)} connection`);
       write('analysis-count',analysis.parcels.length);write('analysis-upfront',moneyOf(analysis.totals.upfrontCents));
       write('analysis-rent-label',`Fees · ${analysis.rentHorizonMonths} months`);write('analysis-rent',moneyOf(analysis.totals.rentTotalCents));
-      const pendingCount=analysis.parcels.filter(row=>row.accessConsent!=='allowed').length;
-      const reviewCount=analysis.parcels.filter(row=>row.recommendationStatus==='review-required').length;
-      write('analysis-upfront-label',reviewCount?'Priced subtotal':'Recommended total');
-      write('analysis-consent-note',`${pendingCount} pending${reviewCount?` · ${reviewCount} need pricing`:''}`);
+      renderConsent();
       el['open-analysis'].disabled=false;renderParticipant();
       if(!el['analysis-panel'].hidden)onFocusParcel(selectedParcelId);
     } catch {
-      snapshot=null;analysis=null;userParcelId=null;selectedParcelId=null;close({restoreFocus:false});renderParticipant();
+      snapshot=null;analysis=null;selectedParcelId=null;close({restoreFocus:false});renderParticipant();
       feedback('handoff-result','The parcel analysis could not be verified against this route. Recalculate the connection.','error');
       write('analysis-route-note','Parcel analysis is unavailable. Recalculate the connection.');
       write('analysis-entry-status','Parcel analysis is unavailable. Recalculate the connection.');el['analysis-entry-status'].hidden=false;
@@ -166,7 +205,10 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     for(const id of ['user-alias','user-phone','user-consent'])el[id].setAttribute('aria-invalid','false');
     if(focus)el['user-alias'].focus({preventScroll:true});
   }
-  function resetParticipant() {priorUserParcelId=null;clearParticipant();}
+  function resetParticipant() {
+    sessionId=newSessionId();userParcelId=null;liveCallLocked=false;snapshot=null;analysis=null;selectedParcelId=null;negotiationDisplay=new Map();
+    clearParticipant();
+  }
   function editParticipant() {
     invalidateHandoff();participant=null;el['user-consent'].checked=false;
     feedback('user-form-status','Update your details and confirm consent to resume the demo.');
@@ -183,7 +225,10 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   for(const id of ['step-a','step-b','label-a','label-b','inspect-parcels'])el[id].addEventListener('click',()=>{
     if(!el['analysis-panel'].hidden)close({restoreFocus:false});
   });
-  el['focus-user-parcel'].addEventListener('click',()=>selectParcel(userParcelId));
+  el['focus-user-parcel'].addEventListener('click',()=>{
+    if(analysis?.parcels.some(row=>row.parcelId===userParcelId))selectParcel(userParcelId);
+    else if(userParcelId)onFocusParcel(userParcelId);
+  });
   el['focus-analysis-parcel'].addEventListener('click',()=>selectParcel(selectedParcelId));
   document.addEventListener('keydown',event=>{
     if(!isDemoReady()){
@@ -224,7 +269,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   el['reset-plan'].addEventListener('click',resetParticipant);
   window.addEventListener('pagehide',()=>clearParticipant('Participant contact cleared. Enter your details again to begin.',false));
   el['agent-call'].addEventListener('click',async()=>{
-    if(!handler||!participant||pending||callRequested)return;
+    if(liveCallLocked||!handler||!participant||pending||callRequested)return;
     let handoff;
     try {handoff=getHandoff();}catch {feedback('handoff-result','The route changed. Recalculate before requesting a call.','error');return;}
     if(handoff?.callPreparation.status!=='ready-for-host-adapter')return;
@@ -241,5 +286,6 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     }
   });
   renderParticipant();el['user-alias'].focus({preventScroll:true});
-  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,isDemoReady,open,close,settlement};
+  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,isDemoReady,open,close,settlement,
+    getOriginalRole,setLiveCallLockout,getSessionId:()=>sessionId,setNegotiationDisplay};
 }

@@ -75,6 +75,17 @@
       <p id="analysis-entry-status" class="analysis-feedback error analysis-entry-status" role="status" hidden></p>
       <p class="route-note">Simulation · estimated costs.</p>
     </div>
+    <section id="negotiation-progress" class="negotiation-progress" aria-label="Post-call route progress">
+      <div class="card-heading"><span id="negotiation-mode" class="eyebrow">Demo scenario</span><span id="negotiation-status" class="role-badge">Ready</span></div>
+      <button id="simulate-refusal" class="secondary-button" type="button" disabled>Simulate refusal</button>
+      <div id="negotiation-result" hidden>
+        <ol id="negotiation-steps" class="negotiation-steps" aria-label="Route response steps"><li id="negotiation-step-refusal">Owner declined</li><li id="negotiation-step-route">New route</li><li id="negotiation-step-owners">Owners agreed</li></ol>
+        <p id="negotiation-reason" class="route-note" role="status"></p>
+        <dl id="negotiation-costs" class="route-costs" hidden><div><dt>Previous estimate</dt><dd id="negotiation-old-cost"></dd></div><div><dt id="negotiation-new-label">New estimate</dt><dd id="negotiation-new-cost"></dd></div><div><dt>Change</dt><dd id="negotiation-cost-change"></dd></div></dl>
+        <p id="negotiation-parcels" class="route-note"></p>
+        <p id="negotiation-old-path" class="route-note" hidden>Dashed line: previous route.</p>
+      </div>
+    </section>
     <p id="route-no-results" class="route-empty" hidden></p>
     <button id="recalculate-route" class="secondary-button route-recalculate" type="button" disabled>Recalculate connection</button>
   </aside>

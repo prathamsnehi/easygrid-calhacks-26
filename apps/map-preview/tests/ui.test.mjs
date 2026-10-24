@@ -643,24 +643,25 @@ test('participant consent gates Agent call while public snapshots and saved plan
   assert.deepEqual(app.errors,[]);
 });
 
-test('route changes invalidate prior handoffs, rebind the user to an affected parcel and reset clears private contact',async()=>{
+test('route changes invalidate prior handoffs, preserve the original user role and reset clears private contact',async()=>{
   const app=boot();placePair(app);await app.flushTimers();
   const prior=handoffOf(app);
   app.click('route-choice-1');
   const alternate=handoffOf(app);
   assert.notEqual(alternate.snapshot.routes[0].id,prior.snapshot.routes[0].id);
   assert(alternate.routeVersion>prior.routeVersion);
-  assert.equal(alternate.parcelAnalysis.filter(row=>row.userRole).length,1);
-  assert(alternate.snapshot.routes[0].parcelIds.includes(alternate.userRole.parcelId));
+  assert.equal(alternate.userRole.parcelId,prior.userRole.parcelId);
+  assert.equal(alternate.parcelAnalysis.filter(row=>row.userRole).length,Number(alternate.userRole.roleOnRoute));
+  assert.equal(alternate.userRole.roleOnRoute,alternate.snapshot.routes[0].parcelIds.includes(prior.userRole.parcelId));
   assert.equal(alternate.userRole.participantReady,true);
-  if(alternate.snapshot.routes[0].parcelIds.includes(prior.userRole.parcelId))assert.equal(alternate.userRole.parcelId,prior.userRole.parcelId);
   app.click('step-a');app.click('next-site');app.click('confirm-placement');
   assert.equal(handoffOf(app),null,'old route data must disappear during recalculation');
   assert.equal(app.elements.get('agent-call').disabled,true);
   await app.flushTimers();
   const moved=handoffOf(app);
-  assert.equal(moved.parcelAnalysis.filter(row=>row.userRole).length,1);
-  assert(moved.snapshot.routes[0].parcelIds.includes(moved.userRole.parcelId));
+  assert.equal(moved.userRole.parcelId,prior.userRole.parcelId);
+  assert.equal(moved.parcelAnalysis.filter(row=>row.userRole).length,Number(moved.userRole.roleOnRoute));
+  assert.equal(moved.userRole.roleOnRoute,moved.snapshot.routes[0].parcelIds.includes(prior.userRole.parcelId));
   assert.equal(moved.userRole.participantReady,true);
   app.click('reset-plan');
   assert.equal(handoffOf(app),null);
@@ -673,6 +674,76 @@ test('route changes invalidate prior handoffs, rebind the user to an affected pa
   enterUser(app);placePair(app);await app.flushTimers();
   assert.equal(handoffOf(app).userRole.participantReady,true);
   assert.deepEqual(app.errors,[]);
+});
+
+test('refusal demo bypasses the original owner, simulates all new-route agreements and keeps settlement locked',async()=>{
+  const app=boot();placePair(app);await app.flushTimers();
+  const api=app.window.easygridDemo,before=handoffOf(app),original=before.userRole.parcelId;
+  let calls=0;api.setHandoffHandler(async()=>{calls++;});
+  api.setSettlementHandler(async()=>{throw new Error('No payment should be requested.');});
+  api.setSettlementApproval({approvalId:'before-reroute',packageHash:`sha256:${'b'.repeat(64)}`,simulated:true,mapBinding:api.getSettlementBinding()});
+  assert.equal(app.elements.get('simulate-refusal').disabled,false);
+  app.click('simulate-refusal');
+  assert.equal(api.getNegotiationState().phase,'rerouting');
+  assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.equal(app.canvas.dataset.previousRouteVisible,'true');
+  assert.equal(app.scene().getObjectByName('Previous route').children.length,1);
+  await app.runTimersFor(1600);
+  assert.equal(api.getNegotiationState().phase,'negotiating');
+  assert.match(app.elements.get('negotiation-reason').textContent,/simulated/);
+  await app.flushTimers();
+  const after=handoffOf(app),state=api.getNegotiationState(),agreed=api.getNegotiatedHandoff();
+  assert.equal(state.phase,'confirmed',JSON.stringify(state));
+  assert.equal(after.userRole.parcelId,original);assert.equal(after.userRole.roleOnRoute,false);
+  assert.equal(after.userRole.liveCallLocked,true);
+  assert(!after.snapshot.routes[0].parcelIds.includes(original));
+  assert.notDeepEqual(after.snapshot.routes[0].geometry,before.snapshot.routes[0].geometry);
+  assert(after.routeVersion>before.routeVersion);
+  assert.equal(agreed.sourceMode,'mock');assert.equal(agreed.ownerHandoff.referenceBinding,'local-fixture');
+  assert.equal(agreed.ownerHandoff.routeStatus,'ready_for_agreements');
+  assert.equal(agreed.negotiations.length,after.snapshot.routes[0].parcelIds.length);
+  assert(agreed.negotiations.every(n=>n.outcome==='accepted'&&n.sourceMode==='mock'&&n.parcelId!==original));
+  assert.equal(app.elements.get('negotiation-new-cost').textContent,new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(agreed.totals.totalCostCents/100));
+  assert.match(app.elements.get('negotiation-parcels').textContent,new RegExp(`Removed: .*${original}`));
+  app.click('open-analysis');
+  assert.match(app.elements.get('analysis-consent-note').textContent,/0 pending/);
+  const row=app.elements.get('analysis-parcel-list').children[0];row.click();
+  assert.equal(app.elements.get('analysis-negotiation').textContent,'Accepted · simulated');
+  app.click('agent-call');assert.equal(calls,0);
+  assert.equal(app.elements.get('settle-payment').disabled,true,'simulated owner agreement does not create manager approval');
+  assert.equal(app.elements.get('simulate-refusal').disabled,true);
+  assert(after.ownerHandoff.parcels.every(p=>p.terms.outcome==='pending'),'original map estimate stays separate from simulated agreements');
+  for(const secret of Object.values(privateUser))assert(!JSON.stringify(agreed).includes(secret));
+  app.click('close-analysis');app.click('recalculate-route');
+  assert.equal(api.getNegotiatedHandoff(),null,'old-route agreement is revoked immediately');
+  await app.runTimersFor(1600);
+  assert.equal(api.getNegotiatedHandoff(),null,'a newly calculated route needs fresh agreements');
+  await app.flushTimers();
+  assert(!handoffOf(app).snapshot.routes[0].parcelIds.includes(original),'later recalculation preserves refusal');
+  assert.equal(api.getNegotiatedHandoff().ownerHandoff.routeVersion,handoffOf(app).routeVersion);
+  assert.equal(calls,0,'only fictional owners are simulated again');
+  app.click('reset-plan');
+  assert.equal(api.getNegotiationState().blockedParcelIds.length,0);
+  assert.equal(app.scene().getObjectByName('Previous route').children.length,0);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('a host negotiation subscription disables fixture controls and is canceled on participant edits and departure',async()=>{
+  const app=boot();placePair(app);await app.flushTimers();const api=app.window.easygridDemo;
+  const subscriptions=[];let cleanupCount=0;
+  api.setNegotiationSource(input=>{subscriptions.push(input);input.onReady();return()=>{cleanupCount++;};});
+  await settlePromises();
+  assert.equal(subscriptions.length,1);assert.equal(app.elements.get('simulate-refusal').hidden,true);
+  assert.equal(api.getNegotiationState().connected,true);
+  const initial=subscriptions[0];
+  app.click('edit-participant');
+  assert.equal(initial.signal.aborted,true);assert.equal(cleanupCount,1);
+  assert.equal(initial.onUpdate({malformed:true}).status,'ignored');
+  enterUser(app);await app.flushTimers();await settlePromises();
+  assert.equal(subscriptions.length,2);assert.equal(subscriptions[1].signal.aborted,false);
+  app.window.emit('pagehide');await settlePromises();
+  assert.equal(subscriptions[1].signal.aborted,true);assert.equal(cleanupCount,2);
+  assert.equal(api.getNegotiatedHandoff(),null);assert.deepEqual(app.errors,[]);
 });
 
 test('Agent call invokes the registered host only on click and ignores stale asynchronous completion',async()=>{

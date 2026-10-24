@@ -5,3 +5,4 @@ export * from './claude.ts';
 export * from './fixtures.ts';
 export * from './owner-handoff.ts';
 export * from './owner-handoff-fixtures.ts';
+export * from './map-negotiation.ts';

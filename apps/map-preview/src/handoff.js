@@ -55,7 +55,7 @@ export function localPointToGeoJSON(x,z) {
  * A shareable, contact-redacted fixture snapshot. This does not import a project,
  * register a phone number, grant land access or start a call.
  */
-export function createHandoff({world,route,analysis,placements,participant=null,userParcelId=null,
+export function createHandoff({world,route,analysis,placements,participant=null,userParcelId=null,liveCallLocked=false,
   sessionId,routeVersion,budgetCents=DEMO_BUDGET_CENTS}={}) {
   requireId(sessionId,'Demo session ID',96);integer(routeVersion,'Route version',1);integer(budgetCents,'Demo budget');
   if(!world?.parcelById||!world?.ownerById||!route||!analysis)throw new Error('A selected route and its parcel analysis are required.');
@@ -77,8 +77,14 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     analysis.totals?.upfrontCents!==costs.compensationCents||analysis.totals?.rentTotalCents!==costs.rentCents)throw new Error('Parcel costs do not reconcile with the selected route.');
   finite(route.lengthTiles,'Route length',Number.MIN_VALUE);
   if(Math.abs(analysis.parcels.reduce((sum,p)=>sum+finite(p.lineLengthTiles,'Parcel crossed length'),0)-route.lengthTiles)>1e-6)throw new Error('Parcel lengths do not reconcile with the selected route.');
-  const selectedUserParcel=chooseUserParcel(analysis,userParcelId);
-  if(!selectedUserParcel||!route.parcelIds.includes(selectedUserParcel))throw new Error('The user role must belong to an affected route parcel.');
+  // An explicit role is a session binding, including after its parcel leaves the route.
+  // Only an unassigned session may choose from the current affected parcels.
+  const selectedUserParcel=userParcelId??chooseUserParcel(analysis);
+  const originalParcel=world.parcelById.get(selectedUserParcel);
+  const originalOwner=originalParcel&&world.ownerById.get(originalParcel.ownerId);
+  if(!originalParcel?.synthetic||!originalOwner?.synthetic)throw new Error('The user role must reference an existing fictional parcel and owner.');
+  if(typeof liveCallLocked!=='boolean')throw new Error('The live-call lock must be a boolean.');
+  const roleOnRoute=route.parcelIds.includes(selectedUserParcel);
   const validation=validateDemoParticipant({alias:participant?.alias??'',phone:participant?.phoneE164??participant?.phone??'',consent:participant?.consent??false});
   const projectId=`demo-${sessionId}`,contactRef=`${sessionId}:user`;
   const meta={schemaVersion:1,sourceMode:'fixture',evidenceRefs:[`fixture:${world.parcelFixtureVersion}`,`fixture:${DEMO_COORDINATE_TRANSFORM.id}`]};
@@ -148,7 +154,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     sessionId,projectId,routeId:route.id,routeVersion,revision:0,referenceBinding:'local-fixture',
     currency:'USD',routeStatus:'selected_for_negotiation',rentHorizonMonths,
     constructionCents:candidate.constructionCents,budgetCents,simulationChecksPassed:recommendationsComplete,
-    owners:[...owners.values()].map(owner=>{
+    owners:[...new Map([...owners,[originalOwner.id,{id:originalOwner.id,alias:originalOwner.alias}]]).values()].map(owner=>{
       const original=world.ownerById.get(owner.id),banking=original.banking;
       if(!banking||banking.ownerId!==owner.id||banking.mode!=='simulated'||
         typeof banking.paymentRecipientRef!=='string'||!banking.paymentRecipientRef.startsWith('mock-')||
@@ -157,7 +163,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
         throw new Error('A matching simulated banking profile is required for each affected owner.');
       }
       requireId(banking.paymentRecipientRef,'Mock payment recipient reference');
-      const isUser=owner.id===userRow.ownerId;
+      const isUser=owner.id===originalOwner.id;
       const ownerContactRef=isUser?contactRef:original.contactRef;
       requireId(ownerContactRef,'Owner contact reference');
       return {ownerId:owner.id,alias:owner.alias,synthetic:true,
@@ -179,7 +185,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
           compensationCents:row.upfrontCents,monthlyRentCents:row.monthlyRentCents,
           comparisonRentTotalCents:row.rentTotalCents,monthlyRentIsApproximate:row.monthlyRentIsApproximate}};
     }),
-    userRole:{ownerId:userRow.ownerId,parcelId:selectedUserParcel},
+    userRole:{ownerId:originalOwner.id,parcelId:selectedUserParcel},
   };
   if(new Set(ownerHandoff.owners.map(owner=>owner.banking.paymentRecipientRef)).size!==ownerHandoff.owners.length){
     throw new Error('Each affected owner must have a distinct mock payment recipient reference.');
@@ -190,16 +196,16 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     costModel:JSON.parse(JSON.stringify(route.costModel??DEMO_COST_MODEL)),
     snapshot:{project,owners:[...owners.values()],parcels,routes:[candidate],negotiations:[],easements:[],approvals:[],payments:[],reconciliations:[],events:[]},
     parcelAnalysis,ownerHandoff,
-    userRole:{parcelId:selectedUserParcel,ownerId:userRow.ownerId,originalOwnerAlias:userRow.ownerAlias,
+    userRole:{parcelId:selectedUserParcel,ownerId:originalOwner.id,originalOwnerAlias:originalOwner.alias,roleOnRoute,liveCallLocked,
       displayAlias:'User participant',participantContactRef:contactRef,
       participantReady:validation.valid,participantConsent:validation.valid,
       assignmentMode:'demo-roleplay-overlay',note:'A consenting participant plays this fictional owner. The base parcel and owner are unchanged.'},
-    callPreparation:{status:!eligible?'review-required':validation.valid?'ready-for-host-adapter':'participant-required',
+    callPreparation:{status:liveCallLocked?'refused':!roleOnRoute?'role-not-on-route':!eligible?'review-required':validation.valid?'ready-for-host-adapter':'participant-required',
       canStartCall:false,backendBindingRequired:true,contactRegistered:false,
-      proposedTerms:{upfrontCents:userRow.upfrontCents,recommendedOfferCents:userRow.recommendedOfferCents,
+      proposedTerms:userRow?{upfrontCents:userRow.upfrontCents,recommendedOfferCents:userRow.recommendedOfferCents,
         offerCapCents:userRow.offerCapCents,offerPolicy:createOfferPolicy(userRow.recommendedOfferCents),
         rentTotalCents:userRow.rentTotalCents,monthlyRentEquivalentCents:userRow.monthlyRentCents,
-        monthlyRentIsApproximate:userRow.monthlyRentIsApproximate,termMonths:rentHorizonMonths,depositCents:0},
+        monthlyRentIsApproximate:userRow.monthlyRentIsApproximate,termMonths:rentHorizonMonths,depositCents:0}:null,
       note:'This is an offline fixture handoff. The host must import it, bind canonical backend IDs and revisions, privately register the consented participant, and confirm any call action. Call consent does not grant land access. Monthly rent is a rounded equivalent, not negotiated terms.',
       budgetNote:'The default USD 5,000,000 budget is fictional and is not an approved project budget.'},
   };

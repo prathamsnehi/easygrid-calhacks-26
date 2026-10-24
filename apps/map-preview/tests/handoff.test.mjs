@@ -43,11 +43,11 @@ test('US national phone inputs normalize to +1 while explicit international pref
   }
 });
 
-test('every selected route receives exactly one in-route user role without changing fixture owners',()=>{
+test('an unassigned session receives one in-route user role without changing fixture owners',()=>{
   const before=JSON.stringify({owners:world.owners,parcels:world.parcels});
   for(const candidate of result.candidates){
     const nextAnalysis=analyzeRouteParcels(world,candidate,result.assumptions);
-    const packet=createHandoff({...input,route:candidate,analysis:nextAnalysis,userParcelId:'not-on-route'});
+    const packet=createHandoff({...input,route:candidate,analysis:nextAnalysis});
     assert.equal(packet.schemaVersion,2);
     assert.equal(packet.snapshot.project.schemaVersion,1);
     assert.doesNotMatch(JSON.stringify(packet),/judge/i);
@@ -63,6 +63,7 @@ test('every selected route receives exactly one in-route user role without chang
     assert.equal(selected.ownerAlias,world.parcelById.get(selected.id).ownerAlias);
   }
   assert.equal(JSON.stringify({owners:world.owners,parcels:world.parcels}),before);
+  assert.throws(()=>createHandoff({...input,userParcelId:'not-on-route'}),/existing fictional parcel/);
 });
 
 test('shared packet redacts real participant alias and number while exposing exact route and proposal costs',()=>{
