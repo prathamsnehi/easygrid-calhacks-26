@@ -24,7 +24,7 @@ test('Capital One Nessie adapter reads only verified sandbox account, deposits a
    u.pathname.endsWith('/withdrawals')?[{_id:'withdrawal-1',amount:5.5,status:'pending'}]:
    {_id:'sandbox-1'};
   return {ok:true,json:async()=>data};
- }) as typeof fetch;
+ }) as unknown as typeof fetch;
  const result=await collectNessieEvidence({baseUrl:'https://api.nessieisreal.com/',apiKey:'sandbox-test',sandboxAccountId:'sandbox-1',fetcher});
  assert.deepEqual(visited,['GET /accounts/sandbox-1','GET /accounts/sandbox-1/deposits','GET /accounts/sandbox-1/withdrawals']);
  assert.equal(result.transactions[0]?.amountCents,1230);
@@ -32,15 +32,15 @@ test('Capital One Nessie adapter reads only verified sandbox account, deposits a
  assert.match(result.note,/NOT PROOF/);
 });
 test('Nessie prevents key exfiltration, mismatched account and invalid non-cent amounts',async()=>{
- const never=(async()=>{throw Error('should not fetch')}) as typeof fetch;
+ const never=(async()=>{throw Error('should not fetch')}) as unknown as typeof fetch;
  await assert.rejects(collectNessieEvidence({baseUrl:'https://evil.example/',apiKey:'secret',sandboxAccountId:'sandbox-1',fetcher:never}));
  await assert.rejects(collectNessieEvidence({baseUrl:'https://api.nessieisreal.com.evil.example/',apiKey:'secret',sandboxAccountId:'sandbox-1',fetcher:never}));
- const mismatch=(async()=>({ok:true,json:async()=>({_id:'other'})})) as typeof fetch;
+ const mismatch=(async()=>({ok:true,json:async()=>({_id:'other'})})) as unknown as typeof fetch;
  await assert.rejects(collectNessieEvidence({baseUrl:'https://api.nessieisreal.com/',apiKey:'key',sandboxAccountId:'sandbox-1',fetcher:mismatch}));
  const invalid=(async(url:string)=>{
   const p=new URL(url).pathname;
   return {ok:true,json:async()=>p.endsWith('/deposits')?[{_id:'d1',amount:1.234,status:'completed'}]:p.endsWith('/withdrawals')?[]:{_id:'sandbox-1'}};
- }) as typeof fetch;
+ }) as unknown as typeof fetch;
  await assert.rejects(collectNessieEvidence({baseUrl:'https://api.nessieisreal.com/',apiKey:'key',sandboxAccountId:'sandbox-1',fetcher:invalid}));
 });
 test('Hyphenate-themed agent marks mismatches as blocked and requires manual resolution',()=>{
