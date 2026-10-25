@@ -29,3 +29,14 @@ test('scoped operations preserve full draft inputs and require matching server s
     responseScope=scope; await assert.rejects(api('state',draft),/did not confirm the representative demo contract/);
   }
 });
+
+
+test('participant approval explicitly targets the current call parcel and rejects a substituted owner', async () => {
+  const context={userParcelId:'P-004'};let body;
+  const selected={...approval,demoTarget:'participant',demoParcelId:'P-004'};
+  await approveMapContracts(context,{demoTarget:'participant',fetcher:async(_url,options)=>{body=JSON.parse(options.body);return {ok:true,json:async()=>selected};}});
+  assert.equal(body.demoTarget,'participant');assert.equal(body.context.userParcelId,'P-004');
+  for(const bad of [{...selected,demoTarget:'representative'},{...selected,demoParcelId:'P-009'}]){
+    await assert.rejects(approveMapContracts(context,{demoTarget:'participant',fetcher:async()=>({ok:true,json:async()=>bad})}),/did not approve the current call target/);
+  }
+});

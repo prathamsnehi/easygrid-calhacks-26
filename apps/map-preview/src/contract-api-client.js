@@ -16,13 +16,15 @@ export function createContractAPIClient({fetcher = globalThis.fetch, packageId =
   };
 }
 
-export async function approveMapContracts(context, {fetcher = globalThis.fetch, signal} = {}) {
+export async function approveMapContracts(context, {fetcher = globalThis.fetch, signal, demoTarget = 'representative'} = {}) {
+  if (!['representative','participant'].includes(demoTarget)) throw new Error('Unknown demo approval target.');
   let response;
-  try {response = await fetcher('/api/contracts/approve-map',{method:'POST',headers:{'content-type':'application/json','x-easygrid-demo':'1'},body:JSON.stringify({context,demoScope:'single-owner'}),signal});}
+  try {response = await fetcher('/api/contracts/approve-map',{method:'POST',headers:{'content-type':'application/json','x-easygrid-demo':'1'},body:JSON.stringify({context,demoScope:'single-owner',...(demoTarget === 'participant' ? {demoTarget} : {})}),signal});}
   catch {throw new Error('The development approval service is unavailable. Open the app through its local server.');}
   const result = await response.json();
   if (!response.ok) throw new Error(result.error ?? 'The map negotiation could not be approved.');
   if (result.simulated !== true || !/^map-contract-[a-f0-9]{40}$/.test(result.packageId)) throw new Error('The development service returned an invalid approved package.');
   if (result.demoScope !== 'single-owner' || typeof result.demoParcelId !== 'string' || !result.input?.parcels?.some(parcel => parcel.parcelId === result.demoParcelId)) throw new Error('The local server does not support the representative contract demo yet. Open the updated server and try again.');
+  if (demoTarget === 'participant' && (result.demoTarget !== 'participant' || result.demoParcelId !== context.userParcelId)) throw new Error('The service did not approve the current call target. The contract was not opened.');
   return result;
 }

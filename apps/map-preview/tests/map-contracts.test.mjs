@@ -486,3 +486,98 @@ test('scope changes wait for in-flight commands and reject queued commands carry
   assert.equal(restored.signatures.utility.actorId,'demo-utility-controller');
   assert.equal(restored.agreementProgress.totalCount,1);assert.equal(restored.paymentReady,false);
 }));
+
+
+test('participant approval selects the original-route roleplay parcel and preserves the full package across restart', async () => withAPI(async (api,options,directory) => {
+  const handoff = proposal(),context = mapContractRequest(handoff,placements);
+  const original = await call(api,'approve-map',{context});
+  assert.equal(original.status,200,original.body.error);assert.equal(original.body.demoTarget,null);
+  const representative = await call(api,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(representative.status,200,representative.body.error);assert.equal(representative.body.demoTarget,'representative');
+  assert.notEqual(representative.body.demoParcelId,context.userParcelId,'fixture must distinguish participant and representative');
+  const {packageId,input} = representative.body;
+  const priorDraft = createContractDraft(input,representative.body.demoParcelId,{id:'representative-before-participant'});
+  await call(api,'sign/utility',{packageId,demoScope:'single-owner',demoParcelId:priorDraft.parcelId,draft:priorDraft});
+  const path = join(directory,'map-contracts.json'), prior = JSON.parse(await readFile(path,'utf8')).packages[packageId];
+  const participant = await call(api,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(participant.status,200,participant.body.error);assert.equal(participant.body.packageId,packageId);
+  assert.equal(participant.body.demoTarget,'participant');assert.equal(participant.body.demoParcelId,context.userParcelId);
+  assert.equal(participant.body.demoParcelId,handoff.userRole.parcelId);
+  assert.deepEqual(participant.body.input,original.body.input);assert.deepEqual(participant.body.agreement,original.body.agreement);
+  assert.deepEqual(participant.body.mapBinding,original.body.mapBinding);
+  const converted = JSON.parse(await readFile(path,'utf8')).packages[packageId];
+  assert.deepEqual(converted.ledger,prior.ledger);assert.deepEqual(converted.source,prior.source);
+  assert.equal(converted.demoTarget,'participant');assert.equal(converted.demoParcelId,context.userParcelId);
+  const scope = {packageId,demoScope:'single-owner',demoParcelId:context.userParcelId};
+  assert.equal((await call(api,'state',{...scope,draft:priorDraft})).status,409);
+  const draft = createContractDraft(input,context.userParcelId,{id:'participant-current-contract'});
+  await call(api,'sign/utility',{...scope,draft});
+  const signed = await call(api,'sign/landowner',{...scope,draft});
+  assert.equal(signed.status,200,signed.body.error);assert.equal(signed.body.paymentReady,true);assert.equal(signed.body.packageReady,false);
+  assert.deepEqual(signed.body.agreementProgress,{signedCount:1,totalCount:1,nextUnsignedParcelId:null});
+  const restarted = await createContractAPI(options), restored = await call(restarted,'state',{...scope,draft});
+  assert.equal(restored.status,200,restored.body.error);assert.equal(restored.body.paymentReady,true);
+  assert.equal(restored.body.demoParcelId,context.userParcelId);
+  const reopened = await call(restarted,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(reopened.status,200,reopened.body.error);assert.equal(reopened.body.demoTarget,'participant');
+  assert.equal(reopened.body.packageId,packageId);assert.deepEqual(reopened.body.input,original.body.input);
+}));
+
+test('unknown participant targets or targets without single-owner scope are rejected without changing approval', async () => withAPI(async (api,_options,directory) => {
+  const context = mapContractRequest(proposal(),placements), original = await call(api,'approve-map',{context});
+  assert.equal(original.status,200,original.body.error);
+  const path = join(directory,'map-contracts.json'), before = await readFile(path,'utf8');
+  for (const extra of [
+    {demoScope:'single-owner',demoTarget:'arbitrary-owner'},
+    {demoScope:'single-owner',demoTarget:''},
+    {demoScope:'single-owner',demoTarget:true},
+    {demoTarget:'participant'},
+    {demoScope:null,demoTarget:'representative'},
+  ]) {
+    const rejected = await call(api,'approve-map',{context,...extra});
+    assert.equal(rejected.status,409,JSON.stringify(extra));
+    assert.equal(await readFile(path,'utf8'),before,'invalid target requests must not mutate approval or ledger');
+  }
+}));
+
+test('a refused original participant cannot be selected after rerouting excludes their parcel', async () => withAPI(async (api,_options,directory) => {
+  const original = proposal(), refused = original.userRole.parcelId;
+  const restrictions = {blockedParcelIds:[refused],blockedTowerParcelIds:[],exclusionZones:[]};
+  const rerouted = computeTransmissionRoutes(world,placements,restrictions);
+  const selected = rerouted.candidates.find(candidate => {
+    const handoff = createHandoff({world,route:candidate,placements,analysis:analyzeRouteParcels(world,candidate,rerouted.assumptions),sessionId:original.sessionId,routeVersion:2,userParcelId:refused});
+    return handoff.snapshot.routes[0].eligible;
+  });
+  assert(selected,'fixture must offer an eligible reroute');
+  const handoff = createHandoff({world,route:selected,placements,analysis:analyzeRouteParcels(world,selected,rerouted.assumptions),sessionId:original.sessionId,routeVersion:2,userParcelId:refused,liveCallLocked:true});
+  const context = mapContractRequest(handoff,placements,restrictions);
+  assert.equal(context.userParcelId,refused);assert(!selected.parcelIds.includes(refused));
+  const approved = await call(api,'approve-map',{context});
+  assert.equal(approved.status,200,approved.body.error);assert(!approved.body.input.parcels.some(parcel=>parcel.parcelId===refused));
+  const path = join(directory,'map-contracts.json'), before = await readFile(path,'utf8');
+  const rejected = await call(api,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(rejected.status,409);assert.equal(await readFile(path,'utf8'),before);
+  const representative = await call(api,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(representative.status,200,representative.body.error);assert.equal(representative.body.demoTarget,'representative');
+  assert.notEqual(representative.body.demoParcelId,refused);assert.equal(representative.body.packageId,approved.body.packageId);
+}));
+
+test('switching representative to participant cannot exclude an unresolved representative record', async () => withAPI(async (api,options,directory) => {
+  const context = mapContractRequest(proposal(),placements);
+  const representative = await call(api,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(representative.status,200,representative.body.error);
+  const {packageId,input,demoParcelId} = representative.body;
+  assert.notEqual(demoParcelId,context.userParcelId);
+  const path = join(directory,'map-contracts.json'), registry = JSON.parse(await readFile(path,'utf8'));
+  const record = registry.packages[packageId], parcel = input.parcels.find(parcel=>parcel.parcelId===demoParcelId);
+  const id = `full-${createHash('sha256').update(JSON.stringify([input.sessionId,demoParcelId])).digest('hex').slice(0,32)}`;
+  record.ledger.obligations[id] = {id,stage:'full',parcelId:demoParcelId,status:'unknown',amountCents:parcel.compensationCents,documentHash:'existing-approved-document',reason:'Provider confirmation was lost'};
+  await writeFile(path,JSON.stringify(registry));
+  const restarted = await createContractAPI(options);
+  const blocked = await call(restarted,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(blocked.status,409);assert.match(blocked.body.error,/Other landowner payment attempts/);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),registry,'target conversion must preserve prior scope and uncertain evidence');
+  const retained = await call(restarted,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(retained.status,200,retained.body.error);assert.equal(retained.body.demoTarget,'representative');
+  assert.equal(retained.body.demoParcelId,demoParcelId);assert.equal(retained.body.packageId,packageId);
+}));

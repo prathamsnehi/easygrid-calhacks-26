@@ -773,11 +773,13 @@ test('refusal demo bypasses the original owner and opens one representative cont
 test('an unpriced corridor parcel does not disable refusal on a current route',async()=>{
   const app=boot();
   assert.equal(app.elements.get('simulate-refusal').disabled,true,'a route is still required');
+  assert.equal(app.elements.get('simulate-approval').disabled,true);
   app.click('next-site');app.click('confirm-placement');
   app.click('next-site');app.click('next-site');app.click('confirm-placement');
   await app.flushTimers();
   const before=handoffOf(app),api=app.window.easygridDemo;
   assert.equal(before.snapshot.routes[0].eligible,false);
+  assert.equal(app.elements.get('simulate-approval').disabled,true,'approval needs a fully eligible current route');
   assert(before.parcelAnalysis.some(p=>p.corridorOnly),'exercise a real unpriced corridor contact');
   assert.equal(app.elements.get('simulate-refusal').disabled,false);
   assert.equal(app.elements.get('settle-payment').disabled,true);
@@ -798,6 +800,7 @@ test('a host negotiation subscription disables fixture controls and is canceled 
   api.setNegotiationSource(input=>{subscriptions.push(input);input.onReady();return()=>{cleanupCount++;};});
   await settlePromises();
   assert.equal(subscriptions.length,1);assert.equal(app.elements.get('simulate-refusal').hidden,true);
+  assert.equal(app.elements.get('simulate-approval').hidden,true);assert.equal(app.elements.get('simulate-approval').disabled,true);
   assert.equal(api.getNegotiationState().connected,true);
   const initial=subscriptions[0];
   app.click('edit-participant');
@@ -1128,4 +1131,102 @@ test('a late contract preparation response cannot reopen a changed route',async(
   assert.equal(app.elements.get('contract-workspace').hidden,true);
   assert.equal(app.elements.get('overview-settlement').disabled,true);
   assert.deepEqual(app.errors,[]);
+});
+
+
+test('simulate approval opens the original call target agreement directly without rerouting, signing or paying',async()=>{
+  const requests=[];let releaseApproval,approved;
+  const app=boot({fetcher:async(url,options)=>{
+    const body=JSON.parse(options.body);requests.push({url,body});
+    if(url==='/api/contracts/approve-map'){
+      assert.equal(body.demoScope,'single-owner');assert.equal(body.demoTarget,'participant');
+      const handoff=reconstructMapProposal(body.context),agreement=simulatedMapAgreement(handoff,{negotiationId:'ui-original-approval',approvedAt:'2026-10-24T20:00:00Z'});
+      approved={packageId:`map-contract-${'c'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input:contractSourceFromAgreement(agreement,handoff),demoScope:'single-owner',demoTarget:'participant',demoParcelId:body.context.userParcelId};
+      return new Promise(resolve=>{releaseApproval=()=>resolve({ok:true,json:async()=>approved});});
+    }
+    assert.equal(url,'/api/contracts/state','opening never signs or submits');
+    assert.equal(body.draft.parcelId,approved.demoParcelId);
+    return {ok:true,json:async()=>({draftId:body.draft.id,documentHash:'d'.repeat(64),signatures:{},audit:[],journal:[],packageId:approved.packageId,demoScope:'single-owner',demoParcelId:approved.demoParcelId,paymentReady:false,packageReady:false,bankMode:'simulation'})};
+  }});
+  placePair(app);await app.flushTimers();const before=handoffOf(app),api=app.window.easygridDemo;
+  const target=before.userRole.parcelId,owner=before.ownerHandoff.owners.find(owner=>owner.ownerId===before.ownerHandoff.parcels.find(parcel=>parcel.parcelId===target).ownerId);
+  assert.equal(app.elements.get('simulate-approval').disabled,false);
+  app.click('simulate-approval');
+  assert.equal(api.getNegotiationState().phase,'approved');
+  assert.equal(app.elements.get('simulate-approval').disabled,true);assert.equal(app.elements.get('simulate-refusal').disabled,true);
+  app.click('simulate-approval');assert.equal(requests.length,1);
+  releaseApproval();await settlePromises();await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('contract-workspace').hidden,false);
+  assert.equal(app.elements.get('cg-gate').hidden,true,'skip the extra review gate');
+  assert.equal(app.elements.get('cg-editor').hidden,false);
+  assert.equal(app.elements.get('cg-parcel').value,target);
+  assert.equal(app.elements.get('cg-owner-count').textContent,'1');
+  assert(app.elements.get('cg-preview').innerHTML.includes(owner.alias));
+  assert.equal(app.elements.get('cg-parcel-total').textContent,usd(approved.input.parcels.find(parcel=>parcel.parcelId===target).compensationCents));
+  assert.equal(app.elements.get('cg-continue-payment').disabled,true);
+  assert.deepEqual(handoffOf(app).snapshot.routes[0].geometry,before.snapshot.routes[0].geometry);
+  assert.equal(handoffOf(app).routeVersion,before.routeVersion);
+  assert.equal(api.getNegotiationState().previous,null);assert.equal(api.getNegotiatedHandoff(),null);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.getNegotiationState().outcomes)),[{parcelId:target,outcome:'accepted',sourceMode:'mock'}]);
+  assert.match(app.elements.get('negotiation-reason').textContent,/Current landowner approved/);
+  for(const secret of Object.values(privateUser)){assert(!JSON.stringify(requests).includes(secret));assert(!app.elements.get('cg-preview').innerHTML.includes(secret));}
+  app.click('cg-close');assert.equal(app.elements.get('simulate-approval').textContent,'Open approved contract');
+  assert.equal(app.elements.get('settle-payment').disabled,false);
+  assert.equal(app.elements.get('overview-settlement').disabled,false);
+  assert.equal(app.elements.get('settlement-status').textContent,'Owner approved · demo');
+  let settlementRequests=0;api.setSettlementHandler(async()=>{settlementRequests++;throw new Error('Contract navigation must not invoke payment.');});
+  app.click('overview-settlement');await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('cg-editor').hidden,false);assert.equal(app.elements.get('cg-gate').hidden,true);
+  app.click('cg-close');app.click('settle-payment');await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('cg-editor').hidden,false);
+  app.click('cg-close');app.click('simulate-approval');await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('cg-editor').hidden,false);
+  assert.equal(settlementRequests,0);
+  assert.equal(requests.filter(request=>request.url==='/api/contracts/approve-map').length,1,'reopening reuses the existing approval');
+  assert(requests.every(request=>['/api/contracts/approve-map','/api/contracts/state'].includes(request.url)));
+  assert.deepEqual(app.errors,[]);
+});
+
+test('failed approval preparation can retry the same original owner without repeating negotiation',async()=>{
+  let attempts=0,approved;
+  const app=boot({fetcher:async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(url==='/api/contracts/approve-map'){
+      attempts++;if(attempts===1)throw new Error('Local service unavailable.');
+      const handoff=reconstructMapProposal(body.context),agreement=simulatedMapAgreement(handoff,{negotiationId:'ui-retry-approval',approvedAt:'2026-10-24T20:00:00Z'});
+      approved={packageId:`map-contract-${'e'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input:contractSourceFromAgreement(agreement,handoff),demoScope:'single-owner',demoTarget:'participant',demoParcelId:body.context.userParcelId};
+      return {ok:true,json:async()=>approved};
+    }
+    assert.equal(url,'/api/contracts/state');
+    return {ok:true,json:async()=>({draftId:body.draft.id,documentHash:'f'.repeat(64),signatures:{},audit:[],journal:[],packageId:approved.packageId,demoScope:'single-owner',demoParcelId:approved.demoParcelId,paymentReady:false,bankMode:'simulation'})};
+  }});
+  placePair(app);await app.flushTimers();const before=handoffOf(app);
+  app.click('simulate-approval');await settlePromises();await settlePromises();
+  assert.equal(app.window.easygridDemo.getNegotiationState().phase,'approved');
+  assert.equal(app.elements.get('simulate-approval').disabled,false);
+  assert.match(app.elements.get('handoff-result').textContent,/unavailable/);
+  assert.equal(app.elements.get('contract-workspace').hidden,true);
+  app.click('simulate-approval');await settlePromises();await settlePromises();await settlePromises();
+  assert.equal(attempts,2);assert.equal(app.elements.get('cg-editor').hidden,false);
+  assert.equal(handoffOf(app).routeVersion,before.routeVersion);
+  assert.equal(app.window.easygridDemo.getNegotiationState().outcomes.length,1);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('route changes and host attachment cancel pending approval navigation',async()=>{
+  for(const cancel of ['route','host']){
+    let finish;const requests=[];
+    const app=boot({fetcher:async(url,options)=>{
+      assert.equal(url,'/api/contracts/approve-map');const body=JSON.parse(options.body);requests.push(body);
+      const handoff=reconstructMapProposal(body.context),agreement=simulatedMapAgreement(handoff,{negotiationId:`ui-cancel-${cancel}`,approvedAt:'2026-10-24T20:00:00Z'});
+      return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({packageId:`map-contract-${'a'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input:contractSourceFromAgreement(agreement,handoff),demoScope:'single-owner',demoTarget:'participant',demoParcelId:body.context.userParcelId})});});
+    }});
+    placePair(app);await app.flushTimers();app.click('simulate-approval');assert.equal(typeof finish,'function');
+    if(cancel==='route')app.click('recalculate-route');else app.window.easygridDemo.setNegotiationSource(input=>{input.onReady();return()=>{};});
+    finish();await settlePromises();await settlePromises();
+    assert.equal(app.elements.get('contract-workspace').hidden,true);
+    assert.equal(requests.length,1);
+    if(cancel==='host')assert.equal(app.elements.get('simulate-approval').hidden,true);
+    assert.deepEqual(app.errors,[]);
+  }
 });

@@ -69,7 +69,7 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
     }
   };
   const response = record => copy({packageId:record.packageId,input:record.source,mapBinding:record.agreement.mapBinding,agreement:record.agreement,
-    simulated:true,bankMode,demoScope:record.demoScope ?? null,demoParcelId:record.demoParcelId ?? null,paymentSemantics:configuredBank?.paymentSemantics ?? 'simulated-transfer',amountIncrementCents:configuredBank?.amountIncrementCents ?? 1,paymentsEnabled:configuredBank?.canTransfer !== false});
+    simulated:true,bankMode,demoScope:record.demoScope ?? null,demoParcelId:record.demoParcelId ?? null,demoTarget:record.demoTarget ?? (record.demoScope === 'single-owner' ? 'representative' : null),paymentSemantics:configuredBank?.paymentSemantics ?? 'simulated-transfer',amountIncrementCents:configuredBank?.amountIncrementCents ?? 1,paymentsEnabled:configuredBank?.canTransfer !== false});
   const worker = record => {
     if (workers.has(record.packageId)) return workers.get(record.packageId);
     const bank = configuredBank ?? createDemoBank();
@@ -83,12 +83,22 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       initialState:record.ledger,demoParcelId:record.demoParcelId ?? null,persist:async ledger => {record.ledger=ledger;await save();},now}));
     return workers.get(record.packageId);
   };
-  function scopeFor(source, demoScope) {
+  function scopeFor(source, demoScope, demoTarget, context) {
     requireState(demoScope === undefined || demoScope === null || demoScope === 'single-owner','Unknown contract demo scope.');
-    if (demoScope !== 'single-owner') return {demoScope:null,demoParcelId:null};
-    const parcel = source.parcels.find(parcel => parcel.parcelId === 'L017') ?? source.parcels.find(parcel => parcel.compensationCents % 100 === 0) ?? source.parcels[0];
+    requireState(demoTarget === undefined || demoTarget === null || demoTarget === 'representative' || demoTarget === 'participant','Unknown contract demo target.');
+    requireState(demoTarget == null || demoScope === 'single-owner','A demo target requires a single-owner contract scope.');
+    if (demoScope !== 'single-owner') return {demoScope:null,demoParcelId:null,demoTarget:null};
+    const target = demoTarget ?? 'representative';
+    let parcel;
+    if (target === 'participant') {
+      // The public context is already reconstructed and binding-checked. A refused
+      // participant may remain in that context, but cannot approve the rerouted land.
+      parcel = source.parcels.find(parcel => parcel.parcelId === context.userParcelId);
+      requireState(parcel && !(context.routingConstraints?.blockedParcelIds ?? []).includes(parcel.parcelId),
+        'The current participant must be an unblocked landowner on the approved route.');
+    } else parcel = source.parcels.find(parcel => parcel.parcelId === 'L017') ?? source.parcels.find(parcel => parcel.compensationCents % 100 === 0) ?? source.parcels[0];
     requireState(parcel,'The approved route has no demo landowner.');
-    return {demoScope:'single-owner',demoParcelId:parcel.parcelId};
+    return {demoScope:'single-owner',demoParcelId:parcel.parcelId,demoTarget:target};
   }
   function assertScopePreservesAttempts(record, scope) {
     if (!scope.demoParcelId) return;
@@ -99,16 +109,16 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       'Other landowner payment attempts require review before switching this package to a single-owner demo. Preserve the current package and reconcile those outcomes.');
   }
   return {
-    approve: (context, {demoScope} = {}) => serial(async () => {
+    approve: (context, {demoScope,demoTarget} = {}) => serial(async () => {
       const handoff = reconstructMapProposal(context,world), mapBinding = settlementBinding(handoff);
       const packageId = `map-contract-${digest(mapBinding).slice(0,40)}`, previous = state.packages[state.current[context.sessionId]];
       if (previous?.packageId === packageId) {
-        const scope = scopeFor(previous.source,demoScope);
+        const scope = scopeFor(previous.source,demoScope,demoTarget,context);
         assertScopePreservesAttempts(previous,scope);
         const sourceChanged = previous.source.paymentSchedule !== 'full-after-signatures' || previous.source.project.developerName !== 'EasyGrid';
-        const scopeChanged = (previous.demoScope ?? null) !== scope.demoScope || (previous.demoParcelId ?? null) !== scope.demoParcelId;
+        const scopeChanged = (previous.demoScope ?? null) !== scope.demoScope || (previous.demoParcelId ?? null) !== scope.demoParcelId || (previous.demoTarget ?? null) !== scope.demoTarget;
         if (sourceChanged || scopeChanged) {
-          const priorSource = previous.source, priorScope = {demoScope:previous.demoScope,demoParcelId:previous.demoParcelId};
+          const priorSource = previous.source, priorScope = {demoScope:previous.demoScope,demoParcelId:previous.demoParcelId,demoTarget:previous.demoTarget};
           previous.source = {...priorSource,paymentSchedule:'full-after-signatures',project:{...priorSource.project,developerName:'EasyGrid'}};
           Object.assign(previous,scope);
           try {await save();}
@@ -122,7 +132,7 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       requireState(!previous || context.routeVersion > previous.source.route.version, 'A changed proposal requires a newer route version.');
       const agreement = simulatedMapAgreement(handoff,{negotiationId:`neg-${digest(mapBinding).slice(0,32)}`,approvedAt:now()});
       const source = contractSourceFromAgreement(agreement,handoff);
-      const record = {packageId,source,agreement,...scopeFor(source,demoScope),recipientBindingVersion:2,ledger:createWorkflowState()};
+      const record = {packageId,source,agreement,...scopeFor(source,demoScope,demoTarget,context),recipientBindingVersion:2,ledger:createWorkflowState()};
       state.packages[packageId]=record;state.current[context.sessionId]=packageId;
       try {await save();}
       catch (error) {

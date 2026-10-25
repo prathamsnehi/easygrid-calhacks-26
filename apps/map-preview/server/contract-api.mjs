@@ -70,7 +70,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
     } catch { reply(res,400,{error:'Invalid contract request.'}); return true; }
     try {
       if (pathname === '/api/contracts/approve-map') {
-        const approved = await mapService.approve(input.context,{demoScope:input.demoScope}); reply(res,200,approved); return true;
+        const approved = await mapService.approve(input.context,{demoScope:input.demoScope,demoTarget:input.demoTarget}); reply(res,200,approved); return true;
       }
       const dispatch = async workflow => {
         let result;

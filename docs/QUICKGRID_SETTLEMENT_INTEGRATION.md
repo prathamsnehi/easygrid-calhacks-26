@@ -15,11 +15,21 @@ port. `/contracts.html` remains an independent fixture example using its normal
 full-package workflow; the single-owner scope applies to the map demo.
 
 In the map, register a fictional demo participant, place A/B and analyze an
-eligible route. Click **Simulate refusal**. Once the new route is confirmed,
-**Continue to contract & settlement** opens the representative agreement.
-The excluded participant keeps the original role and is not selected as the
-example owner. The faded previous route and bold updated route remain available
-on the map. Route acceptance remains a fictional demo assumption.
+eligible route. **Simulate approval**, beside **Simulate refusal**, assumes the
+current call target accepts and opens that fictional landowner's contract
+directly. The route and compensation stay unchanged. There is no additional
+**Review agreement** gate, automatic signature, payment or provider record.
+After closing it, **Open approved contract** or either **Continue to contract &
+settlement** button reopens the same bound participant agreement with status
+**Owner approved · demo**; these controls do not grant full-route approval or
+invoke a settlement handler.
+
+**Simulate refusal** remains a separate path: it excludes the original target,
+finds an eligible replacement route and enables **Continue to contract &
+settlement** for one representative owner on that route. The excluded
+participant keeps the original role and is not selected as the example owner.
+The faded previous route and bold updated route remain available on the map.
+Both outcomes are explicit fictional demo assumptions; neither places a call.
 
 Preparing the example still registers and validates the exact current route
 with the local server. Public routing restrictions accompany the redacted
@@ -30,11 +40,15 @@ participant or context changes invalidate the previous workspace.
 
 ## One agreement, two signatures, one explicit action
 
-The server chooses parcel `L017` when it belongs to the final route. Otherwise
-it selects the first whole-dollar agreement, or the first agreement if none has
-a whole-dollar amount. This selection does not round amounts or alter accepted
-terms. Review the chosen owner's document and exact compensation, edit optional
-draft details or export the document, then add the two simulated signatures.
+For **Simulate approval**, the contract belongs to the current call target's
+fictional parcel on the unchanged route. The refusal path retains its fallback
+selection: parcel `L017` when present, otherwise the first whole-dollar agreement,
+or the first agreement if none has a whole-dollar amount. Selection never rounds
+amounts or alters accepted terms. In particular, approval keeps the call target
+even when that amount has cents; it never substitutes a whole-dollar owner to
+make a Nessie record possible. Review the chosen owner's exact compensation,
+edit optional draft details or export the document, then use **Developer** and
+**Landowner** to add the two simulated signatures.
 There is no multiowner batch-signature action or payment-owner selector in this
 shortened journey.
 
@@ -47,12 +61,28 @@ block final execution. Editing the draft invalidates its signatures.
 
 ## Scoped API and preserved evidence
 
-The map calls `POST /api/contracts/approve-map` with
-`{context, demoScope: 'single-owner'}`. The response adds `demoScope` and
-`demoParcelId`; the canonical source, source key and package ID remain unchanged.
+For approval, the map calls `POST /api/contracts/approve-map` with
+`{context, demoScope: 'single-owner', demoTarget: 'participant'}`. The server
+validates that `context.userParcelId` is an unblocked parcel on the current
+route and selects that original fictional owner. The refusal continuation omits
+`demoTarget` and uses the representative fallback. No entered participant name
+or phone is needed to select the contract.
+
+The response includes `demoScope`, `demoParcelId` and the persisted `demoTarget`
+(`participant` or `representative` for this demo);
+the canonical source, source key and package ID remain unchanged.
 Subsequent scoped commands must carry matching `packageId`, `demoScope` and
 `demoParcelId`. This is an explicit local demonstration scope, not approval to
 settle the rest of the route or a change to the shared schema.
+
+The target selection survives a server restart. An older running server that
+does not confirm the requested target/scope must leave approval blocked instead
+of opening another owner's contract. Restart the updated local server using its
+normal ownership/lock procedure; rebuilding the static page alone does not
+update a running backend. Preserve ledgers and unresolved attempts during that
+restart. A failed approval may be retried for the same unchanged proposal;
+route or participant changes invalidate pending results before they can open an
+obsolete contract.
 
 Execution exposes `paymentReady` for the representative agreement.
 `agreementProgress` describes that one agreement, while `routeAgreementProgress`

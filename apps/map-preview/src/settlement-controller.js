@@ -15,8 +15,8 @@ function sameBinding(a,b){return Boolean(a&&b)&&['sessionId','routeId','routeVer
 export function createSettlementController({getHandoff}){
   const button=document.querySelector('#settle-payment'),status=document.querySelector('#settlement-status');
   const feedback=document.querySelector('#settlement-feedback'),overviewButton=document.querySelector('#overview-settlement');
-  let handler=null,approval=null,active=null,generation=0,demoAgreement=null;
-  let onDemoProceed=()=>{},demoBusy=false;
+  let handler=null,approval=null,active=null,generation=0,demoAgreement=null,contractNavigation=null;
+  let onDemoProceed=()=>{},onContractProceed=()=>{},demoBusy=false;
   // Keep a stable key across uncertain retries; a second key must not bypass host deduplication.
   const attempts=new Map();
   let sequence=0;
@@ -30,16 +30,17 @@ export function createSettlementController({getHandoff}){
     if(approval&&!valid){stop();approval=null;}
     const sent=attempt?.status==='sent',uncertain=attempt?.status==='unknown';
     if(demoAgreement&&!sameBinding(demoAgreement.mapBinding,settlementBinding(handoff)))demoAgreement=null;
-    const ready=Boolean(demoAgreement&&!demoBusy||valid&&handler&&!active&&!sent&&!uncertain);
+    if(contractNavigation&&(!eligible(handoff)||!sameBinding(contractNavigation.mapBinding,settlementBinding(handoff))||contractNavigation.parcelId!==handoff.userRole.parcelId))contractNavigation=null;
+    const ready=Boolean((contractNavigation||demoAgreement)&&!demoBusy||valid&&handler&&!active&&!sent&&!uncertain);
     button.disabled=!ready;
     button.classList.toggle('settlement-ready',ready);
-    button.textContent=demoBusy?'Preparing contracts…':active?'Sending…':sent?'Request sent':'Continue to contract & settlement';
+    button.textContent=demoBusy?'Preparing contracts…':active?'Sending…':sent?'Request sent':contractNavigation?'Open approved contract':'Continue to contract & settlement';
     if(overviewButton){overviewButton.disabled=button.disabled;overviewButton.classList.toggle('settlement-ready',ready);overviewButton.textContent=button.textContent;}
-    status.textContent=demoAgreement?'Approved · demo':active?'Sending':sent?'Requested':uncertain?'Check status':valid?'Approved':'Awaiting approval';
-    status.className=`role-badge${valid||demoAgreement?' ready':''}`;
+    status.textContent=contractNavigation?'Owner approved · demo':demoAgreement?'Approved · demo':active?'Sending':sent?'Requested':uncertain?'Check status':valid?'Approved':'Awaiting approval';
+    status.className=`role-badge${valid||demoAgreement||contractNavigation?' ready':''}`;
     if(!active&&!sent&&!uncertain&&!feedback.textContent&&valid&&!handler)feedback.textContent='Settlement not connected.';
   }
-  function invalidate(){stop();approval=null;demoAgreement=null;document.querySelector('#demo-settlement-summary')?.setAttribute('hidden','');feedback.textContent='';render();}
+  function invalidate(){stop();approval=null;demoAgreement=null;contractNavigation=null;document.querySelector('#demo-settlement-summary')?.setAttribute('hidden','');feedback.textContent='';render();}
   function getBinding(){return settlementBinding(current());}
   function setApproval(next){
     // Repeated subscription delivery of the same approval must not cancel its request.
@@ -63,10 +64,11 @@ export function createSettlementController({getHandoff}){
   }
   button.addEventListener('click',async()=>{
     const handoff=current();
-    if(demoAgreement&&sameBinding(demoAgreement.mapBinding,settlementBinding(handoff))){
+    const navigation=contractNavigation??demoAgreement;
+    if(navigation&&sameBinding(navigation.mapBinding,settlementBinding(handoff))){
       if(demoBusy)return;
       const ticket=++generation;demoBusy=true;feedback.textContent='';render();
-      try{await onDemoProceed(copy(demoAgreement));}
+      try{await (contractNavigation?onContractProceed:onDemoProceed)(copy(navigation));}
       catch(error){if(ticket===generation)feedback.textContent=error.message||'Contracts could not be opened. Try again.';}
       finally{if(ticket===generation){demoBusy=false;render();}}
       return;
@@ -102,6 +104,11 @@ export function createSettlementController({getHandoff}){
   }
   render();
   return {getBinding,setApproval,setHandler,resolveAttempt,invalidate,
+    setContractNavigation(value,onProceed=()=>{}){
+      const handoff=current();
+      contractNavigation=value&&eligible(handoff)&&sameBinding(value.mapBinding,getBinding())&&value.parcelId===handoff.userRole.parcelId&&handoff.snapshot.routes[0].parcelIds.includes(value.parcelId)?copy({mapBinding:value.mapBinding,parcelId:value.parcelId}):null;
+      onContractProceed=onProceed;render();
+    },
     setDemoAgreement(value,onProceed=()=>{}){
       demoAgreement=value?.sourceMode==='mock'&&sameBinding(value.mapBinding,getBinding())?copy(value):null;
       onDemoProceed=onProceed;render();
