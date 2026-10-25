@@ -601,7 +601,7 @@ test('settlement stays locked until host approval, then lights up and is revoked
   assert(app.elements.get('settle-payment').classList.contains('settlement-ready'));
   app.click('settle-payment');await settlePromises();
   assert.equal(app.elements.get('settle-payment').textContent,'Request sent');
-  assert.equal(request.stage,'contract_tranche');assert(!('participant' in request));
+  assert.equal(request.stage,'full');assert.equal(request.paymentSchedule,'full-after-signatures');assert(!('participant' in request));
   assert(!JSON.stringify(request).includes(privateUser.phone));assert(!JSON.stringify(request).includes(privateUser.alias));
   assert.equal(handoffOf(app).snapshot.project.status,packet.snapshot.project.status,'button never manufactures project approval');
   assert(handoffOf(app).ownerHandoff.parcels.every(p=>p.terms.outcome==='pending'));

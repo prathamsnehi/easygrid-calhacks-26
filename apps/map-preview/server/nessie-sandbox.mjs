@@ -27,13 +27,14 @@ export function createNessieSandboxBank({apiKey, baseUrl, payerId, recipients, a
     if (!validId(row?._id)) throw new Error('The sandbox record has no verifiable transaction ID.');
     return {obligationId: input.obligationId, amountCents: dollarsToCents(row.amount),
       recipientMatches: row.payer_id === payerId && row.payee_id === recipient.accountId && row.description === marker(input),
-      status: row.status === 'completed' ? 'completed' : 'pending',
+      status: ['completed','failed','rejected','cancelled','canceled'].includes(row.status) ? (['cancelled','canceled'].includes(row.status) ? 'rejected' : row.status) : 'pending',
       transactionRef: `nessie-${row._id.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 100)}`};
   }
   return {
     mode: 'nessie-sandbox',
+    storageNamespace: createHash('sha256').update(JSON.stringify([base.origin, payerId])).digest('hex'),
     canTransfer: allowTransfers,
-    recipientBinding: ownerId => createHash('sha256').update(JSON.stringify(destination(ownerId))).digest('hex'),
+    recipientBinding: ownerId => createHash('sha256').update(JSON.stringify([base.origin,payerId,destination(ownerId)])).digest('hex'),
     inspect: async input => {
       if (input.scenario && input.scenario !== 'normal') throw new Error('Planted scenarios are available only in local simulation.');
       const recipient = destination(input.ownerId);
@@ -54,7 +55,9 @@ export function createNessieSandboxBank({apiKey, baseUrl, payerId, recipients, a
       const response = await request(`/accounts/${encodeURIComponent(payerId)}/transfers`, {method:'POST', body:{medium:'balance', payee_id:recipient.accountId, amount, description:marker(input)}});
       const id = response.objectCreated?._id ?? response._id;
       if (!validId(id)) throw new Error('The sandbox accepted no verifiable transfer ID.');
-      return evidence(await request(`/transfers/${encodeURIComponent(id)}`), input, recipient);
+      const confirmed = await request(`/transfers/${encodeURIComponent(id)}`);
+      if (confirmed?._id !== id) throw new Error('The sandbox returned a different transaction identity.');
+      return evidence(confirmed, input, recipient);
     },
   };
 }

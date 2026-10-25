@@ -18,6 +18,7 @@ export function validateContractSource(input) {
   const errors = [];
   if (!input || typeof input !== 'object') return {valid: false, errors: ['Approved negotiation details are required.']};
   if (input.sourceMode !== 'fixture') errors.push('This development editor accepts fictional example data only.');
+  if (input.paymentSchedule !== undefined && input.paymentSchedule !== 'full-after-signatures') errors.push('Compensation must be paid in full after all agreements are signed.');
   if (!validId(input.sessionId)) errors.push('A demo session ID is required.');
   if (!validId(input.route?.id) || !version(input.route?.version) || !text(input.route?.name, 160)) errors.push('A versioned final route is required.');
   if (!text(input.project?.name, 160) || !text(input.project?.developerName, 160)) errors.push('Project and developer names are required.');
@@ -46,7 +47,7 @@ export function normalizeContractSource(input) {
   const result = validateContractSource(input);
   if (!result.valid) throw new Error(result.errors.join(' '));
   return {
-    sourceMode: 'fixture', sessionId: input.sessionId,
+    sourceMode: 'fixture', sessionId: input.sessionId, paymentSchedule: 'full-after-signatures',
     project: {name: input.project.name.trim(), developerName: input.project.developerName.trim(),
       ...(input.project.signerName !== undefined ? {signerName: input.project.signerName.trim()} : {})},
     route: {id: input.route.id, version: input.route.version, name: input.route.name.trim()},
@@ -61,10 +62,9 @@ export function normalizeContractSource(input) {
 
 export function contractSourceKey(input) { return JSON.stringify(normalizeContractSource(input)); }
 
-export function compensationSplit(totalCents) {
+export function compensationPayment(totalCents) {
   if (!cents(totalCents)) throw new Error('Compensation must be integer cents.');
-  const initialCents = Math.floor(totalCents / 5);
-  return {totalCents, initialCents, completionCents: totalCents - initialCents};
+  return {totalCents, paymentCents: totalCents, paymentSchedule: 'full-after-signatures'};
 }
 
 export function createContractDraft(input, parcelId, {now = new Date().toISOString(), id = `draft-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`}`} = {}) {
@@ -101,7 +101,7 @@ export function updateContractDraft(draft, changes, input, now = new Date().toIS
 export function contractDocument(draft, input) {
   const source = normalizeContractSource(input), validation = validateContractDraft(draft, source);
   if (!validation.valid) throw new Error(validation.errors.join(' '));
-  const parcel = source.parcels.find(p => p.parcelId === draft.parcelId), split = compensationSplit(parcel.compensationCents);
+  const parcel = source.parcels.find(p => p.parcelId === draft.parcelId), payment = compensationPayment(parcel.compensationCents);
   return {title: 'Land-use agreement', reference: `${source.negotiation.id} / ${parcel.parcelId}`,
     ownerName: parcel.ownerName, developerName: draft.fields.developerName,
     ...(source.project.signerName ? {developerSignerName: source.project.signerName} : {}),
@@ -111,7 +111,7 @@ export function contractDocument(draft, input) {
     routeName: source.route.name, routeId: source.route.id, routeVersion: source.route.version,
     termsVersion: parcel.termsVersion, negotiationId: source.negotiation.id,
     negotiationVersion: source.negotiation.version, approvedAt: source.negotiation.approvedAt,
-    ...split,
+    ...payment,
     agreedAccessTerms: parcel.accessTerms, accessDescription: draft.fields.accessTerms,
     specialConditions: draft.fields.specialConditions, draftVersion: draft.version,
     draftId: draft.id, sourceMode: 'fixture', status: 'draft'};
@@ -126,12 +126,12 @@ export function renderContractDocument(draft, input, execution = {}) {
   const date = value => new Date(`${value.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric', timeZone:'UTC'});
   const changedDescription = d.accessDescription.trim() !== d.agreedAccessTerms.trim();
   return `<article class="cg-paper" aria-label="Contract draft preview">
-    <div class="cg-paper-top"><span>QUICKGRID / LAND AGREEMENTS</span><span>FICTIONAL SAMPLE · DRAFT ${d.draftVersion}</span></div>
+    <div class="cg-paper-top"><span>EASYGRID / LAND AGREEMENTS</span><span>FICTIONAL SAMPLE · DRAFT ${d.draftVersion}</span></div>
     <h1>Land access agreement</h1><p class="cg-paper-subtitle">${e(d.projectName)}</p>
     <div class="cg-document-meta"><span>PARCEL<b>${e(d.parcelId)}</b></span><span>AGREEMENT DATE<b>${e(date(d.agreementDate))}</b></span><span>APPROVED TERMS<b>Version ${d.termsVersion}</b></span></div>
     <section><h2>01 / The parties</h2><div class="cg-parties"><div><span>Landowner</span><strong>${e(d.ownerName)}</strong></div><div><span>Developer</span><strong>${e(d.developerName)}</strong></div></div></section>
     <section><h2>02 / Land &amp; access</h2><p>${e(d.landDescription)}</p><div class="cg-access-box"><p class="cg-preserve"><strong>Approved terms:</strong> ${e(d.agreedAccessTerms)}</p></div>${changedDescription ? `<p class="cg-preserve"><strong>Draft access description:</strong> ${e(d.accessDescription)}</p><p class="cg-document-note">This proposed description is for review; it does not change the approved access terms.</p>` : ''}</section>
-    <section><h2>03 / Compensation &amp; payment schedule</h2><table><thead><tr><th>Payment milestone</th><th>Amount · USD</th></tr></thead><tbody><tr><td>Initial payment · 20%<small>After all final-route agreements are signed</small></td><td>${money(d.initialCents)}</td></tr><tr><td>Completion balance<small>After recorded construction completion</small></td><td>${money(d.completionCents)}</td></tr><tr class="cg-table-total"><td>Total agreed compensation</td><td>${money(d.totalCents)}</td></tr></tbody></table><p class="cg-document-note">The initial payment is rounded down to the nearest cent; the final payment is the exact remainder. Each payment requires a separate action.</p></section>
+    <section><h2>03 / Compensation &amp; payment</h2><table><thead><tr><th>Payment terms</th><th>Amount · USD</th></tr></thead><tbody><tr class="cg-table-total"><td>Full compensation · 100%<small>One payment after all final-route agreements are signed</small></td><td>${money(d.paymentCents)}</td></tr></tbody></table><p class="cg-document-note">${e(d.developerName)} will pay ${e(d.ownerName)} the full agreed compensation in one payment. Payment is available once both parties have signed every current final-route agreement.</p></section>
     ${d.specialConditions.trim() ? `<section><h2>Reviewer notes</h2><p class="cg-preserve">${e(d.specialConditions)}</p><p class="cg-document-note">Notes do not amend the approved negotiation.</p></section>` : ''}
     <section><h2>04 / Signatures</h2><div class="cg-document-signatures">${[['utility','Developer',d.developerName,d.developerSignerName],['landowner','Landowner',d.ownerName,d.ownerSignerName]].map(([side,label,organization,representative]) => {
       const signature = execution.signatures?.[side];
@@ -143,7 +143,7 @@ export function renderContractDocument(draft, input, execution = {}) {
 }
 
 export function exportContractHTML(draft, input, execution = {}) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>QuickGrid contract draft</title><style>body{margin:0;background:#f0f1ed;padding:32px;color:#26382e;font:15px/1.7 Georgia,serif}.cg-paper{max-width:760px;margin:auto;background:white;padding:50px;box-sizing:border-box}.cg-paper h1{font-size:36px}.cg-paper h2{font:600 12px Arial,sans-serif;letter-spacing:1px;margin-top:30px}.cg-paper-top,.cg-document-meta,.cg-document-note,.cg-paper footer{font:11px/1.7 Arial,sans-serif}.cg-paper-top,.cg-document-meta{display:flex;justify-content:space-between;gap:20px}.cg-document-meta span b{display:block}.cg-paper table{width:100%;border-collapse:collapse}.cg-paper th,.cg-paper td{padding:10px 0;border-bottom:1px solid #ddd;text-align:left}.cg-paper th:last-child,.cg-paper td:last-child{text-align:right}.cg-parties,.cg-document-signatures{display:grid;grid-template-columns:1fr 1fr;gap:24px}.cg-parties span,.cg-document-signatures small{display:block;font:11px/1.6 Arial,sans-serif;color:#7c8c70}.cg-access-box{background:#f3f6ed;padding:12px 16px;border-left:2px solid #91a57d}.cg-document-signatures>div{border-top:1px solid #ccd7bd;padding-top:12px}td small{display:block;font-size:11px;color:#859577}.cg-document-meta{gap:20px}.cg-source-details{margin-bottom:12px}.cg-preserve{white-space:pre-wrap;overflow-wrap:anywhere}.cg-paper footer{border-top:1px solid #ddd;margin-top:30px;padding-top:16px}.cg-document-signatures>div{border-top:0;padding-top:0;min-width:0}.cg-signature-role{display:block;font:600 8px/1.5 Arial,sans-serif;text-transform:uppercase;letter-spacing:1px;color:#7d8f70}.cg-signature-line{min-height:81px;display:flex;align-items:center;position:relative;border-bottom:1px solid #c4ceba;margin:0 0 11px;padding:8px 3px 10px}.cg-autograph{display:inline-block;position:relative;color:#243d60;font:400 35px/1.15 "Snell Roundhand","Apple Chancery","Segoe Script","Brush Script MT",cursive;transform:rotate(-4deg);overflow-wrap:anywhere}.cg-autograph:after{content:"";position:absolute;left:7%;right:-5%;bottom:-3px;height:7px;border-bottom:1px solid currentColor;border-radius:0 0 55% 45%;transform:rotate(-4deg);opacity:.65}.cg-autograph-landowner{transform:rotate(-2deg);font-style:italic}.cg-signature-pending{font:italic 11px/1.5 Georgia,serif;color:#a1aa98}.cg-document-signatures strong{font:600 10px/1.5 Arial,sans-serif;color:#45543d}.cg-signature-organization{display:block;font:9px/1.5 Arial,sans-serif;color:#7e8f71;margin-top:2px}.cg-document-signatures small{font:8px/1.5 Arial,sans-serif;color:#8d9b80;margin-top:7px}@media(max-width:760px){.cg-autograph{font-size:27px}.cg-signature-line{min-height:76px}}@media print{body{padding:0;background:white}.cg-paper{max-width:none;padding:15mm}section{break-inside:avoid}}</style></head><body>${renderContractDocument(draft, input, execution)}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>EasyGrid contract draft</title><style>body{margin:0;background:#f0f1ed;padding:32px;color:#26382e;font:15px/1.7 Georgia,serif}.cg-paper{max-width:760px;margin:auto;background:white;padding:50px;box-sizing:border-box}.cg-paper h1{font-size:36px}.cg-paper h2{font:600 12px Arial,sans-serif;letter-spacing:1px;margin-top:30px}.cg-paper-top,.cg-document-meta,.cg-document-note,.cg-paper footer{font:11px/1.7 Arial,sans-serif}.cg-paper-top,.cg-document-meta{display:flex;justify-content:space-between;gap:20px}.cg-document-meta span b{display:block}.cg-paper table{width:100%;border-collapse:collapse}.cg-paper th,.cg-paper td{padding:10px 0;border-bottom:1px solid #ddd;text-align:left}.cg-paper th:last-child,.cg-paper td:last-child{text-align:right}.cg-parties,.cg-document-signatures{display:grid;grid-template-columns:1fr 1fr;gap:24px}.cg-parties span,.cg-document-signatures small{display:block;font:11px/1.6 Arial,sans-serif;color:#7c8c70}.cg-access-box{background:#f3f6ed;padding:12px 16px;border-left:2px solid #91a57d}.cg-document-signatures>div{border-top:1px solid #ccd7bd;padding-top:12px}td small{display:block;font-size:11px;color:#859577}.cg-document-meta{gap:20px}.cg-source-details{margin-bottom:12px}.cg-preserve{white-space:pre-wrap;overflow-wrap:anywhere}.cg-paper footer{border-top:1px solid #ddd;margin-top:30px;padding-top:16px}.cg-document-signatures>div{border-top:0;padding-top:0;min-width:0}.cg-signature-role{display:block;font:600 8px/1.5 Arial,sans-serif;text-transform:uppercase;letter-spacing:1px;color:#7d8f70}.cg-signature-line{min-height:81px;display:flex;align-items:center;position:relative;border-bottom:1px solid #c4ceba;margin:0 0 11px;padding:8px 3px 10px}.cg-autograph{display:inline-block;position:relative;color:#243d60;font:400 35px/1.15 "Snell Roundhand","Apple Chancery","Segoe Script","Brush Script MT",cursive;transform:rotate(-4deg);overflow-wrap:anywhere}.cg-autograph:after{content:"";position:absolute;left:7%;right:-5%;bottom:-3px;height:7px;border-bottom:1px solid currentColor;border-radius:0 0 55% 45%;transform:rotate(-4deg);opacity:.65}.cg-autograph-landowner{transform:rotate(-2deg);font-style:italic}.cg-signature-pending{font:italic 11px/1.5 Georgia,serif;color:#a1aa98}.cg-document-signatures strong{font:600 10px/1.5 Arial,sans-serif;color:#45543d}.cg-signature-organization{display:block;font:9px/1.5 Arial,sans-serif;color:#7e8f71;margin-top:2px}.cg-document-signatures small{font:8px/1.5 Arial,sans-serif;color:#8d9b80;margin-top:7px}@media(max-width:760px){.cg-autograph{font-size:27px}.cg-signature-line{min-height:76px}}@media print{body{padding:0;background:white}.cg-paper{max-width:none;padding:15mm}section{break-inside:avoid}}</style></head><body>${renderContractDocument(draft, input, execution)}</body></html>`;
 }
 
 export function createContractDraftStore(storage) {

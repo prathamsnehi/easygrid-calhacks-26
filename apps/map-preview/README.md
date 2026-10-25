@@ -1,4 +1,4 @@
-# California valley site planner
+# EasyGrid site planner
 
 Interactive voxel map for fictional parcels, A/B facility placement and cost-optimized transmission connections (CAL-7/CAL-8), with participant registration, affected-parcel analysis and a user roleplay handoff (CAL-23). After registering the demo participant, the user places a substation and data center; the planner calculates feasible support-to-support routes and renders the recommended route with lattice pylons and sagging conductors. The analysis packages the selected route and owner proposals for Pratham's integration. Calls, agreements and payments remain separate backend steps.
 
@@ -13,7 +13,7 @@ npm test --prefix apps/map-preview
 npm run dev --prefix apps/map-preview
 ```
 
-Open `apps/map-preview/dist/index.html` directly for an offline standalone preview, or use the local server at `http://127.0.0.1:4177`. The standalone preview makes no external requests; source links and an optional registered host integration are explicit actions. `dist/parcel-fixtures.json` contains the generated parcel and owner records. Installing the shared contract dependencies enables the handoff compatibility tests; the map build itself has no external dependencies.
+Open `apps/map-preview/dist/index.html` directly for offline map planning, or use the local server at `http://127.0.0.1:4177` for the complete contract demo. Contract approval, signatures and payment actions require this server. Offline map rendering makes no external requests; source links and optional host integrations are explicit actions. `dist/parcel-fixtures.json` contains the generated parcel and owner records. Installing the shared contract dependencies enables the handoff compatibility tests; the map build itself has no external dependencies.
 
 The **Start demo** screen requires the participant's name, phone number and explicit consent to an AI roleplay demo call before planning is available. US 10-digit numbers automatically receive `+1`; an 11-digit number starting with `1` is also accepted. Explicit international country codes are preserved. The private participant phone is normalized to `+` and digits. Select **Start demo** after all three are valid to unlock the map. Registration stays local: it does not invoke the host callback or place a call.
 
@@ -29,7 +29,7 @@ The parcel totals reconcile to the selected route's compensation and rent. A pyl
 
 Land records use a compact right sidebar on desktop and a bottom sheet on mobile, with other information panels hidden while analysis is open. Selecting a row or **Show on map** fits the full parcel into the unobstructed map area, accounting for the actual panel bounds and current camera angle. Resizing reframes the selected parcel; narrow landscape layouts retain a side panel when a bottom sheet would leave too little map space.
 
-**Continue to contract & settlement** starts disabled. The manual **Simulate refusal** journey enables it after an eligible bypass and assumed acceptances by the other fictional owners; clicking opens a local preparation summary without making a payment request. In host-connected mode, a matching host approval and connected settlement handler are still required to submit the first simulated settlement. Route or participant changes revoke readiness. See [Settlement UI integration](../../docs/SETTLEMENT_UI.md).
+**Continue to contract & settlement** starts disabled. The manual **Simulate refusal** journey enables it after an eligible bypass and assumed acceptances by the other fictional owners. Continue to review the final-route agreements, then sign both simulated roles on every agreement. Each owner receives the full approved compensation in one explicit payment; there is no deposit, completion balance or construction payment gate. Signing alone does not pay. The default uses local simulation, with the existing Capital One Nessie adapter retained for a later connection. In host-connected mode, matching approval and a connected settlement handler remain necessary. Route or participant changes revoke readiness. See [Settlement UI integration](../../docs/SETTLEMENT_UI.md).
 
 ## User roleplay and Pratham handoff
 
@@ -82,3 +82,4 @@ After both sites are placed, calculation begins promptly and the result is revea
 `npm test` builds the actual standalone output, then tests parcel coverage, placement and persistence, English-only output, weighted-path optimality against exhaustive small graphs, span/foundation constraints, route and parcel cost reconciliation, user assignment, handoff contract compatibility and contact redaction, conductor geometry/continuity/disposal, and UI state flows in a Node VM with real Three.js and a stub renderer. Those UI tests are behavioral checks; they do not establish browser layout, GPU performance or actual WebGL rendering.
 
 Three.js 0.180.0 is vendored from the official npm package, with its MIT license, so the generated preview needs no external assets or runtime installation. All map objects are procedural geometry. The additive post-call mapping helper preserves shared API v1. Development follows the repository's [Linear/GitHub workflow](../../AGENTS.md); generated `dist/` files and private participant details must not be committed.
+

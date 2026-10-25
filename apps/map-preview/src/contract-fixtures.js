@@ -2,8 +2,8 @@
 export function createContractExample(status = 'approved') {
   if (!['approved', 'pending', 'refused'].includes(status)) throw new Error('Unknown example status.');
   return {
-    sourceMode: 'fixture', sessionId: 'contract-demo-cal-power-2026-10-24',
-    project: {name: 'Willow Creek transmission link', developerName: 'Cal Power', signerName: 'Ethan Cole'},
+    sourceMode: 'fixture', sessionId: 'contract-demo-easygrid-full-2026-10-24', paymentSchedule: 'full-after-signatures',
+    project: {name: 'Willow Creek transmission link', developerName: 'EasyGrid', signerName: 'Ethan Cole'},
     route: {id: 'route-willow-north', version: 3, name: 'Willow Creek / North corridor'},
     negotiation: {id: 'NEG-DEMO-024', version: 2, status, approvedAt: status === 'approved' ? '2026-10-24T17:30:00Z' : null},
     parcels: [

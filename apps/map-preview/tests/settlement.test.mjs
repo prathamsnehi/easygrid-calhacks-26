@@ -55,7 +55,8 @@ test('settlement dispatch is detached, explicit, once per approval, and never cl
   app.controller.setHandler(input=>{request=input;return new Promise(done=>resolve=done);});
   const approval=app.receipt();app.controller.setApproval(approval);approval.approvalId='tampered-outside';
   const pending=app.button.click();assert.equal(app.button.disabled,true);assert.equal(app.status.textContent,'Sending');
-  assert.equal(request.approval.approvalId,'approval-1');assert.equal(request.stage,'contract_tranche');
+  assert.equal(request.approval.approvalId,'approval-1');assert.equal(request.stage,'full');
+  assert.equal(request.paymentSchedule,'full-after-signatures');
   assert(!('participant' in request));assert.match(request.requestKey,/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
   request.handoff.snapshot.project.budgetCents=0;assert.equal(JSON.stringify(app.handoff),before);
   await app.button.click();resolve(acknowledge(request));await pending;

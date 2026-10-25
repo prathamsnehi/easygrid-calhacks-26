@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createContractExample} from '../src/contract-fixtures.js';
-import {validateContractSource, normalizeContractSource, contractSourceKey, createContractDraft, updateContractDraft, validateContractDraft, compensationSplit, contractDocument, renderContractDocument, exportContractHTML, createContractDraftStore} from '../src/contract-authoring.js';
+import {validateContractSource, normalizeContractSource, contractSourceKey, createContractDraft, updateContractDraft, validateContractDraft, compensationPayment, contractDocument, renderContractDocument, exportContractHTML, createContractDraftStore} from '../src/contract-authoring.js';
 
 const now = '2026-10-24T18:00:00Z';
 const create = (source = createContractExample(), parcelId = 'P-004') => createContractDraft(source, parcelId, {now, id:`draft-${parcelId}`});
@@ -29,15 +29,26 @@ test('normalization drops transcripts, contact and banking extras and does not m
   assert.equal(contractSourceKey(normalized), contractSourceKey(source));
 });
 
-test('approved cents and the exact 20 percent split appear without monthly-rent functionality', () => {
+test('the full approved compensation is paid once after signatures, including exact odd cents', () => {
   const source = createContractExample(), draft = create(source), document = contractDocument(draft, source);
-  assert.equal(document.initialCents, 240000); assert.equal(document.completionCents, 960000);
-  assert.equal(Object.hasOwn(document, 'monthlyFeeCents'), false);
-  assert.deepEqual(compensationSplit(10003), {totalCents:10003, initialCents:2000, completionCents:8003});
-  assert.throws(() => compensationSplit(-1));
+  assert.equal(document.paymentCents, 1200000);
+  assert.equal(document.paymentSchedule, 'full-after-signatures');
+  for (const field of ['initialCents','completionCents','monthlyFeeCents']) assert.equal(Object.hasOwn(document, field), false);
+  assert.deepEqual(compensationPayment(10003), {totalCents:10003, paymentCents:10003, paymentSchedule:'full-after-signatures'});
+  assert.throws(() => compensationPayment(-1));
   const html = renderContractDocument(draft, source);
-  assert.doesNotMatch(html, /Monthly usage fee|monthly anniversaries/);
-  for (const value of ['$12,000.00','$2,400.00','$9,600.00','Awaiting click signature']) assert(html.includes(value));
+  assert.doesNotMatch(html, /Monthly usage fee|monthly anniversaries|20%|Completion balance|Initial payment/);
+  for (const value of ['$12,000.00','Full compensation · 100%','One payment after all final-route agreements are signed','Awaiting click signature']) assert(html.includes(value));
+});
+
+test('the full payment schedule is canonical and invalidates previously staged drafts', () => {
+  const source = createContractExample(), draft = create(source);
+  const legacy = {...source}; delete legacy.paymentSchedule;
+  assert.equal(normalizeContractSource(legacy).paymentSchedule, 'full-after-signatures');
+  assert.equal(contractSourceKey(legacy), contractSourceKey(source));
+  const oldBinding = JSON.parse(draft.sourceKey); delete oldBinding.paymentSchedule;
+  assert.equal(validateContractDraft({...draft,sourceKey:JSON.stringify(oldBinding)}, source).valid, false);
+  assert.equal(validateContractSource({...source,paymentSchedule:'20-80'}).valid, false);
 });
 
 test('draft changes cannot alter approved money, owner, parcel or source bindings', () => {
@@ -65,12 +76,12 @@ test('the review document shows confirmed terms once and omits empty reviewer no
   assert.equal(html.split(source.parcels[0].accessTerms).length - 1, 1);
   assert(!html.includes('Draft access description:'));
   assert(!html.includes('Reviewer notes'));
-  for (const value of [source.project.name,source.parcels[0].ownerName,'P-004','Oct 24, 2026','$12,000.00','$2,400.00','$9,600.00']) assert(html.includes(value));
+  for (const value of [source.project.name,source.parcels[0].ownerName,'P-004','Oct 24, 2026','$12,000.00']) assert(html.includes(value));
 });
 
 test('representative names are approved inputs and signatures appear only after simulated signing', () => {
   const source = createContractExample(), draft = create(source), doc = contractDocument(draft, source);
-  assert.equal(doc.developerName, 'Cal Power');
+  assert.equal(doc.developerName, 'EasyGrid');
   assert.equal(doc.developerSignerName, 'Ethan Cole');
   assert.equal(doc.ownerSignerName, 'Olivia Bennett');
   assert(!renderContractDocument(draft, source).includes('class="cg-autograph '));

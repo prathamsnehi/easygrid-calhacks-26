@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {createContractExample} from '../src/contract-fixtures.js';
 import {createContractDraft, updateContractDraft} from '../src/contract-authoring.js';
 import {createContractWorkflow, createDemoBank, DEMO_ACTORS} from '../server/contract-workflow.mjs';
@@ -18,15 +19,19 @@ async function signBoth(app, draft = app.draft) {
   return app.flow.sign(draft,'landowner',DEMO_ACTORS.landowner);
 }
 
-test('both version-bound click signatures are required before a 20 percent payment', async () => {
+test('both version-bound click signatures are required before one full payment', async () => {
   const app = setup();
   await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester), /Both current/);
   await app.flow.sign(app.draft,'utility',DEMO_ACTORS.utility);
   await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester), /Both current/);
   await app.flow.sign(app.draft,'landowner',DEMO_ACTORS.landowner);
   const result = await app.flow.submit(app.draft,DEMO_ACTORS.requester);
-  assert.equal(result.payment.status,'paid'); assert.equal(result.payment.amountCents,240000);
+  assert.equal(result.payment.status,'paid'); assert.equal(result.payment.amountCents,1200000);
   assert.equal(result.bankMode,'simulation'); assert.equal(result.journal.length,1);
+  assert.equal(result.signatures.utility.approvedPaymentCents,1200000);
+  assert.equal(result.journal[0].stage,'full');
+  assert.equal(result.journal[0].debitAccount,'demo-land-use-compensation');
+  assert.equal(result.balancePayment,undefined);
   assert.equal(result.journal[0].debitCents,result.journal[0].creditCents);
   assert(result.audit.some(row => row.action === 'payment-reconciled'));
 });
@@ -96,7 +101,7 @@ test('a planted bank amount mismatch is escalated and never creates a replacemen
   const app = setup(); await signBoth(app);
   const result = await app.flow.submit(app.draft,DEMO_ACTORS.requester,{scenario:'bank-mismatch'});
   assert.equal(result.payment.status,'review-required'); assert.equal(result.journal.length,0);
-  assert(result.audit.some(row => row.observedCents === 239900));
+  assert(result.audit.some(row => row.observedCents === 1199900));
   assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'review-required');
 });
 
@@ -105,6 +110,51 @@ test('an unattempted hold can recover after the underlying issue is corrected', 
   assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester,{scenario:'recipient-changed'})).payment.status,'held');
   assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester,{scenario:'normal'})).payment.status,'paid');
   assert.equal(app.flow.snapshot().journal.length,1);
+});
+
+test('a missing recipient blocks utility signature and an unattempted mapping loss recovers from a durable hold', async () => {
+  const base = createDemoBank(), saved = []; let missing = true;
+  const bank = {...base,recipientBinding:ownerId => {
+    if (missing) throw new Error('No configured recipient for this fictional owner.');
+    return base.recipientBinding(ownerId);
+  }};
+  const app = setup({bank,persist:async state => {saved.push(state);}});
+  await assert.rejects(app.flow.sign(app.draft,'utility',DEMO_ACTORS.utility),/No configured recipient/);
+  assert.equal(app.transfers,0);
+  missing = false;await signBoth(app);missing = true;
+  const held = await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+  assert.equal(held.payment.status,'held');assert.match(held.payment.reason,/No transfer was attempted/);
+  assert.equal(Object.values(saved.at(-1).obligations)[0].status,'held');assert.equal(app.transfers,0);
+  missing = false;
+  const paid = await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+  assert.equal(paid.payment.status,'paid');assert.equal(paid.journal.length,1);assert.equal(app.transfers,1);
+});
+
+test('failed and rejected provider transfers require review and never permit a replacement submission', async () => {
+  for (const failure of ['failed','rejected']) {
+    const base = createDemoBank();let providerStatus = 'pending';
+    const bank = {...base,
+      transfer:async input => ({...await base.transfer(input),status:providerStatus}),
+      inspect:async input => {
+        const result = await base.inspect(input);
+        return {...result,existingEvidence:result.existingEvidence ? {...result.existingEvidence,status:providerStatus} : null};
+      },
+    };
+    const app = setup({bank});await signBoth(app);
+    assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'submitted');
+    providerStatus = failure;
+    const failed = await app.flow.reconcile(app.draft,DEMO_ACTORS.requester);
+    assert.equal(failed.payment.status,'review-required');assert.match(failed.payment.reason,/failed or rejected/);
+    assert.equal(failed.journal.length,0);assert.equal(failed.construction.paidCount,0);
+    assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'review-required');
+    assert.equal(app.transfers,1);
+    assert(failed.audit.some(row => row.action === 'bank-payment-failed' && row.bankStatus === failure));
+    // A terminal failure returned immediately from the submission uses the same gate.
+    const immediate = setup({bank:{...createDemoBank(),transfer:async input => ({...input,recipientMatches:true,status:failure,transactionRef:'terminal-test-transfer'})}});
+    await signBoth(immediate);
+    assert.equal((await immediate.flow.submit(immediate.draft,DEMO_ACTORS.requester)).payment.status,'review-required');
+    await immediate.flow.submit(immediate.draft,DEMO_ACTORS.requester);assert.equal(immediate.transfers,1);
+  }
 });
 
 test('unknown transfer outcomes and a recovered processing record never trigger a blind retry', async () => {
@@ -124,4 +174,65 @@ test('the durable pre-transfer save must succeed and read-only sandbox mode cann
   await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester),/disk unavailable/); assert.equal(calls,0);
   const readOnly = setup({bank:{...createDemoBank(),canTransfer:false}}); await signBoth(readOnly);
   assert.equal((await readOnly.flow.submit(readOnly.draft,DEMO_ACTORS.requester)).payment.status,'held');
+});
+
+
+test('legacy stages are rejected by every payment command without contacting the bank', async () => {
+  const app = setup(); await signBoth(app);
+  for (const stage of ['initial','balance','monthly_fee']) {
+    await assert.rejects(app.flow.submit(app.draft,DEMO_ACTORS.requester,{stage}), /Only the full/);
+    await assert.rejects(app.flow.reconcile(app.draft,DEMO_ACTORS.requester,{stage}), /Only the full/);
+    await assert.rejects(app.flow.reject(app.draft,DEMO_ACTORS.utility,{stage}), /Only the full/);
+  }
+  assert.equal(app.transfers,0);
+  assert.deepEqual(app.flow.snapshot().obligations,{});
+});
+
+test('legacy staged attempts and journal evidence cannot be bypassed by a new full obligation', async () => {
+  for (const stage of ['initial','balance']) {
+    for (const status of ['checking','processing','unknown','submitted','paid','review-required']) {
+      const base = setup(), state = base.flow.snapshot();
+      const id = `${stage}-${createHash('sha256').update(JSON.stringify([base.source.sessionId,base.draft.parcelId])).digest('hex').slice(0,32)}`;
+      state.obligations[id] = {id,stage,parcelId:base.draft.parcelId,status,amountCents:240000,documentHash:'legacy-hash'};
+      const restored = setup({initialState:state});
+      await assert.rejects(signBoth(restored), /legacy staged-payment attempt/);
+      await assert.rejects(restored.flow.submit(restored.draft,DEMO_ACTORS.requester), /legacy staged-payment attempt/);
+      assert.equal(restored.transfers,0);
+      assert.deepEqual(restored.flow.snapshot(),state,'legacy payment evidence must remain intact');
+    }
+  }
+  for (const evidence of ['transaction','journal','orphaned-journal']) {
+    const base = setup(), state = base.flow.snapshot();
+    const id = `initial-${createHash('sha256').update(JSON.stringify([base.source.sessionId,base.draft.parcelId])).digest('hex').slice(0,32)}`;
+    if (evidence !== 'orphaned-journal') state.obligations[id] = {id,stage:'initial',parcelId:base.draft.parcelId,status:'held',...(evidence === 'transaction' ? {transactionRef:'legacy-transfer'} : {})};
+    if (evidence !== 'transaction') state.journal.push({obligationId:id,debitCents:240000,creditCents:240000});
+    const restored = setup({initialState:state});
+    await assert.rejects(signBoth(restored), /legacy staged-payment attempt/);
+    assert.deepEqual(restored.flow.snapshot(),state);
+  }
+});
+
+test('legacy unattempted holds remain preserved while freshly signed full terms can pay once', async () => {
+  const base = setup(), state = base.flow.snapshot();
+  const id = `initial-${createHash('sha256').update(JSON.stringify([base.source.sessionId,base.draft.parcelId])).digest('hex').slice(0,32)}`;
+  const previous = {id,stage:'initial',parcelId:base.draft.parcelId,status:'held',amountCents:240000,reason:'Insufficient funds'};
+  state.obligations[id] = previous;
+  const restored = setup({initialState:state});await signBoth(restored);
+  const paid = await restored.flow.submit(restored.draft,DEMO_ACTORS.requester);
+  assert.equal(paid.payment.status,'paid');assert.equal(paid.payment.amountCents,1200000);
+  assert.equal(restored.transfers,1);assert.deepEqual(restored.flow.snapshot().obligations[id],previous);
+});
+
+test('a copied partial or inconsistent attempted record is never accepted as a full payment', async () => {
+  const original = setup();await signBoth(original);
+  const paid = await original.flow.submit(original.draft,DEMO_ACTORS.requester), id = paid.payment.obligationId;
+  for (const change of [{amountCents:240000},{stage:'initial'},{id:'another-obligation'},{parcelId:'another-parcel'},{status:'held'},{status:'rejected'},
+    {status:'held',id:'mismatched-record-id',transactionRef:null},{status:'rejected',id:'mismatched-record-id',transactionRef:null}]) {
+    const state = original.flow.snapshot();Object.assign(state.obligations[id],change);
+    const restored = setup({initialState:state});
+    await assert.rejects(restored.flow.inspect(original.draft),/does not establish this full compensation|legacy staged-payment attempt/);
+    await assert.rejects(restored.flow.submit(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
+    await assert.rejects(restored.flow.reconcile(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
+    assert.equal(restored.transfers,0);assert.deepEqual(restored.flow.snapshot(),state);
+  }
 });

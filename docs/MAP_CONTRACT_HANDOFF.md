@@ -9,12 +9,11 @@ consent from call consent. **Proceed to contract** then opens agreements for tho
 exact parcels, original fictional owners and amounts. The standalone
 `/contracts.html` example remains independent.
 
-Sign both simulated roles for every affected parcel. Pay each initial 20%; after
-all are confirmed the package enters construction. Until THEO publishes the
-animation, the explicitly labeled **Preview only: report construction complete**
-control supplies the completion event. Each exact remaining balance requires a
-separate payment action. There is no automatic completion, automatic payout or
-monthly-payment implementation.
+Sign both simulated roles for every affected parcel, then explicitly pay each
+owner's full compensation once. The payment is 100% of the approved amount after
+all final-route agreements are signed. There is no deposit, completion balance,
+construction payment gate or monthly-payment implementation. The default local
+simulation retains the Capital One Nessie adapter for a later connection.
 
 ## Public proposal and server validation
 
@@ -29,7 +28,10 @@ before approving; browser-provided amounts or owners cannot override it.
 mapBinding, simulated:true}`. Existing `/api/contracts/*` operations accept the
 packageId and dispatch to an isolated workflow for that approved package. Omitting
 packageId continues to address the original standalone example. Approval is
-available only in local simulation mode; this bridge cannot send Nessie transfers.
+bound to the configured provider and isolated from other provider ledgers. The
+default is local simulation; a configured Nessie provider has its own guarded
+transfer path. This implementation does not establish that live integration has
+been tested.
 
 Repeated approval reuses the same package and source timestamp. A newer route
 version may supersede an unpaid package, after which old commands are rejected.
@@ -63,16 +65,17 @@ authorization and atomic state transitions, then replace the injected
 `createContractWorkspace({api})` boundary. The existing
 `setContractNegotiation({input,mapBinding})` hook remains compatible for authoring.
 
-THEO's construction host uses the existing `setConstructionHandler` and explicit
-completion callback documented in [CONSTRUCTION_PAYMENTS.md](CONSTRUCTION_PAYMENTS.md).
-Displaying towers or resolving a start callback never establishes completion.
-The animation implementation and live voice/DB adapters remain separate open work.
+THEO's existing `setConstructionHandler` and completion hooks remain separate
+compatibility interfaces. Construction does not gate the full payment or unlock
+a second payment. See [the current payment journey](CONSTRUCTION_PAYMENTS.md).
+The animation implementation and live voice/DB adapters remain separate work.
 
 ## Validation
 
 `tests/map-contracts.test.mjs` checks reconstruction and tampering, accepted owner
 mapping, contact exclusion, isolated packages, stale versions, all signatures,
-both tranches, explicit completion, restart recovery and duplicate protection.
+exact full payment, restart recovery and duplicate protection.
 The compiled UI regression exercises the async approval export and late-response
-invalidation. Browser verification separately covers onboarding, GPU-rendered
-placement and routing, the six-owner contract workspace and both payment stages.
+invalidation. Browser verification must separately cover onboarding, GPU-rendered
+placement and routing, agreement review, signatures and the single payment action.
+Earlier browser evidence for the two-stage journey does not verify this revised flow.

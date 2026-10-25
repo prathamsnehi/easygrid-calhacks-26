@@ -21,7 +21,7 @@ async function loadExample() {
     workspace.review();
   } catch {
     document.querySelector('#cg-gate-title').textContent = 'The example service is unavailable.';
-    document.querySelector('#cg-gate-copy').textContent = 'Start the QuickGrid development server, then refresh this page to load the approved example.';
+    document.querySelector('#cg-gate-copy').textContent = 'Start the EasyGrid development server, then refresh this page to load the approved example.';
   }
 }
 loadExample();
