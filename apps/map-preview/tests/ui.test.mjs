@@ -560,7 +560,7 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.equal(handoff.parcelAnalysis.filter(row=>row.userRole).length,1);
   assert(route.parcelIds.includes(handoff.userRole.parcelId));
   assert.equal(handoff.userRole.participantReady,true);
-  assert.equal(app.elements.get('agent-call').disabled,true);
+  assert.equal(app.elements.get('agent-call').disabled,false);
   assert.equal(app.elements.get('agent-call').textContent,'Agent call');
   assert.equal(app.elements.has('export-handoff'),false);
   assert.equal(app.elements.has('prepare-handoff'),false);
@@ -575,7 +575,7 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.equal(app.elements.get('analysis-parcel-rent-label').textContent,'Monthly fee');
   assert.match(app.elements.get('analysis-line-length').textContent,/ m$/);
   assert.equal(app.elements.get('analysis-negotiation').textContent,'Pending');
-  assert.equal(app.elements.get('handoff-status-badge').textContent,'OFFLINE');
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'READY');
   assert.match(markup,/<details class="analysis-breakdown"><summary>View breakdown<\/summary>/);
   for(const id of ['analysis-email','analysis-contact','user-contact-status','user-role-note','handoff-budget-note','registered-participant-consent']){
     assert.equal(app.elements.has(id),false,`${id} should not duplicate information in the compact panel`);
@@ -628,7 +628,7 @@ test('participant consent gates Agent call while public snapshots and saved plan
   assert.equal(handoffOf(app),null);
   enterUser(app);await app.flushTimers();
   assert.equal(handoffOf(app).userRole.participantReady,true);
-  assert.equal(app.elements.get('agent-call').disabled,true,'saving contact does not connect or call a backend');
+  assert.equal(app.elements.get('agent-call').disabled,false,'saving contact readies Agent call and does not place one');
   const serialized=JSON.stringify(handoffOf(app));
   for(const secret of Object.values(privateUser)){
     assert(!serialized.includes(secret),'shareable handoff must not contain entered participant data');

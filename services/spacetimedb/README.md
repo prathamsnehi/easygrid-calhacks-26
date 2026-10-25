@@ -77,8 +77,18 @@ Client tokens, contact information and private records must stay server-side.
 
 The authoritative module lives in `module/`. It stores one demo session, the
 private participant phone, the current tower route, and simulated contract
-payments. It does not place phone calls. CAL-33 dials. CAL-34 owns the spoken
-negotiation. This module checks the stored result.
+payments. CAL-33 adds a private call attempt, a private transcript, and one
+public redacted summary. `start_call` dials Cartesia. A scheduled `check_call`
+reads the transcript after hangup and asks Claude to review it. The module
+checks that review against the stored opening price and the one final price.
+It does not use `record_outcome`, so this call does not mark the other owners
+agreed. That all-parcel gate stays with CAL-41.
+
+Cartesia and Anthropic keys are declared module environment variables. Publish
+them from the process environment. They are not written into the module, git,
+or a public table. `CARTESIA_NEGOTIATION_AGENT_ID` is optional and is separate
+from the existing `CARTESIA_AGENT_ID`. `CARTESIA_FALLBACK_TO_NUMBER` is used
+only when the map registration has no usable phone.
 
 For the hackathon, one phone number roleplays one tower-parcel owner at a time.
 The other tower parcels on that route are recorded as agreed without a call.

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Authoritative EasyGrid session module for SpacetimeDB.",
   "scripts": {
-    "test": "node --import ./test/register.mjs --experimental-strip-types --test test/session.test.ts",
+    "test": "node --import ./test/register.mjs --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

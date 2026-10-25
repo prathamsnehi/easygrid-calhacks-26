@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialOwnerHandoff, createOwnerHandoffCurrent } from '../src/owner-handoff-fixtures.ts';
 import { applyNegotiationCommand, permittedNegotiationMaximum, negotiationAgreementPacket, negotiationExplanation,
-  NegotiationSummary, NegotiationCandidate, type NegotiationState, type NegotiationCommand, type NegotiationTurn, type NegotiationReason } from '../src/negotiation.ts';
-import { createNegotiationTools, NEGOTIATION_VOICE_PROMPT } from '../src/negotiation-tools.ts';
+  NegotiationSummary, NegotiationCandidate, type NegotiationAttempt, type NegotiationState, type NegotiationCommand, type NegotiationTurn, type NegotiationReason } from '../src/negotiation.ts';
+import { createNegotiationTools, negotiationCallVariables, NEGOTIATION_VOICE_PROMPT } from '../src/negotiation-tools.ts';
 
 function fixture(): NegotiationState {
   const handoff = createInitialOwnerHandoff(); handoff.referenceBinding = 'canonical';
@@ -175,6 +175,14 @@ test('tools resolve binding on the server and return only concise safe fields', 
   assert.equal(result.compensationCents, 1_100_000); assert(result.finalOffer); assert(result.aboveRecommendation);
   assert.equal(authorizations, 2); assert(!JSON.stringify(result).includes('registered-synthetic'));
   assert(NEGOTIATION_VOICE_PROMPT.includes('30–45')); assert(NEGOTIATION_VOICE_PROMPT.includes('no formal readback'));
+  assert(!NEGOTIATION_VOICE_PROMPT.includes('evaluate_counteroffer'));
+  assert(!NEGOTIATION_VOICE_PROMPT.includes('record_owner_response'));
+  assert(!NEGOTIATION_VOICE_PROMPT.includes('record_refusal'));
+  const spoken = negotiationCallVariables({ offers: [{ compensationCents: 1_000_000, monthlyRentCents: 30_000, termsVersion: 1, final: false }], capCents: 1_200_000, monthlyRentCents: 30_000, attemptId: 'attempt-1' } as NegotiationAttempt);
+  assert.equal(spoken.opening_compensation, '$10,000.00');
+  assert.equal(spoken.final_compensation, '$12,000.00');
+  assert.equal(spoken.monthly_fee, '$300.00');
+  assert.equal('attempt_ref' in spoken, false);
 });
 test('floor-cent cap and unsafe aggregate values are handled exactly', () => {
   const state = fixture(), p = state.handoff.parcels[0]!;

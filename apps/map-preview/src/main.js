@@ -5,6 +5,7 @@ import { createRouteController } from './route-controller.js';
 import { createAnalysisController } from './analysis-controller.js';
 import { createNegotiationController } from './negotiation-controller.js';
 import { createContractEntry } from './contract-entry.js';
+import { createLiveCallHost } from './voice-host.js';
 
 const canvas = document.querySelector('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -294,6 +295,8 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
   getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
   setNegotiationSource:source=>{if(source!==null&&!canSimulateNegotiation())throw new Error('Start a new demo before enabling rerouting.');refusalDemoActive=false;resetApprovalDemo();analysis.settlement.invalidate();contracts.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
   getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{if(!canSimulateNegotiation())throw new Error('Start a new demo before simulating refusal.');refusalDemoActive=true;return negotiation.runRefusalDemo();}});
+const liveCalls=createLiveCallHost({lockLiveCall:()=>analysis.setLiveCallLockout(true),installSource:source=>window.easygridDemo.setNegotiationResultSource(source)});
+analysis.setHandoffHandler(liveCalls.handle);
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),

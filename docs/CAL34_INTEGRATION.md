@@ -87,39 +87,25 @@ content is rejected. The final-offer slot is independent of delivery identity,
 so changing request keys cannot buy another increase. A parcel cannot start
 another attempt in that session; a stopped/closed demo cannot start another call.
 
-## CAL-33 live tool and lifecycle integration
+## CAL-33 live call
 
-Wrap the already provisioned HTTPS tools with `createNegotiationTools(host)`.
-Implement `host.authorize(credential, callReference)` using configured webhook
-credentials and the server-owned call record. It returns the current attempt,
-canonical session and route/terms versions. `host.execute(binding, command)`
-submits to the authorized CAL-29 reducer above, never a second mutable store.
-The adapter does not implement HTTP routing or validate bearer tokens itself.
-Authorization must corroborate the call reference from authenticated provider
-context or an attempt-scoped credential; a shared token plus an arbitrary
-model-supplied call ID is insufficient. Dynamic variables are not authority.
+The map's Agent call button calls the published `start_call` procedure. That
+callback means the dial request was accepted, not that the phone connected.
+Cartesia's managed model speaks from `NEGOTIATION_VOICE_PROMPT`. Per-call
+variables are `opening_compensation`, `final_compensation`, and `monthly_fee`.
+The spoken prompt does not mention decision tools, and the module does not
+register a mid-call webhook. A short agreement is a 30–45 second script. There
+is no forced hangup and no automatic redial.
 
-The model's tool arguments contain **no owner/session/policy selectors**.
-`turnId` is optional: supply a provider-authenticated owner turn only when the
-host already has it. Otherwise the authenticated tool response is a candidate,
-not confirmation. The completed transcript establishes final evidence. A live
-refusal candidate immediately stops/locks calling while its evidence is reviewed.
-Never invent provider turn references to make a tool delivery pass validation.
-
-Prepare/commit before calling, then use `NEGOTIATION_VOICE_PROMPT` and
-`negotiationCallVariables(attempt)` as per-call context. Create an agent with
-its explicit model/voice and provisioned `toolIds`. Use the existing private
-registration path to resolve the consenting participant's dial target. Do not
-patch shared instructions per session or send banking/contact records to tools.
-Tool IDs must refer to public HTTPS webhooks with authentication configured by
-CAL-33; this package does not deploy those endpoints.
-
-Persist `connectedAtMs` and schedule `enforceConnectedCallDeadline` through
-CAL-29/CAL-33. Default connected limit is 60 seconds; 30–45 seconds is a speech
-prompt goal, not an acceptance timer. Only a started call is cancellable.
-`unknown` cancellation means the call may still be running; reconcile the same
-provider ID rather than redial. Starting/retrieving a call never establishes
-owner acceptance. Dial retries remain disabled.
+`check_call` runs on a schedule inside the database after the laptop can close.
+When the provider call is finished and a transcript is present, it asks Claude
+once. The commit checks that candidate against the stored opening amount, the
+one final amount, and the transcript. Any other agreed amount stays pending.
+`record_outcome` is not used, so this call does not mark other owners agreed.
+The public `negotiation_summary` table and `negotiation_result` view omit the
+phone number and the turn text. A refusal locks another live call for that
+session. A dial that never receives a provider call id is stored as a labeled
+simulation, not as a completed phone call.
 
 CAL-33 normalizes provider call failures to NO_ANSWER, BUSY, DISCONNECTED,
 SERVICE_UNAVAILABLE or CONNECTION_UNKNOWN from actual provider facts; unknown
@@ -219,12 +205,12 @@ satisfied by the component closeout:
 - [ ] CAL-41: adapt the merged CAL-29 module to these atomic transitions, durable
   receipts/claims and authorized views; verify saved-result restoration after
   refresh/reconnect through the actual service.
-- [ ] CAL-33: provisioned/authenticated tools, real consented call, provider transcript
-  normalization and scheduled deadline/cancellation lifecycle.
+- [ ] CAL-33: one consented call, transcript review after hangup, and the redacted
+  saved result on the map. No mid-call tools and no forced hangup. A consented
+  call has since finished on easygrid-demo with a public pending result. The map
+  preview rendered that explanation, and that preview session did not place the call.
 - [ ] CAL-33/CAL-41: live 30–45-second successful negotiation, saved result after refresh, measured
   connected/review latency, and sanitized tested-commit evidence in Linear.
-
-No deployment, live call or real transcript request was made by this change.
 
 ### Local implementation evidence
 

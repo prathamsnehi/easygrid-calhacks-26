@@ -25,7 +25,13 @@ export async function resolve(specifier, context, nextResolve) {
       export const procedure_commit_mut_tx = unsupported('procedure_commit_mut_tx');
       export const procedure_abort_mut_tx = unsupported('procedure_abort_mut_tx');
       export const procedure_http_request = unsupported('procedure_http_request');
-      export const env_get = unsupported('env_get');
+      export const env_get = name => {
+        const env = globalThis.__easygridTestEnv;
+        if (!env || !Object.prototype.hasOwnProperty.call(env, name)) {
+          throw new Error('Unsupported SpacetimeDB host syscall in module unit test: env_get ' + name);
+        }
+        return env[name];
+      };
       export const console_log = () => {};
       export const console_timer_start = () => 0;
       export const console_timer_end = () => {};

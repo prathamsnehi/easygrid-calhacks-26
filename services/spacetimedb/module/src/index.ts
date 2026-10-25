@@ -1,4 +1,6 @@
-import { t } from 'spacetimedb/server';
+import { SenderError, t } from 'spacetimedb/server';
+import { check_call, start_call } from './call.ts';
+import { commitStoredReview } from './call-logic.ts';
 import {
   publishRoute,
   recordOutcome,
@@ -6,6 +8,8 @@ import {
   startSession,
 } from './logic.ts';
 import { spacetimedb } from './tables.ts';
+
+export { check_call, start_call };
 
 const progress = t.object('SessionProgressRow', {
   sessionId: t.string(),
@@ -149,6 +153,74 @@ export const publish_route = spacetimedb.reducer(
     })),
   },
   (ctx, input) => publishRoute(ctx, input),
+);
+
+const summaryRow = t.object('NegotiationResultRow', {
+  attemptId: t.string(),
+  sessionId: t.string(),
+  parcelId: t.string(),
+  mode: t.string(),
+  phase: t.string(),
+  lifecycle: t.string(),
+  revision: t.u32(),
+  outcome: t.string(),
+  disposition: t.string(),
+  reason: t.string(),
+  explanation: t.string(),
+  nextAction: t.string(),
+  openingCents: t.u32(),
+  finalCents: t.u32(),
+  monthlyRentCents: t.u32(),
+  agreedCents: t.u32(),
+});
+
+export const negotiation_result = spacetimedb.view(
+  { name: 'negotiation_result', public: true },
+  { sessionId: t.string() },
+  t.array(summaryRow),
+  (ctx, { sessionId }) => [...ctx.db.negotiationSummary.bySession.filter(sessionId)].map(row => ({
+    attemptId: row.attemptId,
+    sessionId: row.sessionId,
+    parcelId: row.parcelId,
+    mode: row.mode,
+    phase: row.phase,
+    lifecycle: row.lifecycle,
+    revision: row.revision,
+    outcome: row.outcome,
+    disposition: row.disposition,
+    reason: row.reason,
+    explanation: row.explanation,
+    nextAction: row.nextAction,
+    openingCents: row.openingCents,
+    finalCents: row.finalCents,
+    monthlyRentCents: row.monthlyRentCents,
+    agreedCents: row.agreedCents,
+  })),
+);
+
+export const commit_call_review = spacetimedb.reducer(
+  {
+    attemptId: t.string(),
+    reason: t.string(),
+    offerTurnId: t.string(),
+    ownerTurnId: t.string(),
+    compensationCents: t.u32(),
+    monthlyRentCents: t.u32(),
+    hasAmounts: t.bool(),
+    failureReason: t.string(),
+  },
+  (ctx, input) => {
+    if (ctx.sender.toHexString() !== ctx.databaseIdentity.toHexString()) {
+      throw new SenderError('FORBIDDEN: Only the database can commit a call review.');
+    }
+    commitStoredReview(ctx, input.attemptId, input.failureReason ? null : {
+      reason: input.reason,
+      offerTurnId: input.offerTurnId,
+      ownerTurnId: input.ownerTurnId,
+      compensationCents: input.hasAmounts ? input.compensationCents : null,
+      monthlyRentCents: input.hasAmounts ? input.monthlyRentCents : null,
+    }, input.failureReason);
+  },
 );
 
 export const record_outcome = spacetimedb.reducer(
