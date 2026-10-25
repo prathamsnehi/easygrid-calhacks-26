@@ -104,7 +104,7 @@ that is not credential-free HTTPS leaves **Agent call** offline. Provider keys
 remain in the published module environment. Contract and payment routes stay
 unavailable on Firebase. Agent call is enabled for a priced participant
 parcel that has a tower, even when another parcel is an unpriced corridor
-contact. That neighbor is named, and Simulate approval stays disabled. The
+contact. That neighbor is named. Excluded corridor overlap does not by itself disable Simulate approval. The
 participant's own unpriced parcel still shows **REVIEW** and does not place a
 call.
 

@@ -138,7 +138,12 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     else if(current&&!callable){
       const row=participantRow(current);
       feedback('handoff-result',row&&(row.recommendationStatus!=='estimated'||row.towerCount<=0)?`${row.parcelId} has no priced tower or centerline to negotiate.`:'Review parcel estimates, access and budget before calling.','error');
-    }else if(fresh&&corridors.length)feedback('handoff-result',`This call covers ${current.userRole.parcelId}. ${corridors.join(', ')} still ${corridors.length===1?'needs':'need'} a priced estimate, so approval stays locked.`);
+    }else if(fresh&&corridors.length){
+      const named=corridors.join(', ');
+      const excluded=corridors.length===1?`${named} is excluded as partial corridor overlap.`:`${named} are excluded as partial corridor overlap.`;
+      const locked=current.snapshot.routes[0].eligible?'':' Approval stays locked until the priced route is ready.';
+      feedback('handoff-result',`This call covers ${current.userRole.parcelId}. ${excluded}${locked}`);
+    }
     else if(!callRequested&&!pending)feedback('handoff-result','');
   }
   function renderDetail() {
