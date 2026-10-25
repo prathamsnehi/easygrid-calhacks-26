@@ -1,48 +1,103 @@
 # EasyGrid
 
-Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → one full compensation payment per landowner.
+Place a substation and a data center on a 3D map. EasyGrid routes the power line, calls the landowner, and settles the easement in one payment.
 
-The repository contains the [shared contract and TypeScript client](packages/contracts/README.md), the [owner handoff and development samples](docs/OWNER_HANDOFF.md) (CAL-27), and the [interactive map planner](apps/map-preview/README.md) (CAL-26). The planner supports A/B placement, transmission route comparison, affected-parcel analysis and a consented user roleplay handoff for Pratham's voice integration.
+[![Open the live demo](https://img.shields.io/badge/Open_the_live_demo-easygrid.work-1B4332?style=for-the-badge)](https://easygrid.work)
 
-The team baseline also includes the existing [Cartesia service](services/cartesia/README.md), [SpacetimeDB setup](services/spacetimedb/README.md) and [shared development setup](docs/shared-setup.md). These services still need to be connected to the map through the documented handoff.
+Cal Hacks 13.0. The live demo is at [https://easygrid.work](https://easygrid.work).
 
-The static frontend is hosted at [easygrid-calhacks-26.web.app](https://easygrid-calhacks-26.web.app/). See [Firebase Hosting and CI/CD](docs/FIREBASE_HOSTING.md) for deployment setup and backend boundaries. Automatic deployment requires the CAL-47 workflow on `main`.
+## Stack
 
-For a ready-to-open download, see [web preview instructions](apps/map-preview/PREVIEW.md).
+![JavaScript](https://img.shields.io/badge/JavaScript-323330?style=for-the-badge&logo=javascript&logoColor=F7DF1E)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Three.js](https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=threedotjs&logoColor=white)
+![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
+![Claude](https://img.shields.io/badge/Claude-191919?style=for-the-badge&logo=anthropic&logoColor=D4A27F)
+![SpacetimeDB](https://img.shields.io/badge/SpacetimeDB-5B4B8A?style=for-the-badge)
+![Cartesia](https://img.shields.io/badge/Cartesia-111111?style=for-the-badge)
+![Nessie](https://img.shields.io/badge/Nessie-D03027?style=for-the-badge&logo=capitalone&logoColor=white)
 
-From the repository root, use Node 24 (also used by the map CI):
+The map is a browser app: vanilla JavaScript, a vendored Three.js scene, and Firebase Hosting. Shared contracts are TypeScript. SpacetimeDB holds the live session. Cartesia places the call, Claude reads the outcome, and the contract server can record the payment in the Capital One Nessie sandbox.
+
+## Tracks
+
+EasyGrid is integrated with these Cal Hacks 13.0 tracks. Prize notes and the rest of the sponsor catalog are in [docs/sponsors.md](docs/sponsors.md).
+
+- **SpacetimeDB — Best Use.** The call and its outcome live in one Maincloud database, `easygrid-demo`, so the map and the agent share the same session.
+- **Cartesia — Best Use.** The landowner negotiation is a phone call, and the route update follows that conversation.
+- **Anthropic — Claude for Public Benefit.** Claude turns the transcript into a structured accept, refusal, or review.
+- **Capital One — Best Use of Nessie.** The contract server can write the approved compensation to the Nessie sandbox. The public demo’s payment step is a labeled simulation. A sandbox record stores the amount and does not move funds.
+- **Hyphenate — Autonomous Finance.** A supervised finance worker checks the signed agreement, releases one payment per owner, and holds the payout when the amount, recipient, or balance does not match.
+
+## How it fits together
+
+```mermaid
+flowchart TD
+  Map[3D map in the browser] --> ST[(SpacetimeDB)]
+  ST --> Call[Cartesia phone call]
+  Call --> Claude[Claude reads the outcome]
+  Claude --> ST
+  Map --> Deal[Easement, both signatures, one payment]
+  Deal --> Bank[Nessie sandbox record]
+```
+
+The public site runs the map, the route, and the call. Signing and the payment step run on the local contract server.
+
+## In action
+
+Shots from [easygrid.work](https://easygrid.work). The valley, owners, and dollar amounts are a fictional planning model.
+
+![Start the demo on the 3D map](docs/images/start.png)
+
+*Start the demo. Consent covers the roleplay call. Land access stays pending until the easement is signed.*
+
+![Recommended transmission route and modeled cost](docs/images/route.png)
+
+*Place both sites. The planner compares routes and shows a modeled connection cost.*
+
+![Compensation for each affected landowner](docs/images/compensation.png)
+
+*Each crossed parcel gets a recommended compensation and a maximum. One parcel is the judge’s fictional owner role.*
+
+## Try it
+
+Open **[https://easygrid.work](https://easygrid.work)**.
+
+1. Enter a name and phone number, check the consent box, and choose **Start demo**. That step does not place a call.
+2. Choose **Find open site**, then **Place here**, for the substation. Repeat for the data center.
+3. Compare the routes in the panel, then choose **Analyze affected parcels**.
+4. **Agent call** places the landowner call for the parcel marked as the demo role.
+
+Signing and the one-time payment need the local server below. On that server, **Simulate approval** opens the easement. Sign both roles on every agreement, then request each owner’s full compensation once.
+
+### Run it locally
+
+Use Node 24, from the repository root:
 
 ```sh
 npm ci --ignore-scripts --prefix packages/contracts
-npm run check --prefix packages/contracts
-npm run build --prefix apps/map-preview
-npm test --prefix apps/map-preview
 npm run dev --prefix apps/map-preview
 ```
 
-The map is a standalone HTML/CSS/JavaScript frontend using vendored Three.js and a deterministic route solver. The generated `apps/map-preview/dist/index.html` supports offline map planning; the development server serves it at `http://127.0.0.1:4177` and is required for contract approval, signatures and payment actions. Contract dependencies are needed for integration validation tests, not for offline map rendering.
+Open [http://127.0.0.1:4177](http://127.0.0.1:4177).
 
-After the final route is approved, sign both simulated roles on every agreement and explicitly request each owner's full compensation once. The contract and payment request use a single 100% payment after signatures, with no deposit, completion balance or construction payment gate. The default is a local simulation; the existing Capital One Nessie adapter is retained for a later provider connection. Shared legacy deposit/rent schemas remain available for existing adapters but do not define this contract journey.
+Voice keys, the SpacetimeDB CLI, and the Nessie sandbox are documented in [shared setup](docs/shared-setup.md) and [Nessie setup](docs/NESSIE_SETUP.md). Leave those unset to walk the map and the labeled payment simulation.
 
-Begin on **Start demo** by entering the participant's name and phone number and confirming explicit consent to an AI roleplay demo call. US 10-digit numbers receive `+1` automatically; explicit international country codes are preserved. Valid registration unlocks A/B placement and routing. Place A and B, select a route, then choose **Analyze affected parcels**. The analysis shows affected owners, line and pylon impacts, and route-specific compensation and rent. **Agent call** sends the selected route and private user contact to a registered calling-agent handler; it is disabled in the standalone preview until that agent is connected. The interface has no JSON download action. Exactly one affected parcel always carries the registered participant's fictional owner role; the participant does not enter their details again in the analysis screen.
+## What’s next
 
-The participant's name, phone number and call consent stay in page memory; the public integration packet redacts personal details. **Edit participant** returns to the start screen and pauses planning and routing until registration is validated again, while preserving the endpoints. Reset, reload and leaving the page clear participant details and require registration again. **Start demo** does not contact the host or start a call. Only **Agent call** invokes the registered calling-agent handler; accepting that request does not prove that a phone connected.
+- Finish settlement on the public site, so signatures and the one compensation payment happen on easygrid.work.
+- Let a live refusal redraw the line and negotiate the new parcels in the same session.
+- Add a real right-of-way review on top of the labeled simulation checks.
 
-See [Pratham's handoff guide](docs/PRATHAM_HANDOFF.md) for the version 2 map packet and host integration. A voice backend still needs to import the fixture, return canonical IDs/revisions, register the participant privately and implement the call action. The map's declared synthetic coordinate adapter is for contract interoperability, not real property coordinates.
+## In the repo
 
-AI model API: **Claude**. Target shared backend: **SpacetimeDB**. Voice/telephony is a separate integration. Development is tracked through [Linear](https://linear.app/easygrid-calhacks-2026/project/transmission-ai-agent-9897ba9eb980/issues); follow the issue, branch, validation and PR workflow in [AGENTS.md](AGENTS.md).
-
-- [API specification](packages/contracts/openapi.json)
-- [Request/response examples](packages/contracts/examples/api-v1.json)
-- [Happy-path snapshot](packages/contracts/examples/happy-path.json)
-- [Failure and consistency examples](packages/contracts/examples/edge-cases.json)
-- [Project and work ownership](https://linear.app/easygrid-calhacks-2026/project/transmission-ai-agent-9897ba9eb980/issues)
-
-All product UI text is English. Fixtures use synthetic parties, illustrative parcels and mock settlement. No live calls, real signatures, payments or regulatory approvals are claimed.
-
-## Continue development
-
-Use the latest `main` as the shared starting point. Before starting a feature, fetch the repository updates and create a branch named for its Linear issue. Existing feature branches should integrate the latest `main`, preserve both sides of any conflict, and rerun their relevant checks before opening or updating a PR.
-
-Pratham's voice integration and Seohyun's agreement/settlement work can build on the map, shared contracts and owner-handoff samples here. Keep integration and end-to-end verification tasks open until their actual runtime behavior is demonstrated. Do not treat the standalone preview as a connected call or payment service.
-
+| Piece | Where |
+| --- | --- |
+| Map planner | [apps/map-preview](apps/map-preview/README.md) |
+| Shared API contract | [packages/contracts](packages/contracts/README.md) |
+| Cartesia calls | [services/cartesia](services/cartesia/README.md) |
+| Claude review | [services/claude-api](services/claude-api/README.md) |
+| SpacetimeDB module | [services/spacetimedb](services/spacetimedb/README.md) |
+| Hosting | [docs/FIREBASE_HOSTING.md](docs/FIREBASE_HOSTING.md) |
+| Contributor workflow | [AGENTS.md](AGENTS.md) |
