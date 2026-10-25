@@ -268,6 +268,9 @@ test('a status check finding no attempted payment unlocks only a new explicit pa
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
     await signEveryAgreement(ui); await ui.click('cg-continue-payment'); await ui.click('cg-continue-payment'); await ui.click('cg-submit');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    ui.app.review(); await ui.flush(); await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Outcome unknown','ordinary navigation cannot silently recover a lost submission');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-reconcile');
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Ready to send');
     assert.equal(ui.nodes.get('cg-submit').disabled,false);
@@ -328,5 +331,53 @@ test('a late signature response cannot re-enable submission after the source app
     const pending = ui.click('cg-sign-utility'); await ui.flush(); ui.app.invalidate();
     resolveSignature({signatures:{utility:{simulated:true,signedAt:'2026-10-24T18:00:00Z'},landowner:{simulated:true,signedAt:'2026-10-24T18:00:00Z'}},audit:[],journal:[],bankMode:'simulation'});
     await pending; assert.equal(ui.nodes.get('cg-continue-payment').disabled,true); assert.equal(ui.nodes.get('cg-submit').disabled,true); assert.equal(ui.nodes.get('cg-stale').hidden,false);
+  } finally {ui.restore();}
+});
+
+
+test('the explicit representative demo shows and signs only one owner while preserving the full source binding', async () => {
+  const source=createContractExample(); source.parcels[1].ownerName='Amelia Standish'; source.parcels[1].compensationCents=114400;
+  const calls=[];
+  const ui=boot({workflow:createContractWorkflow({source,bank:createDemoBank()}),apiOverride:async (operation,draft,extra,api) => {
+    calls.push({operation,draft:structuredClone(draft)});
+    const result=await api(operation,draft,extra);
+    return {...result,demoScope:'single-owner',demoParcelId:'P-009',paymentReady:Boolean(result.signatures.utility && result.signatures.landowner)};
+  }});
+  try {
+    ui.app.open(source,{demo:true,demoParcelId:'P-009'});
+    assert.equal(ui.nodes.get('cg-owner-count').textContent,'1');
+    assert.equal(ui.nodes.get('cg-total').textContent,'$1,144.00');
+    assert.equal(ui.nodes.get('cg-gate-scope-label').textContent,'SINGLE-LANDOWNER DEMO');
+    await ui.click('cg-proceed'); await ui.flush();
+    assert.equal(ui.nodes.get('cg-selection-bar').hidden,true);
+    assert.equal(ui.nodes.get('cg-parcel').children.length,1);
+    assert.equal(ui.nodes.get('cg-parcel').value,'P-009');
+    assert.equal(ui.nodes.has('cg-sign-all'),false);
+    assert.equal(ui.nodes.has('cg-payment-parcel-select'),false);
+    assert.match(ui.nodes.get('cg-preview').innerHTML,/SINGLE-LANDOWNER DEMO/);
+    assert.doesNotMatch(ui.nodes.get('cg-preview').innerHTML,/every current final-route agreement|after all final-route agreements are signed/);
+    await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
+    assert.equal(ui.nodes.get('cg-payment-owner').textContent,'Amelia Standish');
+    assert.equal(ui.nodes.get('cg-payment-amount').textContent,'$1,144.00');
+    assert.equal(ui.nodes.get('cg-payment-timing').textContent,'After both parties sign this agreement');
+    assert.equal(ui.nodes.get('cg-remaining-panel').hidden,true);
+    assert.equal(ui.nodes.get('cg-submit').disabled,false,'scoped paymentReady works while all-route packageReady is false');
+    assert.equal(calls.filter(call=>call.operation.startsWith('sign/')).length,2);
+    assert(calls.every(call=>call.draft.parcelId==='P-009'));
+    assert(calls.every(call=>JSON.parse(call.draft.sourceKey).parcels.length===2),'canonical route source is never sliced');
+    assert.equal(calls.filter(call=>call.operation==='submit').length,0);
+  } finally {ui.restore();}
+});
+
+test('a representative view never treats all-route readiness as scoped authorization', async () => {
+  const ui=boot({apiOverride:async (operation,draft) => ({draftId:draft.id,documentHash:'a'.repeat(64),packageReady:true,
+    signatures:{utility:{simulated:true,signedAt:'2026-10-24T18:00:00Z'},landowner:{simulated:true,signedAt:'2026-10-24T18:00:00Z'}},audit:[],journal:[],bankMode:'simulation'})});
+  try {
+    ui.app.open(createContractExample(),{demo:true,demoParcelId:'P-009'}); await ui.click('cg-proceed'); await ui.flush();
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
+    assert.equal(ui.nodes.get('cg-submit').disabled,true,'missing scoped metadata cannot relax the final action');
   } finally {ui.restore();}
 });

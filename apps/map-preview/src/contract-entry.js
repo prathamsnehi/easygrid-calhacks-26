@@ -37,7 +37,8 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
         })) throw new Error('The contract inputs must preserve the selected route and affected owners.');
       if (value.agreement && contractSourceKey(contractSourceFromAgreement(value.agreement,handoff())) !== contractSourceKey(input)) throw new Error('The contract source differs from the approved negotiation package.');
       if (approved && (contractSourceKey(input) !== contractSourceKey(approved.input) || !matchesContractBinding(current,approved.mapBinding))) workspace?.invalidate();
-      approved = {input,mapBinding:{...current},packageId:value.packageId,simulated:value.simulated === true};
+      if (value.demoScope === 'single-owner' && !input.parcels.some(parcel => parcel.parcelId === value.demoParcelId)) throw new Error('The representative demo contract is not part of the approved route.');
+      approved = {input,mapBinding:{...current},packageId:value.packageId,simulated:value.simulated === true,demoScope:value.demoScope,demoParcelId:value.demoParcelId};
       write(value.simulated ? 'Demo negotiation approved · no call was placed' : 'Negotiation approved · draft ready');refresh();
     } catch (error) {invalidate();throw error;}
   }
@@ -47,22 +48,23 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
     if (!workspace) {
       workspace = createContractWorkspace({storage,isCurrent:() => Boolean(matching()),api:(...args) => {
         if (!matching()) return Promise.reject(new Error('The map approval changed.'));
-        return apiFactory({packageId:approved.packageId})(...args);
+        return apiFactory({packageId:approved.packageId,demoScope:approved.demoScope,demoParcelId:approved.demoParcelId})(...args);
       }});
       workspace.setConstructionHandler(constructionHandler);
     }
-    onOpen();workspace.open(approved.input,{simulationControls:approved.simulated});
+    onOpen();workspace.open(approved.input,{simulationControls:approved.simulated,demoParcelId:approved.demoScope === 'single-owner' ? approved.demoParcelId : null});
   }
   async function prepareAndOpen() {
     if (busy) return;
     if (matching()) {open();return;}
     const context = mapContractRequest(handoff(),getPlacements(),getRoutingOptions()), ticket = ++generation;
     const controller = new AbortController();active = controller;busy = true;refresh();
-    write('Preparing agreements for the current route…');
+    write('Preparing the representative example agreement…');
     try {
       const result = await requestApproval(context,{signal:controller.signal});
       if (ticket !== generation || controller.signal.aborted) return;
       if (!matchesContractBinding(result.mapBinding,binding())) throw new Error('The route changed before approval arrived.');
+      if (result.demoScope !== 'single-owner' || !result.input?.parcels?.some(parcel => parcel.parcelId === result.demoParcelId)) throw new Error('The local server does not support the representative contract demo yet. Open the updated server and try again.');
       setNegotiation(result);open();
     } catch (error) {
       if (ticket === generation) {approved = null;write(error.message);throw error;}

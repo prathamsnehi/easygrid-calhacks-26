@@ -125,3 +125,18 @@ test('saved drafts restore per parcel and reject stale, corrupt, mismatched or u
   data.set(key,'{'); assert.equal(store.load(source,'P-004').status,'unavailable');
   assert.throws(() => createContractDraftStore(null).save(draft,source), /unavailable/);
 });
+
+test('representative demo copy scopes payment timing without changing approved document bindings', () => {
+  const source=createContractExample(), draft=create(source), before=contractDocument(draft,source);
+  const execution={demoScope:'single-owner',demoParcelId:draft.parcelId};
+  const html=renderContractDocument(draft,source,execution), exported=exportContractHTML(draft,source,execution);
+  for (const text of [html,exported]) {
+    assert.match(text,/SINGLE-LANDOWNER DEMO/);
+    assert.match(text,/One payment after both parties sign this agreement/);
+    assert.match(text,/Other landowners are outside this example/);
+    assert.doesNotMatch(text,/every current final-route agreement|after all final-route agreements are signed/);
+    assert.match(text,/\$12,000\.00/);
+  }
+  assert.deepEqual(contractDocument(draft,source),before);
+  assert.match(renderContractDocument(draft,source,{...execution,demoParcelId:'P-009'}),/all final-route agreements/,'other parcel metadata cannot scope this agreement');
+});

@@ -70,7 +70,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
     } catch { reply(res,400,{error:'Invalid contract request.'}); return true; }
     try {
       if (pathname === '/api/contracts/approve-map') {
-        const approved = await mapService.approve(input.context); reply(res,200,approved); return true;
+        const approved = await mapService.approve(input.context,{demoScope:input.demoScope}); reply(res,200,approved); return true;
       }
       const dispatch = async workflow => {
         let result;
@@ -88,7 +88,8 @@ export async function createContractAPI({environment = process.env, stateURL = n
         return result;
       };
       if (input.packageId !== undefined && (typeof input.packageId !== 'string' || !/^map-contract-[a-f0-9]{40}$/.test(input.packageId))) throw new Error('Invalid approved map package.');
-      const result = input.packageId ? await mapService.execute(input.packageId,dispatch) : await dispatch(workflow);
+      if (!input.packageId && (input.demoScope != null || input.demoParcelId != null)) throw new Error('A single-owner demo requires its approved map package.');
+      const result = input.packageId ? await mapService.execute(input.packageId,dispatch,{demoScope:input.demoScope ?? null,demoParcelId:input.demoParcelId ?? null}) : await dispatch(workflow);
       reply(res,200,{...result,paymentsEnabled:bank.canTransfer !== false});
     } catch (error) {
       // Only our own validation messages are returned; upstream keys, URLs and raw payloads never cross this boundary.

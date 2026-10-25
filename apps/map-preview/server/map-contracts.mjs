@@ -69,7 +69,7 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
     }
   };
   const response = record => copy({packageId:record.packageId,input:record.source,mapBinding:record.agreement.mapBinding,agreement:record.agreement,
-    simulated:true,bankMode,paymentSemantics:configuredBank?.paymentSemantics ?? 'simulated-transfer',amountIncrementCents:configuredBank?.amountIncrementCents ?? 1,paymentsEnabled:configuredBank?.canTransfer !== false});
+    simulated:true,bankMode,demoScope:record.demoScope ?? null,demoParcelId:record.demoParcelId ?? null,paymentSemantics:configuredBank?.paymentSemantics ?? 'simulated-transfer',amountIncrementCents:configuredBank?.amountIncrementCents ?? 1,paymentsEnabled:configuredBank?.canTransfer !== false});
   const worker = record => {
     if (workers.has(record.packageId)) return workers.get(record.packageId);
     const bank = configuredBank ?? createDemoBank();
@@ -80,22 +80,40 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       return digest([ownerId,recipients.get(ownerId),bank.recipientBinding(ownerId)]);
     }};
     workers.set(record.packageId,createContractWorkflow({source:record.source,bank:boundBank,
-      initialState:record.ledger,persist:async ledger => {record.ledger=ledger;await save();},now}));
+      initialState:record.ledger,demoParcelId:record.demoParcelId ?? null,persist:async ledger => {record.ledger=ledger;await save();},now}));
     return workers.get(record.packageId);
   };
+  function scopeFor(source, demoScope) {
+    requireState(demoScope === undefined || demoScope === null || demoScope === 'single-owner','Unknown contract demo scope.');
+    if (demoScope !== 'single-owner') return {demoScope:null,demoParcelId:null};
+    const parcel = source.parcels.find(parcel => parcel.parcelId === 'L017') ?? source.parcels.find(parcel => parcel.compensationCents % 100 === 0) ?? source.parcels[0];
+    requireState(parcel,'The approved route has no demo landowner.');
+    return {demoScope:'single-owner',demoParcelId:parcel.parcelId};
+  }
+  function assertScopePreservesAttempts(record, scope) {
+    if (!scope.demoParcelId) return;
+    const journalIds = new Set(record.ledger.journal.map(row => row.obligationId));
+    const attempts = Object.entries(record.ledger.obligations).filter(([id,payment]) => paymentMayHaveBeenAttempted({...payment,id:payment.id ?? id},record.ledger.journal));
+    requireState(!attempts.some(([id,payment]) => payment.parcelId !== scope.demoParcelId) &&
+      [...journalIds].every(id => record.ledger.obligations[id]?.parcelId === scope.demoParcelId),
+      'Other landowner payment attempts require review before switching this package to a single-owner demo. Preserve the current package and reconcile those outcomes.');
+  }
   return {
-    approve: context => serial(async () => {
+    approve: (context, {demoScope} = {}) => serial(async () => {
       const handoff = reconstructMapProposal(context,world), mapBinding = settlementBinding(handoff);
       const packageId = `map-contract-${digest(mapBinding).slice(0,40)}`, previous = state.packages[state.current[context.sessionId]];
       if (previous?.packageId === packageId) {
-        // Preserve payment evidence, but bind fresh signatures to the current schedule and company.
-        if (previous.source.paymentSchedule !== 'full-after-signatures' || previous.source.project.developerName !== 'EasyGrid') {
-          const priorSource = previous.source;
-          previous.source = {...priorSource, paymentSchedule:'full-after-signatures',
-            project:{...priorSource.project,developerName:'EasyGrid'}};
+        const scope = scopeFor(previous.source,demoScope);
+        assertScopePreservesAttempts(previous,scope);
+        const sourceChanged = previous.source.paymentSchedule !== 'full-after-signatures' || previous.source.project.developerName !== 'EasyGrid';
+        const scopeChanged = (previous.demoScope ?? null) !== scope.demoScope || (previous.demoParcelId ?? null) !== scope.demoParcelId;
+        if (sourceChanged || scopeChanged) {
+          const priorSource = previous.source, priorScope = {demoScope:previous.demoScope,demoParcelId:previous.demoParcelId};
+          previous.source = {...priorSource,paymentSchedule:'full-after-signatures',project:{...priorSource.project,developerName:'EasyGrid'}};
+          Object.assign(previous,scope);
           try {await save();}
-          catch (error) {previous.source=priorSource;throw error;}
-          // A previously opened worker captured the old source and its approval hash.
+          catch (error) {previous.source=priorSource;Object.assign(previous,priorScope);throw error;}
+          // approve and execute share this queue, so no in-flight worker is evicted.
           workers.delete(previous.packageId);
         }
         return response(previous);
@@ -104,7 +122,7 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       requireState(!previous || context.routeVersion > previous.source.route.version, 'A changed proposal requires a newer route version.');
       const agreement = simulatedMapAgreement(handoff,{negotiationId:`neg-${digest(mapBinding).slice(0,32)}`,approvedAt:now()});
       const source = contractSourceFromAgreement(agreement,handoff);
-      const record = {packageId,source,agreement,recipientBindingVersion:2,ledger:createWorkflowState()};
+      const record = {packageId,source,agreement,...scopeFor(source,demoScope),recipientBindingVersion:2,ledger:createWorkflowState()};
       state.packages[packageId]=record;state.current[context.sessionId]=packageId;
       try {await save();}
       catch (error) {
@@ -114,9 +132,10 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       }
       return response(record);
     }),
-    execute: (packageId, action) => serial(async () => {
+    execute: (packageId, action, {demoScope = null,demoParcelId = null} = {}) => serial(async () => {
       const record = Object.hasOwn(state.packages,packageId) ? state.packages[packageId] : null;
       requireState(record && state.current[record.source.sessionId] === packageId, 'The approved map package is missing or superseded. Approve the current route first.');
+      requireState((record.demoScope ?? null) === demoScope && (record.demoParcelId ?? null) === demoParcelId, 'The contract demo scope changed. Reopen the approved package before continuing.');
       const workflow = worker(record), result = await action(workflow);
       // Even idempotent replays must durably save a previous interrupted write.
       record.ledger = workflow.snapshot();await save();return {...result,packageId};

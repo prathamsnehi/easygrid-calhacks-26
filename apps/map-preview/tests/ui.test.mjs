@@ -678,13 +678,15 @@ test('route changes invalidate prior handoffs, preserve the original user role a
   assert.deepEqual(app.errors,[]);
 });
 
-test('refusal demo bypasses the original owner, simulates all new-route agreements and enables demo contract continuation',async()=>{
-  const requests=[];
+test('refusal demo bypasses the original owner and opens one representative contract from the approved route',async()=>{
+  const requests=[];let representative=null;
   const app=boot({fetcher:async(url,options)=>{
     assert.equal(url,'/api/contracts/approve-map');requests.push(JSON.parse(options.body));
     const handoff=reconstructMapProposal(requests.at(-1).context);
     const agreement=simulatedMapAgreement(handoff,{negotiationId:'ui-approved',approvedAt:'2026-10-24T20:00:00Z'});
-    return {ok:true,json:async()=>({packageId:`map-contract-${'a'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input:contractSourceFromAgreement(agreement,handoff)})};
+    const input=contractSourceFromAgreement(agreement,handoff);
+    representative=input.parcels.find(parcel=>parcel.parcelId==='L017') ?? input.parcels.find(parcel=>parcel.compensationCents%100===0) ?? input.parcels[0];
+    return {ok:true,json:async()=>({packageId:`map-contract-${'a'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input,demoScope:'single-owner',demoParcelId:representative.parcelId})};
   }});placePair(app);await app.flushTimers();
   const api=app.window.easygridDemo,before=handoffOf(app),original=before.userRole.parcelId;
   let calls=0;api.setHandoffHandler(async()=>{calls++;});
@@ -725,8 +727,12 @@ test('refusal demo bypasses the original owner, simulates all new-route agreemen
   app.click('settle-payment');await settlePromises();await settlePromises();
   assert.equal(requests.length,1);
   assert.equal(app.elements.get('contract-workspace').hidden,false);
-  assert.equal(app.elements.get('cg-owner-count').textContent,String(after.ownerHandoff.parcels.length));
-  assert.equal(app.elements.get('cg-total').textContent,usd(agreed.totals.compensationCents));
+  assert.equal(requests[0].demoScope,'single-owner');
+  assert.equal(app.elements.get('cg-owner-count').textContent,'1');
+  assert.equal(app.elements.get('cg-owner-count-label').textContent,'example landowner');
+  assert.equal(app.elements.get('cg-total').textContent,usd(representative.compensationCents));
+  assert.equal(app.elements.get('cg-gate-scope-label').textContent,'SINGLE-LANDOWNER DEMO');
+  assert.equal(app.elements.get('cg-selection-bar').hidden,true);
   assert.deepEqual(requests[0].context.routingConstraints.blockedParcelIds,[original]);
   for(const secret of Object.values(privateUser))assert(!JSON.stringify(requests).includes(secret));
   app.click('cg-close');
@@ -1106,9 +1112,12 @@ test('inspection clicks lock parcel selection and frame it without hover-driven 
 test('a late contract preparation response cannot reopen a changed route',async()=>{
   let finish;
   const app=boot({fetcher:async(_url,options)=>{
-    const handoff=reconstructMapProposal(JSON.parse(options.body).context);
+    const request=JSON.parse(options.body);assert.equal(request.demoScope,'single-owner');
+    const handoff=reconstructMapProposal(request.context);
     const agreement=simulatedMapAgreement(handoff,{negotiationId:'ui-delayed',approvedAt:'2026-10-24T20:00:00Z'});
-    return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({packageId:`map-contract-${'b'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input:contractSourceFromAgreement(agreement,handoff)})});});
+    const input=contractSourceFromAgreement(agreement,handoff);
+    const representative=input.parcels.find(parcel=>parcel.parcelId==='L017') ?? input.parcels.find(parcel=>parcel.compensationCents%100===0) ?? input.parcels[0];
+    return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({packageId:`map-contract-${'b'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input,demoScope:'single-owner',demoParcelId:representative.parcelId})});});
   }});
   placePair(app);await app.flushTimers();app.click('simulate-refusal');await app.flushTimers();
   app.click('overview-settlement');

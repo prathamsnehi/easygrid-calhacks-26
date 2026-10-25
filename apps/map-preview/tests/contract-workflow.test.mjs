@@ -343,3 +343,49 @@ test('agreement progress excludes signatures from an earlier source approval aft
   assert.deepEqual(result.agreementProgress,{signedCount:0,totalCount:changed.parcels.length,nextUnsignedParcelId:changed.parcels[0].parcelId});
   assert.equal(result.packageReady,false);
 });
+
+test('a single-owner example permits only its signed obligation without marking the full route ready', async () => {
+  const source=createContractExample(),draft=createContractDraft(source,source.parcels[0].parcelId,{id:'one-owner-example',now});
+  const other=createContractDraft(source,source.parcels[1].parcelId,{id:'excluded-owner',now});
+  let transfers=0;const base=createDemoBank(),bank={...base,transfer:async input=>{transfers++;return base.transfer(input);}};
+  const flow=createContractWorkflow({source,bank,demoParcelId:draft.parcelId,now:()=>now});
+  const before=await flow.inspect(draft);
+  assert.equal(before.demoScope,'single-owner');assert.equal(before.demoParcelId,draft.parcelId);
+  assert.equal(before.paymentReady,false);assert.equal(before.packageReady,false);
+  const signed=await signBoth({flow,draft});
+  assert.equal(signed.documentHash,before.documentHash,'scoping must not rewrite the existing approved draft');
+  assert.equal(signed.paymentReady,true);assert.equal(signed.packageReady,false);
+  assert.deepEqual(signed.agreementProgress,{signedCount:1,totalCount:1,nextUnsignedParcelId:null});
+  assert.deepEqual(signed.routeAgreementProgress,{signedCount:1,totalCount:2,nextUnsignedParcelId:other.parcelId});
+  await assert.rejects(flow.sign(other,'utility',DEMO_ACTORS.utility),/only its selected/);
+  await assert.rejects(flow.submit(other,DEMO_ACTORS.requester),/only its selected/);
+  const paid=await flow.submit(draft,DEMO_ACTORS.requester);
+  assert.equal(paid.payment.status,'paid');assert.equal(paid.paymentReady,true);assert.equal(paid.packageReady,false);
+  assert.equal(transfers,1);assert.equal(flow.snapshot().journal.length,1);
+  assert.equal(paid.construction.status,'not-applicable');assert.equal(flow.snapshot().construction,undefined);
+  await assert.rejects(flow.completeConstruction(draft,{},DEMO_ACTORS.construction),/does not establish payment or construction/);
+  const ordinary=createContractWorkflow({source,bank,initialState:flow.snapshot(),now:()=>now});
+  const ordinaryState=await ordinary.inspect(draft);
+  assert.equal(ordinaryState.demoScope,null);assert.equal(ordinaryState.paymentReady,false);assert.equal(ordinaryState.packageReady,false);
+  await assert.rejects(ordinary.submit(draft,DEMO_ACTORS.requester),/Every final-route/);
+  assert.equal(transfers,1);
+});
+
+test('converting the same selected owner to demo scope preserves unknown and recorded obligation locks', async () => {
+  for (const outcome of ['unknown','recorded']) {
+    const source=createContractExample(),drafts=source.parcels.map((parcel,index)=>createContractDraft(source,parcel.parcelId,{id:`preserved-${outcome}-${index}`,now}));
+    let calls=0;
+    const bank={...createDemoBank(),paymentSemantics:'record-only',transfer:async input=>{
+      calls++;if(outcome==='unknown')throw new Error('Unconfirmed provider outcome');
+      return {...input,paymentSemantics:'record-only',status:'recorded',recipientMatches:true,transactionRef:'existing-record'};
+    }};
+    const original=createContractWorkflow({source,bank,now:()=>now});
+    for(const draft of drafts)await signBoth({flow:original,draft});
+    const prior=await original.submit(drafts[0],DEMO_ACTORS.requester),state=original.snapshot();
+    const scoped=createContractWorkflow({source,bank,initialState:state,demoParcelId:drafts[0].parcelId,now:()=>now});
+    const replay=await scoped.submit(drafts[0],DEMO_ACTORS.requester);
+    assert.equal(replay.payment.status,outcome);assert.equal(replay.payment.obligationId,prior.payment.obligationId);
+    assert.equal(replay.documentHash,prior.documentHash);assert.equal(calls,1);
+    assert.deepEqual(scoped.snapshot(),state,'scope must not replace an earlier payment attempt');
+  }
+});

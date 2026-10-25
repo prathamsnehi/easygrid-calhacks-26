@@ -21,9 +21,12 @@ export function paymentMayHaveBeenAttempted(payment, journal = []) {
 }
 
 /** Event-driven AP worker. Rules, actor capabilities and evidence control execution, not browser state. */
-export function createContractWorkflow({source, bank, initialState = createWorkflowState(), persist = async () => {}, now = () => new Date().toISOString()}) {
+export function createContractWorkflow({source, bank, initialState = createWorkflowState(), persist = async () => {}, now = () => new Date().toISOString(), demoParcelId = null}) {
   const approvedSource = normalizeContractSource(source), state = copy(initialState);
   const sourceHash = digest(contractSourceKey(approvedSource));
+  if (demoParcelId !== null && !approvedSource.parcels.some(parcel => parcel.parcelId === demoParcelId)) throw new Error('The selected demo landowner must belong to the approved route.');
+  const demoScope = demoParcelId === null ? null : 'single-owner';
+  const requiredParcels = demoScope ? approvedSource.parcels.filter(parcel => parcel.parcelId === demoParcelId) : approvedSource.parcels;
   const paymentSemantics = bank.paymentSemantics ?? 'simulated-transfer', recordOnly = paymentSemantics === 'record-only';
   const amountIncrementCents = bank.amountIncrementCents ?? 1;
   if (state.schemaVersion !== 1 || !state.documents || !state.obligations || !Array.isArray(state.audit) || !Array.isArray(state.journal)) throw new Error('Invalid development ledger.');
@@ -54,6 +57,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     if (stage !== 'full') throw new Error('Only the full one-time payment stage is supported.');
   }
   function register(draft) {
+    if (demoScope && draft?.parcelId !== demoParcelId) throw new Error('This demo covers only its selected landowner agreement.');
     const validation = validateContractDraft(draft, approvedSource);
     if (!validation.valid) throw new Error(validation.errors.join(' '));
     assertNoLegacyPayment(draft);
@@ -77,7 +81,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
   }
   function constructionState() {
     const payments = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
-    if (recordOnly) return {status:'not-applicable',paidCount:0,recordedCount:payments.filter(payment => payment?.status === 'recorded').length,parcelCount:payments.length};
+    if (recordOnly || demoScope) return {status:'not-applicable',paidCount:0,recordedCount:payments.filter(payment => payment?.status === 'recorded').length,parcelCount:payments.length};
     return state.construction ? copy(state.construction) : {status: 'awaiting-payments', paidCount: payments.filter(payment => payment?.status === 'paid').length, parcelCount: payments.length};
   }
   function hasCurrentAgreement(parcel) {
@@ -85,16 +89,17 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       doc.signatures.utility?.documentHash === doc.hash && doc.signatures.landowner?.documentHash === doc.hash &&
       (!state.obligations[obligationId(parcel)] || state.obligations[obligationId(parcel)].documentHash === doc.hash));
   }
-  function agreementProgress() {
-    const unsigned = approvedSource.parcels.filter(parcel => !hasCurrentAgreement(parcel));
-    return {signedCount:approvedSource.parcels.length-unsigned.length,totalCount:approvedSource.parcels.length,
+  function agreementProgress(parcels = requiredParcels) {
+    const unsigned = parcels.filter(parcel => !hasCurrentAgreement(parcel));
+    return {signedCount:parcels.length-unsigned.length,totalCount:parcels.length,
       nextUnsignedParcelId:unsigned[0]?.parcelId ?? null};
   }
   function packageReady() {
     return approvedSource.parcels.every(hasCurrentAgreement);
   }
+  function paymentReady() { return requiredParcels.every(hasCurrentAgreement); }
   function startConstruction(draft, actor) {
-    if (recordOnly || state.construction) return;
+    if (recordOnly || demoScope || state.construction) return;
     const payments = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
     if (!payments.every(payment => payment?.status === 'paid')) return;
     const packageHash = digest({source: contractSourceKey(approvedSource), documents: payments.map(payment => payment.documentHash)});
@@ -110,12 +115,14 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
   }
   function project(draft) {
     const doc = state.documents[draft.id], hash = contractContentHash(draft, approvedSource), payment = state.obligations[obligationId(draft)];
-    const progress = agreementProgress();
+    const progress = agreementProgress(), routeProgress = agreementProgress(approvedSource.parcels);
     return {documentHash: hash, draftId: draft.id, signatures: doc?.hash === hash ? copy(doc.signatures) : {},
       payment: paymentView(payment, hash),
       construction: constructionState(),
-      packageReady: progress.signedCount === progress.totalCount,
-      agreementProgress: progress,
+      packageReady: packageReady(),
+      paymentReady: progress.signedCount === progress.totalCount,
+      demoScope, demoParcelId,
+      agreementProgress: progress, routeAgreementProgress:routeProgress,
       bankMode: bank.mode, paymentSemantics, amountIncrementCents, agentMode: 'rule-based-event-worker',
       audit: copy(state.audit.filter(row => row.parcelId === draft.parcelId)),
       journal: copy(state.journal.filter(row => row.obligationId === obligationId(draft)))};
@@ -177,7 +184,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       const doc = register(draft), document = contractDocument(draft, approvedSource), id = obligationId(draft, stage);
       const utility = doc.signatures.utility, landowner = doc.signatures.landowner;
       if (!utility || !landowner || utility.documentHash !== doc.hash || landowner.documentHash !== doc.hash) throw new Error('Both current click signatures are required before submission.');
-      if (!packageReady()) throw new Error('Every final-route contract requires current utility approval and landowner signatures before payment.');
+      if (!paymentReady()) throw new Error(demoScope ? 'The selected demo agreement requires current utility approval and landowner signatures before submission.' : 'Every final-route contract requires current utility approval and landowner signatures before payment.');
       if (utility.actorId === actor.id || landowner.actorId === actor.id || utility.actorId === landowner.actorId) throw new Error('Payment request, utility approval and landowner consent must use distinct identities.');
       const amountCents = document.paymentCents;
       if (document.paymentSchedule !== 'full-after-signatures' || !Number.isSafeInteger(amountCents) || amountCents !== document.totalCents) throw new Error('The payment must cover the exact full approved compensation.');
@@ -232,7 +239,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     }),
     completeConstruction: (draft, completion, actor) => serial(async () => {
       authorize(actor, 'construction-reporter');
-      if (recordOnly) throw new Error('A Nessie API record does not establish payment or construction eligibility.');
+      if (recordOnly || demoScope) throw new Error('A Nessie API record or single-owner example does not establish payment or construction eligibility for the route.');
       register(draft);
       const construction = state.construction;
       if (!construction || !['constructionId','packageHash','sessionId','routeId','routeVersion'].every(key => completion?.[key] === construction[key])) throw new Error('Completion must match the current construction run and approved route package.');
