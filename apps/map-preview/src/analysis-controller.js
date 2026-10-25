@@ -75,10 +75,11 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   function renderConsent() {
     if(!analysis)return;
     const accepted=negotiationResults.getAcceptedTerms();
-    const pendingCount=analysis.parcels.filter(row=>accepted?.parcelId!==row.parcelId&&negotiationDisplay.get(row.parcelId)?.outcome!=='accepted'&&row.accessConsent!=='allowed').length;
+    const pendingCount=analysis.parcels.filter(row=>row.recommendationStatus!=='excluded'&&accepted?.parcelId!==row.parcelId&&negotiationDisplay.get(row.parcelId)?.outcome!=='accepted'&&row.accessConsent!=='allowed').length;
     const reviewCount=analysis.parcels.filter(row=>row.recommendationStatus==='review-required').length;
-    write('analysis-upfront-label',reviewCount?'Priced subtotal':'Recommended total');
-    write('analysis-consent-note',`${pendingCount} pending${reviewCount?` · ${reviewCount} need pricing`:''}`);
+    const excludedCount=analysis.parcels.filter(row=>row.recommendationStatus==='excluded').length;
+    write('analysis-upfront-label',reviewCount||excludedCount?'Priced subtotal':'Recommended total');
+    write('analysis-consent-note',`${pendingCount} pending${excludedCount?` · ${excludedCount} excluded`:''}${reviewCount?` · ${reviewCount} need pricing`:''}`);
   }
   // Display projection only: this does not change proposed terms or create approval.
   function setNegotiationDisplay(value) {
@@ -128,7 +129,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     el['analysis-parcel-detail'].hidden=!row;
     el['focus-analysis-parcel'].disabled=!row;
     if(!row)return;
-    const isUser=row.parcelId===userParcelId,role=getParcelRole(row.parcelId),needsEstimate=row.recommendationStatus==='review-required';
+    const isUser=row.parcelId===userParcelId,role=getParcelRole(row.parcelId),needsEstimate=row.recommendationStatus==='review-required',excluded=row.recommendationStatus==='excluded';
     write('analysis-parcel-title',row.parcelId);
     write('analysis-parcel-badge','DEMO ROLE');
     el['analysis-parcel-badge'].hidden=!isUser;
@@ -138,21 +139,21 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       `${row.parcelId}: fictional owner ${row.ownerAlias}.`);
     write('analysis-owner',role?.ownerAlias??row.ownerAlias);
     write('analysis-land-use',row.landUse.replaceAll('-',' '));
-    write('analysis-line-length',row.corridorOnly?'Corridor only':distance(row.lineLengthTiles));
+    write('analysis-line-length',excluded?'Partial corridor overlap':distance(row.lineLengthTiles));
     write('analysis-foundation',row.towerCount);
     const accepted=negotiationResults.getAcceptedTerms(),agreed=accepted?.parcelId===row.parcelId?accepted:null;
-    write('analysis-offer',needsEstimate?'Review required':moneyOf(row.recommendedOfferCents));
-    write('analysis-limit',needsEstimate?'Review required':moneyOf(row.offerCapCents));
+    write('analysis-offer',excluded?'Excluded':needsEstimate?'Review required':moneyOf(row.recommendedOfferCents));
+    write('analysis-limit',excluded?'Excluded':needsEstimate?'Review required':moneyOf(row.offerCapCents));
     write('analysis-agreed',agreed?moneyOf(agreed.agreedCents):'Not agreed');
     write('analysis-parcel-rent-label','Monthly fee');
     write('analysis-parcel-rent',`${!agreed&&row.monthlyRentIsApproximate?'≈ ':''}${moneyOf(agreed?.monthlyRentCents??row.monthlyRentCents)}`);
-    const status=row.accessConsent==='refused'||row.negotiationStatus==='refused'?'Declined':needsEstimate?'Review required':
+    const status=excluded?'Excluded':row.accessConsent==='refused'||row.negotiationStatus==='refused'?'Declined':needsEstimate?'Review required':
       row.accessConsent==='allowed'&&row.negotiationStatus==='accepted'?'Agreed':
       row.negotiationStatus==='counteroffer'?'Counteroffer':row.negotiationStatus==='review_required'?'Review needed':'Pending';
     write('analysis-negotiation',displayedOutcome(row.parcelId)??status);
     const breakdown=row.compensationBreakdown;
     const components=breakdown?`Line allowance: ${moneyOf(breakdown.lineCents)}. Tower pad allowance: ${moneyOf(breakdown.foundationCents)}. `:'';
-    write('analysis-parcel-impact',`${components}${row.corridorOnly?'Corridor contact requires owner review. ':''}Maximum compensation: recommended compensation × 1.2, rounded down to cents; available budget can reduce the final offer. ${analysis.rentHorizonMonths}-month fees: ${moneyOf(row.rentTotalCents)}.`);
+    write('analysis-parcel-impact',`${components}${excluded?'Partial corridor overlap is excluded from compensation and payment. ':''}Maximum compensation: recommended compensation × 1.2, rounded down to cents; available budget can reduce the final offer. ${analysis.rentHorizonMonths}-month fees: ${moneyOf(row.rentTotalCents)}.`);
   }
   function selectParcel(parcelId,focus=true) {
     if(!analysis?.parcels.some(row=>row.parcelId===parcelId))return;
@@ -168,9 +169,10 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       title.textContent=row.parcelId===userParcelId?(participant?.alias??'User participant'):row.ownerAlias;
       const code=document.createElement('small');code.textContent=row.parcelId;title.appendChild(code);
       const accepted=negotiationResults.getAcceptedTerms(),agreed=accepted?.parcelId===row.parcelId?accepted:null;
-      const cost=document.createElement('span');cost.className='analysis-row-cost';cost.textContent=agreed?`${moneyOf(agreed.agreedCents)} agreed`:row.recommendationStatus==='review-required'?'Review required':`${moneyOf(row.recommendedOfferCents)} – ${moneyOf(row.offerCapCents)}`;
+      const excluded=row.recommendationStatus==='excluded';
+      const cost=document.createElement('span');cost.className='analysis-row-cost';cost.textContent=agreed?`${moneyOf(agreed.agreedCents)} agreed`:excluded?'Excluded':row.recommendationStatus==='review-required'?'Review required':`${moneyOf(row.recommendedOfferCents)} – ${moneyOf(row.offerCapCents)}`;
       const meta=document.createElement('span');meta.className='analysis-row-meta';
-      meta.textContent=`${row.towerCount} ${row.towerCount===1?'tower':'towers'} · ${row.corridorOnly?'corridor only':distance(row.lineLengthTiles)}${row.withinOfferCap?'':' · review needed'}${displayedOutcome(row.parcelId)?` · ${displayedOutcome(row.parcelId)}`:''}`;
+      meta.textContent=excluded?'Partial corridor overlap · excluded':`${row.towerCount} ${row.towerCount===1?'tower':'towers'} · ${distance(row.lineLengthTiles)}${row.withinOfferCap?'':' · review needed'}${displayedOutcome(row.parcelId)?` · ${displayedOutcome(row.parcelId)}`:''}`;
       button.appendChild(title);button.appendChild(cost);button.appendChild(meta);
       if(row.parcelId===userParcelId){
         const badge=document.createElement('span');badge.className='analysis-row-role';

@@ -163,7 +163,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
           const candidate=computed.candidates.find(route=>{
             if(route.totalCostCents>DEMO_BUDGET_CENTS)return false;
             const analysis=analyzeRouteParcels(world,route,computed.assumptions);
-            return analysis.parcels.every(parcel=>parcel.recommendationStatus==='estimated'&&parcel.withinOfferCap&&parcel.accessConsent!=='refused'&&parcel.negotiationStatus!=='refused');
+            return analysis.parcels.every(parcel=>(parcel.recommendationStatus==='estimated'||parcel.recommendationStatus==='excluded')&&parcel.withinOfferCap&&parcel.accessConsent!=='refused'&&parcel.negotiationStatus!=='refused');
           });
           computed.candidates=candidate?[candidate]:[];computed.recommendedId=candidate?.id??null;
           if(!candidate){computed.status='no-route';computed.reasons=['No eligible route within the current budget and parcel constraints.'];}

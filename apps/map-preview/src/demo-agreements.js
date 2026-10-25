@@ -47,11 +47,13 @@ export function createSimulatedAgreement(handoff,{blockedParcelIds=[]}={}){
   requireState(role&&original.userRole&&role.parcelId===original.userRole.parcelId&&role.ownerId===original.userRole.ownerId&&
     blocked.has(role.parcelId)&&!route.parcelIds.includes(role.parcelId),
     'The refused original participant must remain off the new route.');
+  const compensatedIds=handoff.parcelAnalysis.filter(row=>row.corridorOnly!==true&&row.recommendationStatus!=='excluded').map(row=>row.parcelId);
   requireState(Array.isArray(original.parcels)&&original.parcels.length>0&&Array.isArray(original.owners)&&Array.isArray(handoff.parcelAnalysis)&&
-    sameIds(route.parcelIds,original.parcels.map(parcel=>parcel.parcelId))&&
+    sameIds(compensatedIds,original.parcels.map(parcel=>parcel.parcelId))&&
     sameIds(route.parcelIds,handoff.parcelAnalysis.map(parcel=>parcel.parcelId))&&
-    sameIds(route.parcelIds,handoff.snapshot.parcels.map(parcel=>parcel.id)),
-    'Every final-route parcel must have matching proposal and impact data.');
+    sameIds(route.parcelIds,handoff.snapshot.parcels.map(parcel=>parcel.id))&&
+    handoff.parcelAnalysis.filter(row=>row.corridorOnly===true||row.recommendationStatus==='excluded').every(row=>!original.parcels.some(parcel=>parcel.parcelId===row.parcelId)),
+    'Priced parcels must match the proposal, and partial corridor overlap cannot enter a contract.');
   requireState(original.owners.some(owner=>owner.ownerId===role.ownerId)&&
     new Set(original.owners.map(owner=>owner.ownerId)).size===original.owners.length&&
     new Set(original.owners.map(owner=>owner.banking?.paymentRecipientRef)).size===original.owners.length,

@@ -99,7 +99,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     const towerCount=integer(row.towerCount,'Parcel tower count');
     // Match the parcel analysis tolerance and derive review status from priced impact.
     const corridorOnly=finite(row.lineLengthTiles,'Parcel crossed length')<=1e-7&&towerCount===0;
-    if(row.corridorOnly!==corridorOnly||row.recommendationStatus!==(corridorOnly?'review-required':'estimated'))throw new Error('Parcel recommendation status is inconsistent.');
+    if(row.corridorOnly!==corridorOnly||row.recommendationStatus!==(corridorOnly?'excluded':'estimated'))throw new Error('Parcel recommendation status is inconsistent.');
     if(row.accessConsent!==parcel.accessConsent||row.negotiationStatus!==parcel.negotiationStatus)throw new Error('Parcel consent analysis is stale.');
     const area=finite(parcel.areaTiles,'Parcel area',Number.MIN_VALUE);
     if(parcel.geometry?.coordinateSystem!=='local-demo-grid'||parcel.geometry?.type!=='Polygon'||!Array.isArray(parcel.geometry.rings))throw new Error('Parcel geometry must use the local demo grid.');
@@ -112,13 +112,15 @@ export function createHandoff({world,route,analysis,placements,participant=null,
       synthetic:true,landUse:parcel.landUse,areaSqM:area*DEMO_COORDINATE_TRANSFORM.metersPerTile**2,
       offerCapCents:cap,accessConsent:row.accessConsent,negotiationStatus:row.negotiationStatus};
   });
-  const recommendationsComplete=analysis.parcels.every(row=>row.recommendationStatus==='estimated');
-  const eligible=recommendationsComplete&&analysis.parcels.every(row=>row.withinOfferCap&&row.accessConsent!=='refused'&&row.negotiationStatus!=='refused')&&modeledTotal<=budgetCents;
+  const compensated=analysis.parcels.filter(row=>!row.corridorOnly);
+  const recommendationsComplete=compensated.length>0&&compensated.every(row=>row.recommendationStatus==='estimated');
+  const eligible=recommendationsComplete&&compensated.every(row=>row.withinOfferCap)&&analysis.parcels.every(row=>row.accessConsent!=='refused'&&row.negotiationStatus!=='refused')&&modeledTotal<=budgetCents;
   const reasons=['Synthetic geometry and pricing; owner consent and regulatory checks are not complete.'];
-  if(analysis.parcels.some(row=>!row.withinOfferCap))reasons.push('An affected parcel exceeds its fictional upfront offer cap.');
+  if(compensated.some(row=>!row.withinOfferCap))reasons.push('An affected parcel exceeds its fictional upfront offer cap.');
   if(analysis.parcels.some(row=>row.accessConsent==='refused'||row.negotiationStatus==='refused'))reasons.push('An affected parcel has refused access.');
   if(modeledTotal>budgetCents)reasons.push('The selected route exceeds the fictional handoff budget.');
-  if(!recommendationsComplete)reasons.push('A corridor-only parcel needs compensation review before negotiation.');
+  if(analysis.parcels.some(row=>row.corridorOnly))reasons.push('Partial corridor overlap is excluded from compensation.');
+  if(!recommendationsComplete)reasons.push('A priced parcel needs compensation review before negotiation.');
   const candidate={...meta,id:route.id,projectId,version:routeVersion,
     geometry:{type:'LineString',coordinates:route.nodes.map(node=>localPointToGeoJSON(node.x,node.z).coordinates)},
     parcelIds:[...route.parcelIds],lengthMeters:route.lengthTiles*DEMO_COORDINATE_TRANSFORM.metersPerTile,
@@ -154,7 +156,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     sessionId,projectId,routeId:route.id,routeVersion,revision:0,referenceBinding:'local-fixture',
     currency:'USD',routeStatus:'selected_for_negotiation',rentHorizonMonths,
     constructionCents:candidate.constructionCents,budgetCents,simulationChecksPassed:recommendationsComplete,
-    owners:[...new Map([...owners,[originalOwner.id,{id:originalOwner.id,alias:originalOwner.alias}]]).values()].map(owner=>{
+    owners:[...new Map([...owners,[originalOwner.id,{id:originalOwner.id,alias:originalOwner.alias}]].filter(([id])=>compensated.some(row=>row.ownerId===id)||id===originalOwner.id)).values()].map(owner=>{
       const original=world.ownerById.get(owner.id),banking=original.banking;
       if(!banking||banking.ownerId!==owner.id||banking.mode!=='simulated'||
         typeof banking.paymentRecipientRef!=='string'||!banking.paymentRecipientRef.startsWith('mock-')||
@@ -172,7 +174,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
           mode:'simulated',accountHolderAlias:banking.accountHolderAlias,
           bankDisplay:banking.bankDisplay,accountDisplay:banking.accountDisplay}};
     }),
-    parcels:analysis.parcels.map(row=>{
+    parcels:compensated.map(row=>{
       const parcel=parcels.find(item=>item.id===row.parcelId);
       return {parcelId:row.parcelId,ownerId:row.ownerId,landUse:row.landUse,
         geometry:{type:'Polygon',coordinates:parcel.geometry.coordinates.map(ring=>ring.map(point=>[...point]))},areaSqM:parcel.areaSqM,

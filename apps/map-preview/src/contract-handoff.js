@@ -30,9 +30,12 @@ export function contractSourceFromAgreement(agreement, handoff) {
   const binding = settlementBinding(handoff), packet = agreement?.ownerHandoff, scope = agreement?.approvalScope;
   requireState(sameBinding(binding, agreement?.mapBinding) && handoff.snapshot.routes[0].eligible === true, 'The approved negotiation does not match the displayed route.');
   requireState(scope === undefined || (scope?.kind === 'single-owner' && typeof scope.parcelId === 'string' && scope.parcelId.length > 0), 'The approval scope must identify one current parcel.');
+  const canonical=packet?.referenceBinding==='canonical';
   requireState(packet?.kind === 'easygrid-owner-handoff' && packet.sourceMode === 'fixture' &&
-    (packet.routeStatus === 'ready_for_agreements' || (scope && packet.routeStatus === 'selected_for_negotiation')) &&
-    packet.referenceBinding === 'local-fixture', 'A complete approved development agreement packet is required.');
+    (canonical
+      ? agreement?.kind==='easygrid-authoritative-agreement'&&scope===undefined&&packet.routeStatus==='ready_for_agreements'
+      : (packet.routeStatus === 'ready_for_agreements' || (scope && packet.routeStatus === 'selected_for_negotiation')) && packet.referenceBinding === 'local-fixture'),
+    canonical?'A canonical agreement must use authoritative settlement, not simulated approval.':'A complete approved development agreement packet is required.');
   // Local agreement metadata preserves the exact source of previously signed drafts.
   const contractTermsVersion = agreement.contractTermsVersion === undefined ? 1 : agreement.contractTermsVersion;
   requireState(contractTermsVersion === 1 || contractTermsVersion === 2, 'Unsupported development contract terms version.');
@@ -92,6 +95,7 @@ export function matchesContractBinding(a, b) {return sameBinding(a, b);}
 /** Explicit operator-approved fixture scenario, separate from registration and calls. */
 export function simulatedMapAgreement(handoff, {negotiationId, approvedAt}) {
   const packet = copy(handoff.ownerHandoff);
+  requireState(packet?.referenceBinding!=='canonical','A canonical agreement must be signed and paid through the authoritative settlement service.');
   packet.routeStatus = 'ready_for_agreements';
   for (const parcel of packet.parcels) parcel.terms = {...parcel.terms, outcome:'accepted', accessConsent:'allowed',
     explicitConfirmation:true, confirmationRef:`${negotiationId}:${parcel.parcelId}`};

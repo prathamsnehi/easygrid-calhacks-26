@@ -232,6 +232,19 @@ export const voiceAttempt = table(
   },
 );
 
+/** Private canonical signatures, approval and one full simulated payment per parcel. */
+export const settlementRecord = table(
+  { name: 'settlement_record' },
+  {
+    sessionId: t.string().primaryKey(),
+    revision: t.u32(),
+    routeVersion: t.u32(),
+    status: t.string(),
+    fingerprint: t.string(),
+    stateJson: t.string(),
+  },
+);
+
 /** Provider IDs cannot be rebound to another saved attempt. */
 export const voiceProviderCall = table(
   { name: 'voice_provider_call' },
@@ -254,6 +267,7 @@ export const spacetimedb = schema({
   negotiationSession,
   negotiationResult,
   negotiationReview,
+  settlementRecord,
   voiceAttempt,
   voiceProviderCall,
 }, {
