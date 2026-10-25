@@ -151,12 +151,18 @@ export function createLiveCallHost({
   }
 
   let refusalNotified = false;
+  const finishedRefusals = new Set();
   function source({ mapBinding, signal, onUpdate, onUnavailable, onReady, callSessionId }) {
     let timer = 0;
     let stopped = false;
     let polling = false;
     let seen = -1;
     const sessionId = callSessionId || mapBinding.sessionId;
+    // The saved disagreement already moved the route. Replaying it would lock the next owner.
+    if (finishedRefusals.has(sessionId)) {
+      onReady?.();
+      return () => {};
+    }
     const stop = () => { stopped = true; cancelPoll(timer); };
     signal?.addEventListener?.('abort', stop);
     const tick = async () => {
@@ -178,13 +184,14 @@ export function createLiveCallHost({
           const summary = update.summary;
           const confirmedRefusal = update.phase === 'finished' && update.mode === 'live' && summary?.outcome === 'refused'
             && CONFIRMED_REFUSAL_REASONS.includes(summary.reason);
-          if (confirmedRefusal) {
-            lockLiveCall();
+          if (confirmedRefusal && !finishedRefusals.has(sessionId)) {
+            finishedRefusals.add(sessionId);
             try {
               onConfirmedRefusal(update);
               refusalNotified = true;
             } catch {
-              // The saved explanation stays visible when the route update fails.
+              // Keep this phone from redialing the same owner when the route update fails.
+              lockLiveCall();
             }
           }
           if (update.phase === 'finished') stop();

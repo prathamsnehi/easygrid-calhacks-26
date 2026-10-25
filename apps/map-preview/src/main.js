@@ -270,6 +270,7 @@ function renderNegotiation(state){
 }
 negotiation=createNegotiationController({world:landscape.world,getHandoff:()=>analysis.getHandoff(),getSessionId:()=>analysis.getSessionId(),
   invalidateApproval:()=>{analysis.settlement.invalidate();contracts.invalidate();},lockLiveCall:()=>analysis.setLiveCallLockout(true),
+  onNextOwner:blocked=>analysis.advanceCallTarget(blocked),
   onReroute:()=>{analysis.close({restoreFocus:false});planner.showOverview();routing.replan();},onChange:renderNegotiation});
 document.querySelector('#overview-settlement').addEventListener('click',()=>{
   if(document.querySelector('#overview-settlement').disabled)return;

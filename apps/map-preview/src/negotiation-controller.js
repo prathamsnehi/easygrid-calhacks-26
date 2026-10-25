@@ -49,9 +49,9 @@ function localExclusion(handoff,update){
 
 /** Local post-call planning. This does not replace persisted CAL-29 state or authorization. */
 export function createNegotiationController({world,getHandoff,getSessionId,onReroute,onChange=()=>{},
-  invalidateApproval=()=>{},lockLiveCall=()=>{},scheduleTask=fn=>setTimeout(fn,650),cancelTask=clearTimeout}){
+  invalidateApproval=()=>{},lockLiveCall=()=>{},onNextOwner=()=>false,scheduleTask=fn=>setTimeout(fn,650),cancelTask=clearTimeout}){
   let sessionId=getSessionId(),constraints={blockedParcelIds:[],blockedTowerParcelIds:[],exclusionZones:[]};
-  let phase='idle',reason='',previous=null,next=null,agreement=null,awaitingReroute=false,task=null;
+  let phase='idle',reason='',previous=null,next=null,agreement=null,awaitingReroute=false,holdForNextCall=false,task=null;
   let source=null,sourceAbort=null,sourceCleanup=null,sourceGeneration=0,connected=false;
   const events=new Map(),outcomes=new Map(),termsVersions=new Map();
   function current(){try{return getHandoff();}catch{return null;}}
@@ -64,7 +64,7 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
   function stopTask(){if(task!==null)cancelTask(task);task=null;agreement=null;}
   function disconnect(){sourceGeneration++;sourceAbort?.abort();sourceAbort=null;const cleanup=sourceCleanup;sourceCleanup=null;connected=false;try{cleanup?.();}catch{/* Cleanup cannot prevent session invalidation. */}}
   function reset(){stopTask();disconnect();sessionId=getSessionId();constraints={blockedParcelIds:[],blockedTowerParcelIds:[],exclusionZones:[]};
-    events.clear();outcomes.clear();termsVersions.clear();phase='idle';reason='';previous=null;next=null;awaitingReroute=false;emit();}
+    events.clear();outcomes.clear();termsVersions.clear();phase='idle';reason='';previous=null;next=null;awaitingReroute=false;holdForNextCall=false;emit();}
   function synchronizeSession(){if(sessionId!==getSessionId())reset();}
   function subscribe(){
     disconnect();const mapBinding=getBinding();if(!source||!mapBinding)return;
@@ -89,9 +89,17 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
     if(awaitingReroute||continuingRefusal){
       if(!awaitingReroute)previous=null;
       awaitingReroute=false;next=summary(handoff);
+      const continueCall=holdForNextCall;
+      holdForNextCall=false;
       if(!handoff.snapshot.routes[0].eligible){phase='review_required';reason='New route needs budget or parcel review';}
       else if(handoff.snapshot.routes[0].parcelIds.includes(handoff.userRole.parcelId)){
         phase='review_required';reason='Updated route needs owner confirmation';
+      }else if(continueCall){
+        // A live disagreement updates the line, then the same phone calls the next owner.
+        let advanced=false;
+        try{advanced=onNextOwner(copy(constraints.blockedParcelIds))===true;}catch{advanced=false;}
+        phase=advanced?'awaiting_owners':'review_required';
+        reason=advanced?'Call the next owner on this connection':'No further owner can be called on this connection';
       }else{
         phase='negotiating';reason='Other owners · simulated';
         const binding=getBinding();
@@ -107,7 +115,7 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
     }else{phase='idle';reason='';previous=null;next=null;}
     subscribe();emit();
   }
-  function noRoute(){if(!awaitingReroute)return;awaitingReroute=false;phase='no_route';reason='No feasible route under the current constraints';next=null;agreement=null;emit();}
+  function noRoute(){if(!awaitingReroute)return;awaitingReroute=false;holdForNextCall=false;phase='no_route';reason='No feasible route under the current constraints';next=null;agreement=null;emit();}
   function applyUpdate(raw){
     synchronizeSession();const update=validateUpdate(raw),serialized=JSON.stringify(stable(update));
     const key=`${update.mapBinding?.sessionId}:${update.eventId}`;
@@ -129,7 +137,7 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
         update.terms.termMonths!==handoff.ownerHandoff.rentHorizonMonths)throw new Error('Accepted terms need current confirmed amounts.');
     }
     events.set(key,serialized);termsVersions.set(update.parcelId,update.termsVersion);stopTask();invalidateApproval();
-    if(update.outcome==='refused'&&update.parcelId===handoff.userRole.parcelId)lockLiveCall();
+    if(update.outcome==='refused'&&update.parcelId===handoff.userRole.parcelId&&!holdForNextCall)lockLiveCall();
     outcomes.set(update.parcelId,{parcelId:update.parcelId,outcome:update.outcome,sourceMode:update.sourceMode});
     if(reroute){constraints=revised;previous=summary(handoff);next=null;awaitingReroute=true;phase='rerouting';
       reason=update.outcome==='refused'?`${update.parcelId} declined`:`${update.parcelId} route condition`;
@@ -167,12 +175,16 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
       !['accepted','refused','review_required'].includes(result.outcome))throw new Error('A current saved voice result is required.');
     const accepted=result.outcome==='accepted',refused=result.outcome==='refused';
     if(accepted&&result.monthlyRentCents!==0)throw new Error('Voice acceptance cannot create a monthly obligation.');
-    const applied=applyUpdate({schemaVersion:1,kind:'easygrid-map-negotiation',eventId:result.eventId,mapBinding:result.mapBinding,
+    if(refused)holdForNextCall=true;
+    let applied;
+    try{applied=applyUpdate({schemaVersion:1,kind:'easygrid-map-negotiation',eventId:result.eventId,mapBinding:result.mapBinding,
       parcelId:parcel.parcelId,sourceMode:'live',outcome:result.outcome,accessConsent:accepted?'allowed':refused?'refused':'unknown',
       explicitConfirmation:accepted||refused,evidenceRefs:[`saved-voice:${result.attemptId}:${result.eventId}`],
       termsVersion:result.termsVersion??result.contractApproval?.input?.parcels?.find(p=>p.parcelId===parcel.parcelId)?.termsVersion??parcel.terms.termsVersion,
       hasUnresolvedConditions:!accepted&&!refused,terms:{upfrontCents:accepted?result.acceptedCompensationCents:parcel.terms.compensationCents,
-        depositCents:0,depositCreditPolicy:'credited_to_upfront',monthlyRentCents:accepted?0:parcel.terms.monthlyRentCents,termMonths:h.ownerHandoff.rentHorizonMonths}});
+        depositCents:0,depositCreditPolicy:'credited_to_upfront',monthlyRentCents:accepted?0:parcel.terms.monthlyRentCents,termMonths:h.ownerHandoff.rentHorizonMonths}});}
+    catch(error){holdForNextCall=false;throw error;}
+    if(applied.status!=='applied')holdForNextCall=false;
     if(accepted&&applied.status==='applied'){phase='approved';reason='Current landowner approved · live call';emit();}
     return applied;
   }

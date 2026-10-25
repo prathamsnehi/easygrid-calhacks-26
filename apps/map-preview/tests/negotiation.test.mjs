@@ -24,12 +24,12 @@ function bypassPacket(){
   bypass??=computeTransmissionRoutes(world,placements,{blockedParcelIds:[original]});
   return packet(bypass,{version:2,userParcelId:original,liveCallLocked:true});
 }
-function harness(){
+function harness({onNextOwner=()=>false}={}){
   let handoff=structuredClone(initial),session=handoff.sessionId,invalidations=0,locks=0;
   const requests=[],states=[],tasks=new Map();let sequence=0;
   const controller=createNegotiationController({world,getHandoff:()=>handoff,getSessionId:()=>session,
     onReroute:options=>requests.push(options),onChange:state=>states.push(state),
-    invalidateApproval:()=>invalidations++,lockLiveCall:()=>locks++,
+    invalidateApproval:()=>invalidations++,lockLiveCall:()=>locks++,onNextOwner,
     scheduleTask:fn=>{const id=++sequence;tasks.set(id,fn);return id;},cancelTask:id=>tasks.delete(id)});
   function update(overrides={}){
     const p=handoff.ownerHandoff.parcels.find(p=>p.parcelId===handoff.userRole.parcelId);
@@ -251,10 +251,14 @@ test('saved live outcomes reuse approval and refusal behavior with live provenan
   assert.equal(accepted.controller.getState().phase,'approved');assert.equal(accepted.controller.getState().simulated,false);
   assert.equal(accepted.controller.getState().outcomes[0].sourceMode,'live');assert.equal(accepted.requests.length,0);
   assert.equal(accepted.controller.applySavedVoiceResult(event).status,'duplicate');assert.equal(accepted.invalidations,1);
-  const refused=harness();refused.controller.applySavedVoiceResult({...event,eventId:'voice-refused',mapBinding:refused.controller.getBinding(),outcome:'refused'});
-  assert.deepEqual(refused.requests[0].blockedParcelIds,[original]);assert.equal(refused.locks,1);
-  refused.setHandoff(bypassPacket());refused.flush();assert.equal(refused.controller.getState().phase,'confirmed');
-  assert.equal(refused.controller.getState().simulated,true,'remaining fictional owner responses stay labeled simulated');
+  const nextTargets=[];
+  const refused=harness({onNextOwner:ids=>{nextTargets.push(ids);return true;}});
+  refused.controller.applySavedVoiceResult({...event,eventId:'voice-refused',mapBinding:refused.controller.getBinding(),outcome:'refused'});
+  assert.deepEqual(refused.requests[0].blockedParcelIds,[original]);assert.equal(refused.locks,0);
+  refused.setHandoff(bypassPacket());refused.flush();
+  assert.equal(refused.controller.getState().phase,'awaiting_owners');
+  assert.equal(refused.controller.getAgreement(),null,'a live disagreement waits for the next owner instead of simulating one');
+  assert.deepEqual(nextTargets,[[original]]);
   const review=harness();review.controller.applySavedVoiceResult({...event,eventId:'voice-review',mapBinding:review.controller.getBinding(),outcome:'review_required'});
   assert.equal(review.requests.length,0);assert.equal(review.controller.getState().phase,'review_required');assert.equal(review.controller.getAgreement(),null);
 });

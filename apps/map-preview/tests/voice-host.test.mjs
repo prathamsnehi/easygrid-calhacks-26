@@ -99,7 +99,7 @@ test('a finished price, access, or do-not-call refusal notifies the map once', a
         return { ok: true, json: async () => ({ rows: [savedRow({ reason })] }) };
       },
       lockLiveCall: () => { locks += 1; },
-      onConfirmedRefusal: update => { refusals.push(update.summary.reason); return poll(); },
+      onConfirmedRefusal: update => { refusals.push(update.summary.reason); },
     });
     host.source({
       mapBinding: binding,
@@ -109,10 +109,18 @@ test('a finished price, access, or do-not-call refusal notifies the map once', a
     });
     await settled();
     assert.deepEqual(refusals, [reason]);
-    assert.equal(locks, 1);
+    assert.equal(locks, 0);
     await poll();
+    host.source({
+      mapBinding: binding,
+      callSessionId: 'map-session-1',
+      onReady() {},
+      onUnavailable() { throw new Error('unavailable'); },
+      onUpdate: () => { throw new Error('a finished disagreement must not replay onto the next owner'); },
+    });
+    await settled();
     assert.deepEqual(refusals, [reason]);
-    assert.equal(locks, 1);
+    assert.equal(locks, 0);
   }
 });
 
