@@ -24,7 +24,12 @@ export function paymentMayHaveBeenAttempted(payment, journal = []) {
 export function createContractWorkflow({source, bank, initialState = createWorkflowState(), persist = async () => {}, now = () => new Date().toISOString()}) {
   const approvedSource = normalizeContractSource(source), state = copy(initialState);
   const sourceHash = digest(contractSourceKey(approvedSource));
+  const paymentSemantics = bank.paymentSemantics ?? 'simulated-transfer', recordOnly = paymentSemantics === 'record-only';
+  const amountIncrementCents = bank.amountIncrementCents ?? 1;
   if (state.schemaVersion !== 1 || !state.documents || !state.obligations || !Array.isArray(state.audit) || !Array.isArray(state.journal)) throw new Error('Invalid development ledger.');
+  if (recordOnly && (state.journal.length || Object.values(state.obligations).some(payment => payment?.status === 'paid'))) {
+    throw new Error('Existing settlement evidence requires controller review before this ledger can be used for Nessie record-only requests. Preserve the ledger; no payment status was changed.');
+  }
   if (state.construction && (state.construction.sessionId !== approvedSource.sessionId || state.construction.routeId !== approvedSource.route.id || state.construction.routeVersion !== approvedSource.route.version)) throw new Error('The construction ledger belongs to another session or route version.');
   let queue = Promise.resolve();
   const serial = action => {
@@ -72,6 +77,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
   }
   function constructionState() {
     const payments = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
+    if (recordOnly) return {status:'not-applicable',paidCount:0,recordedCount:payments.filter(payment => payment?.status === 'recorded').length,parcelCount:payments.length};
     return state.construction ? copy(state.construction) : {status: 'awaiting-payments', paidCount: payments.filter(payment => payment?.status === 'paid').length, parcelCount: payments.length};
   }
   function packageReady() {
@@ -80,7 +86,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       (!state.obligations[obligationId(parcel)] || state.obligations[obligationId(parcel)].documentHash === doc.hash)));
   }
   function startConstruction(draft, actor) {
-    if (state.construction) return;
+    if (recordOnly || state.construction) return;
     const payments = approvedSource.parcels.map(parcel => state.obligations[obligationId(parcel)]);
     if (!payments.every(payment => payment?.status === 'paid')) return;
     const packageHash = digest({source: contractSourceKey(approvedSource), documents: payments.map(payment => payment.documentHash)});
@@ -92,7 +98,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
   }
   function paymentView(payment, hash) {
     return payment ? {obligationId: payment.id, amountCents: payment.amountCents, status: payment.status, reason: payment.reason,
-      mode: bank.mode, transactionRef: payment.transactionRef ?? null, documentMatches: payment.documentHash === hash} : null;
+      mode: bank.mode, paymentSemantics, amountIncrementCents, transactionRef: payment.transactionRef ?? null, documentMatches: payment.documentHash === hash} : null;
   }
   function project(draft) {
     const doc = state.documents[draft.id], hash = contractContentHash(draft, approvedSource), payment = state.obligations[obligationId(draft)];
@@ -100,7 +106,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       payment: paymentView(payment, hash),
       construction: constructionState(),
       packageReady: packageReady(),
-      bankMode: bank.mode, agentMode: 'rule-based-event-worker',
+      bankMode: bank.mode, paymentSemantics, amountIncrementCents, agentMode: 'rule-based-event-worker',
       audit: copy(state.audit.filter(row => row.parcelId === draft.parcelId)),
       journal: copy(state.journal.filter(row => row.obligationId === obligationId(draft)))};
   }
@@ -114,6 +120,16 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     if (['failed','rejected'].includes(evidence.status)) {
       payment.status = 'review-required'; payment.reason = 'The bank reported a failed or rejected transfer. Controller review is required; no replacement payment was sent.';
       record(actor, 'bank-payment-failed', payment.reason, draft, {obligationId: payment.id, bankStatus: evidence.status}); return;
+    }
+    if (recordOnly) {
+      if (evidence.status === 'recorded' && evidence.paymentSemantics === 'record-only') {
+        payment.status = 'recorded';payment.reason = 'The Nessie API record and ID match the exact approved amount and demo context. No account-to-account payment or settlement is confirmed.';
+        record(actor,'sandbox-record-confirmed',payment.reason,draft,{obligationId:payment.id,amountCents:payment.amountCents,paymentSemantics});
+      } else {
+        payment.status = 'submitted';payment.reason = 'The Nessie record still requires verification. No account-to-account payment or settlement is confirmed.';
+        record(actor,'sandbox-record-pending',payment.reason,draft,{obligationId:payment.id,paymentSemantics});
+      }
+      return;
     }
     if (evidence.status !== 'completed') {
       payment.status = 'submitted'; payment.reason = 'The sandbox accepted the transfer; completion is not yet confirmed.';
@@ -159,9 +175,14 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       let payment = state.obligations[id];
       if (payment && payment.documentHash !== doc.hash && payment.status !== 'held') throw new Error('This parcel already has a different contract payment. A new draft cannot create another obligation.');
       if (payment && !['held'].includes(payment.status)) return project(draft);
-      payment = state.obligations[id] = {id, stage, documentHash: doc.hash, amountCents, parcelId: draft.parcelId,
+      payment = state.obligations[id] = {id, stage, paymentSemantics, documentHash: doc.hash, amountCents, parcelId: draft.parcelId,
         status: 'checking', requestedBy: actor.id, approvedBy: utility.actorId, reason: 'Validating approved contract against banking evidence.'};
       record(actor, 'payment-requested', 'Explicit one-time payment request for 100% of the approved compensation.', draft, {obligationId: id, amountCents: payment.amountCents, documentHash: doc.hash});
+      const amountIssue = bank.amountIssue?.(amountCents);
+      if (amountIssue) {
+        payment.status = 'held';payment.reason = amountIssue;
+        record(actor,'payment-held',payment.reason,draft,{obligationId:id,rule:'exact-provider-amount'});await save();return project(draft);
+      }
       let currentRecipientBinding;
       try { currentRecipientBinding = bank.recipientBinding(document.ownerId); }
       catch {
@@ -186,7 +207,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
         payment.status = 'held'; payment.reason = 'Nessie sandbox writes are disabled. No transfer was attempted.';
         record(actor, 'payment-held', payment.reason, draft); await save(); return project(draft);
       }
-      payment.status = 'processing'; payment.reason = 'A single bank submission is authorized.';
+      payment.status = 'processing'; payment.reason = recordOnly ? 'A single Nessie demo record creation is authorized.' : 'A single bank submission is authorized.';
       record(actor, 'payment-authorized', 'Distinct utility approval, both signatures, approved recipient and available balance verified.', draft, {obligationId: id});
       // Persist before the external side effect. A crash leaves processing/unknown, never a blind retry.
       await save();
@@ -194,13 +215,15 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
         const evidence = await bank.transfer({ownerId: document.ownerId, obligationId: id, amountCents: payment.amountCents, documentHash: doc.hash});
         reconcileEvidence(payment, evidence, draft, actor);
       } catch {
-        payment.status = 'unknown'; payment.reason = 'The bank outcome is uncertain. Reconcile before any retry.';
+        payment.status = 'unknown'; payment.reason = recordOnly ? 'The Nessie record outcome is uncertain. Reconcile before any retry.' : 'The bank outcome is uncertain. Reconcile before any retry.';
         record(actor, 'payment-outcome-unknown', payment.reason, draft, {obligationId: id});
       }
       await save(); return project(draft);
     }),
     completeConstruction: (draft, completion, actor) => serial(async () => {
-      authorize(actor, 'construction-reporter'); register(draft);
+      authorize(actor, 'construction-reporter');
+      if (recordOnly) throw new Error('A Nessie API record does not establish payment or construction eligibility.');
+      register(draft);
       const construction = state.construction;
       if (!construction || !['constructionId','packageHash','sessionId','routeId','routeVersion'].every(key => completion?.[key] === construction[key])) throw new Error('Completion must match the current construction run and approved route package.');
       if (!approvedSource.parcels.every(parcel => state.obligations[obligationId(parcel)]?.status === 'paid')) throw new Error('All full payments must be confirmed before construction completion.');
@@ -214,7 +237,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
       authorize(actor, 'payment-requester'); requireFullStage(stage); register(draft);
       const payment = state.obligations[obligationId(draft, stage)];
       if (!payment || payment.documentHash !== contractContentHash(draft, approvedSource)) throw new Error('No current payment obligation can be reconciled.');
-      if (['paid','rejected','held'].includes(payment.status)) return project(draft);
+      if (['paid','recorded','rejected','held'].includes(payment.status)) return project(draft);
       try {
         const inspection = await bank.inspect({ownerId: contractDocument(draft, approvedSource).ownerId, obligationId: payment.id, amountCents: payment.amountCents, documentHash: payment.documentHash, scenario: 'normal'});
         if (inspection.existingEvidence) reconcileEvidence(payment, inspection.existingEvidence, draft, actor);
@@ -236,6 +259,8 @@ export function createDemoBank({balanceCents = 10000000} = {}) {
   const transactions = new Map(); let available = balanceCents;
   return {
     mode: 'simulation',
+    paymentSemantics:'simulated-transfer',
+    amountIncrementCents:1,
     canTransfer: true,
     recipientBinding: ownerId => digest(['demo-recipient', ownerId]),
     inspect: async ({obligationId, amountCents, scenario = 'normal'}) => ({

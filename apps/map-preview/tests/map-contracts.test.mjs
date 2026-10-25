@@ -165,9 +165,10 @@ test('a refusal reroute signs and pays only final-route owners, with server-vali
   assert.equal(persisted.ledger.journal.reduce((sum,p)=>sum+p.debitCents,0),handoff.snapshot.routes[0].upfrontCompensationCents);
 }));
 
-function nessieFixture(source, {pending = false} = {}) {
+function nessieFixture(source, {status = 'pending', failConfirmation = false} = {}) {
   const recipients = Object.fromEntries(source.parcels.map(parcel => [parcel.ownerId,{accountId:`account-${parcel.ownerId}`,customerId:`customer-${parcel.ownerId}`}])) ;
   const rows = [], calls = [];
+  let confirmationFailed = false;
   const environment = {
     EASYGRID_PAYMENT_PROVIDER:'nessie',NESSIE_API_KEY:'test-only-nessie-key',NESSIE_API_ORIGIN:'https://prod-api.nessieisreal.com',
     NESSIE_PAYER_ACCOUNT_ID:'test-project-payer',NESSIE_OWNER_RECIPIENTS:JSON.stringify(recipients),NESSIE_ALLOW_SANDBOX_TRANSFERS:'yes',
@@ -179,91 +180,126 @@ function nessieFixture(source, {pending = false} = {}) {
     if (url.pathname === '/accounts/test-project-payer') return Response.json({_id:'test-project-payer',balance:1000000});
     const recipient = Object.values(recipients).find(row => `/accounts/${row.accountId}` === url.pathname);
     if (recipient) return Response.json({_id:recipient.accountId,customer_id:recipient.customerId});
-    if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'GET') return Response.json(rows);
+    if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'GET') return rows.length ? Response.json(rows) : Response.json('No transfers found for this account',{status:404});
     if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'POST') {
       const body = JSON.parse(options.body);
-      assert.equal(body.medium,'balance');
-      assert(Object.values(recipients).some(row => row.accountId === body.payee_id));
-      const row = {...body,_id:`test-transfer-${rows.length+1}`,payer_id:'test-project-payer',status:pending?'pending':'completed'};
-      rows.push(row);return Response.json({objectCreated:row},{status:201});
+      assert.deepEqual(Object.keys(body).sort(),['amount','description','status','transaction_date']);
+      assert.equal(body.status,'pending');assert(Number.isSafeInteger(body.amount));
+      assert.match(body.transaction_date,/^\d{4}-\d{2}-\d{2}$/);
+      assert.match(body.description,/^EasyGrid full-[a-f0-9]{32} [a-f0-9]{64} [a-f0-9]{64}$/);
+      const row = {...body,id:`test-record-${rows.length+1}`,status};
+      rows.push(row);return Response.json({objectCreated:{...body,_id:row.id}},{status:201});
     }
-    const transfer = rows.find(row => `/transfers/${row._id}` === url.pathname);
-    if (transfer) return Response.json(transfer);
+    const record = rows.find(row => `/transfers/${row.id}` === url.pathname);
+    if (record) {
+      if (failConfirmation && !confirmationFailed) {confirmationFailed = true;return Response.json('Confirmation temporarily unavailable',{status:503});}
+      return Response.json(record);
+    }
     throw new Error('Unexpected mock Nessie endpoint.');
   };
   return {environment,fetcher,rows,calls};
 }
 
-test('map contracts use Nessie only after all signatures, preserve exact amounts and never resend after restart', async () => withAPI(async (_simulation,options,directory) => {
+test('map Nessie records require all signatures, preserve exact whole-dollar amounts and never claim settlement', async () => withAPI(async (_simulation,options,directory) => {
   const context = mapContractRequest(proposal(),placements);
-  const source = contractSourceFromAgreement(agreement(),proposal()), mock = nessieFixture(source);
+  const source = contractSourceFromAgreement(agreement(),proposal()), mock = nessieFixture(source,{status:'completed'});
   const nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
   const api = await createContractAPI(nessieOptions);
   const approved = await call(api,'approve-map',{context});
   assert.equal(approved.status,200,approved.body.error);
   assert.equal(approved.body.bankMode,'nessie-sandbox');assert.equal(approved.body.paymentsEnabled,true);
+  assert.equal(approved.body.paymentSemantics,'record-only');assert.equal(approved.body.amountIncrementCents,100);
   const {packageId,input} = approved.body;
   const drafts = input.parcels.map((parcel,index) => createContractDraft(input,parcel.parcelId,{id:`nessie-map-${index}`}));
+  const index = input.parcels.findIndex(parcel => parcel.compensationCents % 100 === 0);
+  assert(index >= 0,'trusted map fixture must contain a whole-dollar contract');
+  const target = drafts[index];
   const command = async (operation,draft,extra={}) => {
     const result = await call(api,operation,{packageId,draft,...extra});
     assert.equal(result.status,200,result.body.error);assert.equal(result.body.bankMode,'nessie-sandbox');return result.body;
   };
-  assert.equal((await call(api,'submit',{packageId,draft:drafts[0]})).status,409);
-  await command('sign/utility',drafts[0]);await command('sign/landowner',drafts[0]);
-  assert.equal((await call(api,'submit',{packageId,draft:drafts[0]})).status,409);
+  assert.equal((await call(api,'submit',{packageId,draft:target})).status,409);
+  await command('sign/utility',target);await command('sign/landowner',target);
+  assert.equal((await call(api,'submit',{packageId,draft:target})).status,409);
   assert.equal(mock.calls.length,0,'unsigned packages must not contact the bank');
-  for(const draft of drafts.slice(1)) {await command('sign/utility',draft);await command('sign/landowner',draft);}
-  const first = await command('submit',drafts[0]);
-  assert.equal(first.payment.status,'paid');assert.equal(first.payment.mode,'nessie-sandbox');
-  assert.equal(first.payment.amountCents,input.parcels[0].compensationCents);
+  for(const draft of drafts.filter(draft => draft !== target)) {await command('sign/utility',draft);await command('sign/landowner',draft);}
+  const first = await command('submit',target);
+  assert.equal(first.payment.status,'recorded');assert.equal(first.payment.mode,'nessie-sandbox');
+  assert.equal(first.paymentSemantics,'record-only');assert.equal(first.payment.paymentSemantics,'record-only');
+  assert.equal(first.payment.amountCents,input.parcels[index].compensationCents);
   assert.equal(mock.rows[0].amount,first.payment.amountCents/100);
-  assert.equal(first.payment.transactionRef,'nessie-test-transfer-1');
-  await Promise.all([command('submit',drafts[0]),command('submit',drafts[0])]);
+  assert.equal(first.payment.transactionRef,'nessie-test-record-1');
+  assert.equal(first.journal.length,0);assert.equal(first.construction.status,'not-applicable');assert.equal(first.construction.paidCount,0);
+  await Promise.all([command('submit',target),command('submit',target)]);
   assert.equal(mock.rows.length,1);
   const restarted = await createContractAPI(nessieOptions);
-  const replay = await call(restarted,'submit',{packageId,draft:drafts[0]});
-  assert.equal(replay.body.payment.status,'paid');assert.equal(replay.body.journal.length,1);assert.equal(mock.rows.length,1);
-  const newDraft = {...drafts[0],id:'new-id-same-obligation'};
+  const replay = await call(restarted,'submit',{packageId,draft:target});
+  assert.equal(replay.body.payment.status,'recorded');assert.equal(replay.body.journal.length,0);assert.equal(mock.rows.length,1);
+  const newDraft = {...target,id:'new-id-same-obligation'};
   await call(restarted,'state',{packageId,draft:newDraft});
   assert.equal((await call(restarted,'submit',{packageId,draft:newDraft})).status,409);
-  assert.equal(mock.rows.length,1,'regenerated draft IDs must not create another payment');
-  assert.equal((await call(restarted,'submit',{packageId,draft:drafts[0],stage:'balance'})).status,409);
+  assert.equal(mock.rows.length,1,'regenerated draft IDs must not create another record');
+  assert.equal((await call(restarted,'submit',{packageId,draft:target,stage:'balance'})).status,409);
+  assert.equal((await call(restarted,'construction-complete',{packageId,draft:target,completion:{}})).status,409);
   const serialized = await readFile(join(directory,'nessie-map-contracts.json'),'utf8');
-  assert.equal(JSON.parse(serialized).bankMode,'nessie-sandbox');
-  assert.match(JSON.parse(serialized).bankIdentity,/^[a-f0-9]{64}$/);
+  const saved = JSON.parse(serialized);
+  assert.equal(saved.bankMode,'nessie-sandbox');assert.match(saved.bankIdentity,/^[a-f0-9]{64}$/);
+  assert.equal(saved.packages[packageId].ledger.journal.length,0);assert.equal(saved.packages[packageId].ledger.construction,undefined);
   for (const change of [{NESSIE_PAYER_ACCOUNT_ID:'different-project-payer'},{NESSIE_API_ORIGIN:'https://api.nessieisreal.com'}]) {
     await assert.rejects(createContractAPI({...nessieOptions,environment:{...mock.environment,...change}}),/different bank identity/);
   }
   for (const secret of [mock.environment.NESSIE_API_KEY,'test-project-payer',...Object.values(JSON.parse(mock.environment.NESSIE_OWNER_RECIPIENTS)).map(row=>row.accountId)]) assert(!serialized.includes(secret));
 }));
 
-test('pending Nessie payment reconciles after restart without resubmitting and simulation payments cannot satisfy it', async () => withAPI(async (simulation,options,directory) => {
+test('an unknown Nessie record reconciles after restart without resubmitting and simulation cannot satisfy it', async () => withAPI(async (simulation,options,directory) => {
   const context = mapContractRequest(proposal(),placements);
   const simulated = await call(simulation,'approve-map',{context}), {packageId,input} = simulated.body;
   const drafts = input.parcels.map((parcel,index)=>createContractDraft(input,parcel.parcelId,{id:`isolated-${index}`}));
+  const index = input.parcels.findIndex(parcel => parcel.compensationCents % 100 === 0);
+  assert(index >= 0,'trusted map fixture must contain a whole-dollar contract');
   for(const draft of drafts) {
     await call(simulation,'sign/utility',{packageId,draft});await call(simulation,'sign/landowner',{packageId,draft});
   }
-  assert.equal((await call(simulation,'submit',{packageId,draft:drafts[0]})).body.payment.status,'paid');
-  const mock = nessieFixture(input,{pending:true}), nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
+  assert.equal((await call(simulation,'submit',{packageId,draft:drafts[index]})).body.payment.status,'paid');
+  const mock = nessieFixture(input,{failConfirmation:true}), nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
   const api = await createContractAPI(nessieOptions);
-  assert.equal((await call(api,'state',{packageId,draft:drafts[0]})).status,409);
+  assert.equal((await call(api,'state',{packageId,draft:drafts[index]})).status,409);
   const approvedNessie = await call(api,'approve-map',{context});assert.equal(approvedNessie.status,200);
   const nessieDrafts = approvedNessie.body.input.parcels.map((parcel,index)=>createContractDraft(approvedNessie.body.input,parcel.parcelId,{id:`nessie-isolated-${index}`}));
-  const blank = await call(api,'state',{packageId,draft:nessieDrafts[0]});assert.equal(blank.status,200,blank.body.error);
+  const target = nessieDrafts[index];
+  const blank = await call(api,'state',{packageId,draft:target});assert.equal(blank.status,200,blank.body.error);
   assert.deepEqual(blank.body.signatures,{});assert.equal(blank.body.payment,null);
-  assert.equal((await call(api,'submit',{packageId,draft:nessieDrafts[0]})).status,409);
+  assert.equal((await call(api,'submit',{packageId,draft:target})).status,409);
   for(const draft of nessieDrafts) {await call(api,'sign/utility',{packageId,draft});await call(api,'sign/landowner',{packageId,draft});}
-  const pending = await call(api,'submit',{packageId,draft:nessieDrafts[0]});
-  assert.equal(pending.body.payment.status,'submitted');assert.equal(pending.body.journal.length,0);
-  assert.equal(pending.body.construction.status,'awaiting-payments');
+  const unknown = await call(api,'submit',{packageId,draft:target});
+  assert.equal(unknown.body.payment.status,'unknown');assert.equal(unknown.body.journal.length,0);
+  assert.equal(unknown.body.construction.status,'not-applicable');
   const restarted = await createContractAPI(nessieOptions);
-  await call(restarted,'submit',{packageId,draft:nessieDrafts[0]});assert.equal(mock.rows.length,1);
-  mock.rows[0].status='completed';
-  const confirmed = await call(restarted,'reconcile',{packageId,draft:nessieDrafts[0]});
-  assert.equal(confirmed.body.payment.status,'paid');assert.equal(confirmed.body.journal.length,1);assert.equal(mock.rows.length,1);
+  const stillUnknown = await call(restarted,'submit',{packageId,draft:target});
+  assert.equal(stillUnknown.body.payment.status,'unknown');assert.equal(mock.rows.length,1);
+  assert.equal(mock.rows[0].status,'pending');
+  const confirmed = await call(restarted,'reconcile',{packageId,draft:target});
+  assert.equal(confirmed.body.payment.status,'recorded');assert.equal(confirmed.body.journal.length,0);assert.equal(mock.rows.length,1);
+  assert.equal(confirmed.body.payment.transactionRef,'nessie-test-record-1');
+  assert.equal(confirmed.body.construction.paidCount,0);
   assert.equal(JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).bankMode,'simulation');
   assert.equal(JSON.parse(await readFile(join(directory,'nessie-map-contracts.json'),'utf8')).bankMode,'nessie-sandbox');
+}));
+
+test('fractional map compensation is held unchanged before any Nessie provider request', async () => withAPI(async (_simulation,options) => {
+  const source = contractSourceFromAgreement(agreement(),proposal()),mock = nessieFixture(source);
+  const api = await createContractAPI({...options,environment:mock.environment,fetcher:mock.fetcher});
+  const approved = await call(api,'approve-map',{context:mapContractRequest(proposal(),placements)});
+  const {packageId,input} = approved.body;
+  const drafts = input.parcels.map((parcel,index)=>createContractDraft(input,parcel.parcelId,{id:`fractional-${index}`}));
+  const index = input.parcels.findIndex(parcel => parcel.compensationCents % 100 !== 0);
+  assert(index >= 0,'trusted map fixture must include a fractional-dollar contract');
+  for(const draft of drafts) {await call(api,'sign/utility',{packageId,draft});await call(api,'sign/landowner',{packageId,draft});}
+  const held = await call(api,'submit',{packageId,draft:drafts[index]});
+  assert.equal(held.status,200,held.body.error);assert.equal(held.body.payment.status,'held');
+  assert.equal(held.body.payment.amountCents,input.parcels[index].compensationCents);
+  assert.match(held.body.payment.reason,/whole-dollar/);assert.equal(mock.calls.length,0);assert.equal(mock.rows.length,0);
+  assert.equal(held.body.journal.length,0);assert.equal(held.body.construction.status,'not-applicable');
 }));
 
 test('provider-tagged and legacy simulation ledgers cannot be loaded as Nessie evidence', async () => withAPI(async (api,options,directory) => {

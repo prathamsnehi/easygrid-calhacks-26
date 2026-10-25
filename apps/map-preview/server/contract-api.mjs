@@ -58,7 +58,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
       reply(res,200,{simulated:true,source:createContractExample()}); return true;
     }
     if (req.method === 'GET' && pathname === '/api/contracts/config') {
-      reply(res,200,{bankMode:bank.mode,paymentsEnabled:bank.canTransfer !== false,actorMode:'distinct simulated roles; no production authentication', storage:'local development ledger; not SpacetimeDB', agentMode:'rule-based-event-worker'}); return true;
+      reply(res,200,{bankMode:bank.mode,paymentSemantics:bank.paymentSemantics,amountIncrementCents:bank.amountIncrementCents,paymentsEnabled:bank.canTransfer !== false,actorMode:'distinct simulated roles; no production authentication', storage:'local development ledger; not SpacetimeDB', agentMode:'rule-based-event-worker'}); return true;
     }
     if (req.method !== 'POST' || !String(req.headers['content-type']).startsWith('application/json') || req.headers['x-easygrid-demo'] !== '1' ||
       (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) { reply(res,403,{error:'Same-origin development requests are required.'}); return true; }

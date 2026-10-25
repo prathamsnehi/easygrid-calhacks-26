@@ -69,7 +69,7 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
     }
   };
   const response = record => copy({packageId:record.packageId,input:record.source,mapBinding:record.agreement.mapBinding,agreement:record.agreement,
-    simulated:true,bankMode,paymentsEnabled:configuredBank?.canTransfer !== false});
+    simulated:true,bankMode,paymentSemantics:configuredBank?.paymentSemantics ?? 'simulated-transfer',amountIncrementCents:configuredBank?.amountIncrementCents ?? 1,paymentsEnabled:configuredBank?.canTransfer !== false});
   const worker = record => {
     if (workers.has(record.packageId)) return workers.get(record.packageId);
     const bank = configuredBank ?? createDemoBank();

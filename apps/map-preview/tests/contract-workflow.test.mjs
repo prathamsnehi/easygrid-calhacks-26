@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createContractExample} from '../src/contract-fixtures.js';
 import {createContractDraft, updateContractDraft} from '../src/contract-authoring.js';
+import {createNessieSandboxBank} from '../server/nessie-sandbox.mjs';
 import {createContractWorkflow, createDemoBank, DEMO_ACTORS} from '../server/contract-workflow.mjs';
 
 const now = '2026-10-24T18:00:00Z';
@@ -234,5 +235,74 @@ test('a copied partial or inconsistent attempted record is never accepted as a f
     await assert.rejects(restored.flow.submit(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
     await assert.rejects(restored.flow.reconcile(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
     assert.equal(restored.transfers,0);assert.deepEqual(restored.flow.snapshot(),state);
+  }
+});
+
+
+test('verified record-only outcomes never post a paid journal or unlock construction, including restarts', async () => {
+  const base=createDemoBank();let calls=0;
+  const receipt=input=>({...input,recipientMatches:true,paymentSemantics:'record-only',status:'recorded',transactionRef:'nessie-record-1'});
+  let evidence=null;
+  const bank={...base,paymentSemantics:'record-only',amountIncrementCents:100,
+    transfer:async input=>{calls++;evidence=receipt(input);return evidence;},
+    inspect:async()=>({recipientMatches:true,balanceCents:10000000,existingEvidence:evidence})};
+  const app=setup({bank});await signBoth(app);
+  const result=await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+  assert.equal(result.payment.status,'recorded');assert.equal(result.payment.paymentSemantics,'record-only');
+  assert.equal(result.payment.amountCents,1200000);assert.equal(result.payment.transactionRef,'nessie-record-1');
+  assert.equal(result.journal.length,0);assert.equal(result.construction.status,'not-applicable');
+  assert.equal(result.construction.paidCount,0);assert.equal(app.flow.snapshot().construction,undefined);
+  await assert.rejects(app.flow.completeConstruction(app.draft,{},DEMO_ACTORS.construction),/does not establish payment/);
+  const restored=setup({bank,initialState:app.flow.snapshot()});
+  assert.equal((await restored.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'recorded');
+  assert.equal((await restored.flow.reconcile(app.draft,DEMO_ACTORS.requester)).payment.status,'recorded');
+  assert.equal(calls,1);assert.equal(restored.flow.snapshot().journal.length,0);
+});
+
+test('a record-only capability prevents completed or executed evidence from claiming money was paid', async () => {
+  for (const status of ['completed','executed']) {
+    const bank={...createDemoBank(),paymentSemantics:'record-only',transfer:async input=>({...input,recipientMatches:true,status,transactionRef:'provider-record'})};
+    const app=setup({bank});await signBoth(app);
+    const result=await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+    assert.notEqual(result.payment.status,'paid');assert.equal(result.journal.length,0);
+    assert.equal(result.construction.status,'not-applicable');assert.equal(app.flow.snapshot().construction,undefined);
+  }
+});
+
+test('integer-only record preflight holds exact fractional compensation without calling the provider', async () => {
+  const source=createContractExample();source.parcels=source.parcels.slice(0,1);source.parcels[0].compensationCents=5516;
+  const draft=createContractDraft(source,'P-004',{id:'fractional-record'});let calls=0;
+  const bank=createNessieSandboxBank({apiKey:'test',baseUrl:'https://prod-api.nessieisreal.com',payerId:'payer',
+    recipients:{'OWNER-DEMO-004':{accountId:'payee',customerId:'customer'}},allowTransfers:true,
+    fetcher:async()=>{calls++;throw new Error('No provider calls allowed');}});
+  const flow=createContractWorkflow({source,bank});await signBoth({flow,draft});
+  const result=await flow.submit(draft,DEMO_ACTORS.requester);
+  assert.equal(result.payment.status,'held');assert.equal(result.payment.amountCents,5516);
+  assert.match(result.payment.reason,/whole-dollar/);assert.match(result.payment.reason,/not rounded/);
+  assert.equal(calls,0);assert.equal(result.journal.length,0);
+});
+
+test('prior unknown outcomes stay locked after switching to record-only semantics', async () => {
+  const app=setup({bank:{...createDemoBank(),transfer:async()=>{throw new Error('unconfirmed POST');}}});
+  await signBoth(app);assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'unknown');
+  let calls=0;
+  const bank={...createDemoBank(),paymentSemantics:'record-only',transfer:async()=>{calls++;throw new Error('must not retry');}};
+  const restored=setup({bank,initialState:app.flow.snapshot()});
+  assert.equal((await restored.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'unknown');
+  assert.equal((await restored.flow.reconcile(app.draft,DEMO_ACTORS.requester)).payment.status,'unknown');
+  assert.equal(calls,0);assert.equal(restored.flow.snapshot().journal.length,0);
+});
+
+test('record-only restart rejects prior paid or settlement-journal evidence without rewriting or hiding it', async () => {
+  const original=setup();await signBoth(original);await original.flow.submit(original.draft,DEMO_ACTORS.requester);
+  for (const evidence of ['paid-and-journal','paid-only','journal-only']) {
+    const state=original.flow.snapshot();
+    if (evidence==='paid-only') state.journal=[];
+    if (evidence==='journal-only') state.obligations={};
+    const before=JSON.stringify(state);let saved=0;
+    const bank={...createDemoBank(),paymentSemantics:'record-only',amountIncrementCents:100};
+    assert.throws(()=>createContractWorkflow({source:original.source,bank,initialState:state,persist:async()=>{saved++;}}),/Existing settlement evidence requires controller review/);
+    assert.equal(JSON.stringify(state),before,'old payment and journal evidence must stay intact');
+    assert.equal(saved,0,'startup failure must not replace the preserved ledger');
   }
 });

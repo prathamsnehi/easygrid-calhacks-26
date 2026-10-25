@@ -80,19 +80,21 @@ async function signEveryAgreement(ui) {
   ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
 }
 
-test('Nessie full payment requires an explicit click, locks repeated sends and shows pending evidence until reconciliation', async () => {
+test('Nessie registration requires one explicit click and confirms a record without implying payment', async () => {
   let transferCount = 0, releaseTransfer, bankEvidence = null;
-  const bank = {...createDemoBank(), mode:'nessie-sandbox',
+  const bank = {...createDemoBank(), mode:'nessie-sandbox', paymentSemantics:'record-only', amountIncrementCents:100,
     inspect:async input => ({recipientMatches:true,balanceCents:10000000,existingEvidence:bankEvidence?.obligationId === input.obligationId ? bankEvidence : null}),
     transfer:async input => {
       transferCount++;
       await new Promise(resolve => {releaseTransfer=resolve;});
-      bankEvidence = {...input,recipientMatches:true,status:'pending',transactionRef:'nessie-transfer-fixture-001'};
+      bankEvidence = {...input,recipientMatches:true,paymentSemantics:'record-only',status:'pending',transactionRef:'nessie-transfer-fixture-001'};
       return bankEvidence;
     },
   };
   const ui = boot({workflow:createContractWorkflow({source:createContractExample(),bank}),paymentsEnabled:true});
   try {
+    let constructionStarts = 0;
+    ui.app.setConstructionHandler(() => {constructionStarts++;});
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
     await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
@@ -100,16 +102,16 @@ test('Nessie full payment requires an explicit click, locks repeated sends and s
     assert.equal(transferCount,0);
     await signEveryAgreement(ui);
     assert.equal(ui.nodes.get('cg-payout-provider').textContent,'Nessie sandbox');
-    assert.equal(ui.nodes.get('cg-submit').textContent,'Pay full amount · $12,000.00');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Register full amount · $12,000.00');
     assert.equal(ui.nodes.get('cg-payout-basis').textContent,'100% of $12,000.00 approved compensation');
-    assert.equal(ui.nodes.get('cg-payout-recipient').textContent,'To Willow Creek Orchard');
-    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Ready to send');
+    assert.equal(ui.nodes.get('cg-payout-recipient').textContent,'Agreement for Willow Creek Orchard');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Ready to register');
     assert.equal(ui.nodes.get('cg-scenario-wrap').hidden,true);
     assert.equal(ui.nodes.has('cg-preview-completion'),false);
     assert.equal(transferCount,0,'collecting signatures alone cannot send money');
     const sending = ui.click('cg-submit'); await ui.flush();
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    assert.equal(ui.nodes.get('cg-submit').textContent,'Sending payment…');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Registering amount…');
     await ui.nodes.get('cg-submit').emit('click');
     assert.equal(transferCount,1,'even a direct duplicate event cannot send while busy');
     releaseTransfer(); await sending;
@@ -120,21 +122,26 @@ test('Nessie full payment requires an explicit click, locks repeated sends and s
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.nodes.has('cg-completion-panel'),false);
     assert.equal(ui.flow.snapshot().journal.length,0,'pending bank acknowledgement is not payment');
-    bankEvidence.status='completed'; await ui.click('cg-reconcile');
-    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Paid');
-    assert.equal(ui.nodes.get('cg-submit').textContent,'Paid in full · $12,000.00');
+    bankEvidence.status='recorded'; await ui.click('cg-reconcile');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Recorded in Nessie');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Recorded in Nessie · $12,000.00');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.nodes.get('cg-reconcile').hidden,true);
     assert.equal(ui.nodes.has('cg-completion-panel'),false);
     assert.equal(ui.nodes.has('cg-pay-balance'),false);
-    assert.equal(ui.flow.snapshot().journal.length,1);
+    assert.equal(ui.flow.snapshot().journal.length,0,'a Nessie record never posts a paid journal');
+    assert.equal(constructionStarts,0,'a Nessie record never starts construction');
+    assert.match(ui.nodes.get('cg-payout-help').textContent,/No account balances move/);
+    assert.equal(ui.nodes.get('cg-transfer-reference-label').textContent,'Record reference');
+    assert.equal(ui.nodes.get('cg-payment-state').textContent,'Recorded in Nessie');
+    assert.match(ui.nodes.get('cg-execution-status').textContent,/landowner has not been paid/);
     assert.equal(transferCount,1,'reconciliation never submits another transfer');
   } finally {ui.restore();}
 });
 
 test('disabled Nessie writes keep a signed full payment locked and explain the missing setup', async () => {
   let transferCount=0;
-  const bank={...createDemoBank(),mode:'nessie-sandbox',canTransfer:false,transfer:async () => {transferCount++;throw new Error('Writes are disabled.');}};
+  const bank={...createDemoBank(),mode:'nessie-sandbox', paymentSemantics:'record-only', amountIncrementCents:100,canTransfer:false,transfer:async () => {transferCount++;throw new Error('Writes are disabled.');}};
   const ui=boot({workflow:createContractWorkflow({source:createContractExample(),bank}),paymentsEnabled:false});
   try {
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
@@ -148,14 +155,38 @@ test('disabled Nessie writes keep a signed full payment locked and explain the m
   } finally {ui.restore();}
 });
 
-test('a lost payment response stays locked until a status check recovers the existing full payment', async () => {
+test('Nessie rejects fractional amounts in the UI before any API submission without rounding approved compensation', async () => {
+  const source = createContractExample(); source.parcels[0].compensationCents = 114425;
+  let submissions = 0;
+  const bank = {...createDemoBank(),mode:'nessie-sandbox',paymentSemantics:'record-only',amountIncrementCents:100};
+  const ui = boot({workflow:createContractWorkflow({source,bank}),apiOverride:async (operation,draft,extra,api) => {
+    if (operation === 'submit') submissions++;
+    return api(operation,draft,extra);
+  }});
+  try {
+    ui.app.open(source,{demo:true}); await ui.click('cg-proceed'); await ui.flush();
+    await signEveryAgreement(ui);
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Register full amount · $1,144.25');
+    assert.equal(ui.nodes.get('cg-parcel-total').textContent,'$1,144.25');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Whole-dollar amount required');
+    assert.match(ui.nodes.get('cg-payout-help').textContent,/whole-dollar records only.*\$1,144\.25.*will not be rounded/);
+    await ui.nodes.get('cg-submit').emit('click');
+    assert.equal(submissions,0,'even a direct event cannot send a fractional amount to the API');
+    assert.match(ui.nodes.get('cg-feedback').textContent,/will not be rounded/);
+    assert.equal(source.parcels[0].compensationCents,114425);
+    assert.equal(ui.flow.snapshot().journal.length,0);
+  } finally {ui.restore();}
+});
+
+test('a lost Nessie registration response stays locked until a status check recovers the existing record', async () => {
   const calls = [];
   let transfers = 0, stateUnavailable = false, bankEvidence = null;
-  const bank = {...createDemoBank(), mode:'nessie-sandbox',
+  const bank = {...createDemoBank(), mode:'nessie-sandbox', paymentSemantics:'record-only', amountIncrementCents:100,
     inspect:async input => ({recipientMatches:true,balanceCents:10000000,existingEvidence:bankEvidence?.obligationId === input.obligationId ? bankEvidence : null}),
     transfer:async input => {
       transfers++;
-      return bankEvidence = {...input,recipientMatches:true,status:'pending',transactionRef:'nessie-lost-response-fixture'};
+      return bankEvidence = {...input,recipientMatches:true,paymentSemantics:'record-only',status:'pending',transactionRef:'nessie-lost-response-fixture'};
     },
   };
   const ui = boot({workflow:createContractWorkflow({source:createContractExample(),bank}),apiOverride:async (operation,draft,extra,api) => {
@@ -173,19 +204,19 @@ test('a lost payment response stays locked until a status check recovers the exi
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Outcome unknown');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.nodes.get('cg-reconcile').hidden,false);
-    assert.match(ui.nodes.get('cg-payout-help').textContent,/Check transfer status/);
+    assert.match(ui.nodes.get('cg-payout-help').textContent,/Check record status/);
     assert.equal(ui.flow.snapshot().journal.length,0);
     await ui.nodes.get('cg-submit').emit('click');
     assert.equal(calls.filter(operation => operation === 'submit').length,1,'a lost response cannot enable a replacement request');
     stateUnavailable = true; await ui.click('cg-reconcile');
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Outcome unknown');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    bankEvidence.status = 'completed';
+    bankEvidence.status = 'recorded';
     stateUnavailable = false; await ui.click('cg-reconcile');
-    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Paid');
-    assert.equal(ui.nodes.get('cg-submit').textContent,'Paid in full · $12,000.00');
+    assert.equal(ui.nodes.get('cg-payout-status').textContent,'Recorded in Nessie');
+    assert.equal(ui.nodes.get('cg-submit').textContent,'Recorded in Nessie · $12,000.00');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    assert.equal(ui.flow.snapshot().journal.length,1);
+    assert.equal(ui.flow.snapshot().journal.length,0);
     assert.deepEqual(calls.slice(-2),['state','reconcile']);
     assert.equal(ui.nodes.get('cg-feedback').textContent,'');
     assert.equal(transfers,1);
