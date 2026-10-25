@@ -88,5 +88,14 @@ export function createNegotiationResultController({getHandoff,onChange=()=>{}}){
     source=next;subscribe();emit();
   }
   function reset(){disconnect();session=null;view=null;revision=-1;events.clear();unavailable=false;superseded=false;emit();}
-  return {setSource,applyUpdate:raw=>applyUpdate(raw),applyVoiceUpdate,getState:state,getAcceptedTerms,markUnavailable:()=>{unavailable=true;emit();},routeChanged:()=>{subscribe();emit();},reset};
+  // Drop a replaceable saved call so the next dial can publish a new result.
+  // A confirmed refusal or saved agreement stays on screen.
+  function beginReplacement(){
+    const reason=view?.summary?.reason;
+    if(superseded||reason==='ACCESS_REFUSED'||reason==='DO_NOT_CALL'||reason==='PRICE_REJECTED')return false;
+    if(view?.phase==='finished'&&view.summary?.disposition==='successful')return false;
+    disconnect();source=null;view=null;revision=-1;events.clear();unavailable=false;superseded=false;emit();
+    return true;
+  }
+  return {setSource,applyUpdate:raw=>applyUpdate(raw),applyVoiceUpdate,getState:state,getAcceptedTerms,markUnavailable:()=>{unavailable=true;emit();},routeChanged:()=>{subscribe();emit();},beginReplacement,reset};
 }

@@ -164,3 +164,70 @@ test('a provider failure is a labeled simulation and an allowed yes is saved aft
   assert.equal(saved.includes(PHONE), false);
   assert.equal(saved.includes('transmission access across this parcel'), false);
 });
+
+test('reset_demo_call stops the scheduled check and does not redial that session', () => {
+  installEnv();
+  const db = harness();
+  const calls: string[] = [];
+  const ctx = db.procedureContextBuilder(TestAuth.internal()).http((_test, req) => {
+    calls.push(req.uri);
+    if (req.uri.endsWith('/agents/calls')) return httpResponse(200, JSON.stringify({ calls: [{ agent_call_id: 'provider-reset' }] }));
+    if (req.uri.endsWith('/cancel')) return httpResponse(200, '{"cancelled":true}');
+    return httpResponse(500, '');
+  }).build();
+  assert.equal(module.start_call(ctx, { ...parcel('L003'), sessionId: 'call-reset', requestKey: 'dial-reset' }), 'requested');
+  const attempt = [...db.db.callAttempt.bySession.filter('call-reset')][0];
+  assert.equal([...db.db.callCheck.iter()].some(row => row.attemptId === attempt?.attemptId), true);
+  assert.equal(module.reset_demo_call(ctx, { sessionId: 'call-reset' }), 'reset');
+  assert.equal(calls.some(uri => uri.endsWith('/provider-reset/cancel')), true);
+  const superseded = [...db.db.callAttempt.bySession.filter('call-reset')][0];
+  assert.equal(superseded?.phase, 'finished');
+  assert.equal(superseded?.reason, 'SUPERSEDED');
+  assert.equal([...db.db.callCheck.iter()].some(row => row.attemptId === attempt?.attemptId), false);
+  assert.equal(module.start_call(ctx, { ...parcel('L003'), sessionId: 'call-reset', requestKey: 'dial-reset-again' }), 'requested');
+  assert.equal(calls.filter(uri => uri.endsWith('/agents/calls')).length, 1);
+  assert.equal(module.start_call(ctx, { ...parcel('L004'), sessionId: 'call-reset-next', requestKey: 'dial-next' }), 'requested');
+  assert.equal(calls.filter(uri => uri.endsWith('/agents/calls')).length, 2);
+});
+
+test('a do-not-call session stays locked when reset is requested', () => {
+  installEnv();
+  const db = harness();
+  const ctx = db.procedureContextBuilder(TestAuth.internal()).http((_test, req) => {
+    if (req.uri.endsWith('/agents/calls')) return httpResponse(200, JSON.stringify({ calls: [{ agent_call_id: 'provider-locked' }] }));
+    return httpResponse(500, '');
+  }).build();
+  module.start_call(ctx, { ...parcel('L005'), sessionId: 'call-locked', requestKey: 'dial-locked' });
+  const attempt = [...db.db.callAttempt.bySession.filter('call-locked')][0];
+  db.withReducerTx(TestAuth.internal(), tx => {
+    tx.db.callTurn.insert({ id: `${attempt!.attemptId}-0`, attemptId: attempt!.attemptId, role: 'owner', text: 'Please do not call me again.', startMs: 0, endMs: 1000, ordinal: 0 });
+    module.commit_call_review(tx, {
+      attemptId: attempt!.attemptId, reason: 'DO_NOT_CALL', offerTurnId: '', ownerTurnId: `${attempt!.attemptId}-0`,
+      compensationCents: 0, monthlyRentCents: 0, hasAmounts: false, failureReason: '',
+    });
+  });
+  assert.throws(() => module.reset_demo_call(ctx, { sessionId: 'call-locked' }), /BLOCKED_STATE/);
+  assert.equal([...db.db.callAttempt.bySession.filter('call-locked')][0]?.reason, 'DO_NOT_CALL');
+  assert.throws(() => module.start_call(ctx, { ...parcel('L005'), sessionId: 'call-locked', requestKey: 'dial-locked-2' }), /BLOCKED_STATE/);
+});
+
+test('a provider id that arrives after reset is cancelled instead of saved as a live call', () => {
+  installEnv();
+  const db = harness();
+  const calls: string[] = [];
+  const ctx = db.procedureContextBuilder(TestAuth.internal()).http((_test, req) => {
+    calls.push(req.uri);
+    if (req.uri.endsWith('/agents/calls')) {
+      module.reset_demo_call(ctx, { sessionId: 'call-late' });
+      return httpResponse(200, JSON.stringify({ calls: [{ agent_call_id: 'provider-late' }] }));
+    }
+    if (req.uri.endsWith('/cancel')) return httpResponse(200, '{"cancelled":true}');
+    return httpResponse(500, '');
+  }).build();
+  assert.equal(module.start_call(ctx, { ...parcel('L006'), sessionId: 'call-late', requestKey: 'dial-late' }), 'requested');
+  const attempt = [...db.db.callAttempt.bySession.filter('call-late')][0];
+  assert.equal(attempt?.reason, 'SUPERSEDED');
+  assert.equal(attempt?.providerCallId, 'provider-late');
+  assert.equal(calls.some(uri => uri.endsWith('/provider-late/cancel')), true);
+  assert.equal([...db.db.callCheck.iter()].some(row => row.attemptId === attempt?.attemptId), false);
+});

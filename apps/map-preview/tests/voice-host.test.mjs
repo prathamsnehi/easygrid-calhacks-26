@@ -63,3 +63,138 @@ test('the dial request carries the private phone once and the saved result does 
   assert.equal(finished.summary.outcome, 'pending');
   assert.equal(JSON.stringify(finished).includes(phone), false);
 });
+
+const binding = { sessionId: 'map-session-1', routeId: 'route', routeVersion: 1, proposalKey: 'key' };
+const savedRow = overrides => ({
+  sessionId: 'map-session-1', attemptId: 'attempt1', parcelId: 'L001', mode: 'live', phase: 'finished', revision: 2,
+  reason: 'PRICE_REJECTED', disposition: 'unsuccessful', explanation: 'The owner declined the offered price. No agreement was saved.',
+  nextAction: 'stop', outcome: 'refused', ...overrides,
+});
+async function settled() { for (let step = 0; step < 8; step++) await Promise.resolve(); }
+
+test('a finished price, access, or do-not-call refusal notifies the map once', async () => {
+  for (const reason of ['PRICE_REJECTED', 'ACCESS_REFUSED', 'DO_NOT_CALL']) {
+    const refusals = [];
+    let locks = 0;
+    let poll = null;
+    const host = createLiveCallHost({
+      storage: { getItem: () => 'client-token', setItem() {} },
+      schedulePoll: fn => { poll = fn; return 7; },
+      cancelPoll() {},
+      fetch: async url => {
+        assert.equal(String(url).endsWith('/sql'), true);
+        return { ok: true, json: async () => ({ rows: [savedRow({ reason })] }) };
+      },
+      lockLiveCall: () => { locks += 1; },
+      onConfirmedRefusal: update => { refusals.push(update.summary.reason); return poll(); },
+    });
+    host.source({
+      mapBinding: binding,
+      onReady() {},
+      onUnavailable() { throw new Error('unavailable'); },
+      onUpdate: () => ({ status: 'applied' }),
+    });
+    await settled();
+    assert.deepEqual(refusals, [reason]);
+    assert.equal(locks, 1);
+    await poll();
+    assert.deepEqual(refusals, [reason]);
+    assert.equal(locks, 1);
+  }
+});
+
+test('pending and needs-review summaries do not reroute or lock another call', async () => {
+  const rows = [
+    savedRow({ phase: 'negotiating', revision: 1, reason: '', disposition: '', explanation: '', nextAction: '', outcome: '' }),
+    savedRow({ reason: 'UNCLEAR_RESPONSE', disposition: 'needs_review', outcome: 'pending', explanation: 'The wording did not confirm a decision.' }),
+    savedRow({ reason: 'ADDITIONAL_CONDITIONS', disposition: 'needs_review', outcome: 'review_required', explanation: 'The condition needs human review.' }),
+  ];
+  for (const row of rows) {
+    const refusals = [];
+    let locks = 0;
+    const host = createLiveCallHost({
+      storage: { getItem: () => 'client-token', setItem() {} },
+      schedulePoll: () => 1,
+      cancelPoll() {},
+      fetch: async () => ({ ok: true, json: async () => ({ rows: [row] }) }),
+      lockLiveCall: () => { locks += 1; },
+      onConfirmedRefusal: () => refusals.push(row.reason),
+    });
+    host.source({
+      mapBinding: binding,
+      onReady() {},
+      onUnavailable() { throw new Error('unavailable'); },
+      onUpdate: () => ({ status: 'applied' }),
+    });
+    await settled();
+    assert.equal(refusals.length, 0);
+    assert.equal(locks, 0);
+  }
+});
+
+test('a repeated poll of the same revision does not notify again', async () => {
+  let updates = 0;
+  let poll = null;
+  const host = createLiveCallHost({
+    storage: { getItem: () => 'client-token', setItem() {} },
+    schedulePoll: fn => { poll = fn; return 1; },
+    cancelPoll() {},
+    fetch: async () => ({ ok: true, json: async () => ({ rows: [savedRow({ phase: 'negotiating', revision: 4, reason: '', disposition: '', explanation: '', nextAction: '', outcome: '' })] }) }),
+    onConfirmedRefusal: () => { throw new Error('An unfinished call cannot reroute.'); },
+  });
+  host.source({
+    mapBinding: binding,
+    onReady() {},
+    onUnavailable() { throw new Error('unavailable'); },
+    onUpdate: () => { updates += 1; return { status: 'applied' }; },
+  });
+  await settled();
+  await poll();
+  assert.equal(updates, 1);
+});
+
+test('an open call is not replaced when reset is unavailable, and a finished call can dial a new session', async () => {
+  const requests = [];
+  const host = createLiveCallHost({
+    storage: { getItem: () => 'client-token', setItem() {} },
+    schedulePoll: () => 1,
+    cancelPoll() {},
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), body: init?.body });
+      if (String(url).endsWith('/call/reset_demo_call')) return { ok: false, json: async () => ({}) };
+      if (String(url).endsWith('/call/start_call')) return { ok: true, json: async () => 'requested' };
+      return { ok: true, json: async () => ({ rows: [] }) };
+    },
+    installSource() {},
+  });
+  const signal = new AbortController().signal;
+  await assert.rejects(
+    host.handle({ handoff, participant: { phoneE164: phone, consent: true }, signal, call: { sessionId: 'map-session-1:call:2', previousSessionId: 'map-session-1', previousOpen: true } }),
+    /still open/,
+  );
+  assert.equal(requests.some(request => request.url.endsWith('/call/start_call')), false);
+  requests.length = 0;
+  let query = '';
+  const finished = createLiveCallHost({
+    storage: { getItem: () => 'client-token', setItem() {} },
+    schedulePoll: () => 1,
+    cancelPoll() {},
+    fetch: async (url, init) => {
+      requests.push(String(url));
+      if (String(url).endsWith('/sql')) query = String(init?.body ?? '');
+      if (String(url).endsWith('/call/reset_demo_call')) return { ok: false, json: async () => ({}) };
+      if (String(url).endsWith('/call/start_call')) return { ok: true, json: async () => 'requested' };
+      return { ok: true, json: async () => ({ rows: [] }) };
+    },
+    installSource: source => source({
+      mapBinding: binding, signal, onReady() {}, onUnavailable() {}, onUpdate: () => ({ status: 'applied' }),
+    }),
+  });
+  await finished.handle({
+    handoff, participant: { phoneE164: phone, consent: true }, signal,
+    call: { sessionId: 'map-session-1:call:2', previousSessionId: 'map-session-1', previousOpen: false },
+  });
+  await settled();
+  assert.equal(requests.some(url => url.endsWith('/call/start_call')), true);
+  assert.match(query, /map-session-1:call:2/);
+});

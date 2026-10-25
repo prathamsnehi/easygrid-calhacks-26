@@ -130,6 +130,8 @@ function boot({fetcher=undefined,EventSourceClass=undefined,sessionUUID='10e8be2
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},
     setTimeout:(callback,delay=0,...args)=>{const id=++timerSequence;timers.set(id,{callback,args,at:clock+delay});return id;},
     clearTimeout:id=>timers.delete(id),
+    setInterval:(callback,delay=0,...args)=>{const id=++timerSequence;timers.set(id,{callback,args,at:clock+(Number(delay)||0)});return id;},
+    clearInterval:id=>timers.delete(id),
     console:{error:error=>errors.push(String(error)),warn(){},log(){}},
   });
   compiled.runInContext(context,{timeout:10000});
@@ -869,25 +871,29 @@ test('accepted call request signals remain revocable after contact edits, route 
   app.click('agent-call');await settlePromises();
   assert.equal(accepted.length,1);
   assert.equal(accepted[0].signal.aborted,false);
-  assert.equal(app.elements.get('handoff-status-badge').textContent,'REQUEST SENT');
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'CALL AGAIN');
+  assert.equal(app.elements.get('agent-call').textContent,'Call again');
   assert.equal(app.elements.get('handoff-result').textContent,'Call request sent to the agent.');
-  assert.equal(app.elements.get('agent-call').disabled,true);
-  app.click('agent-call');
-  assert.equal(accepted.length,1,'an accepted call request cannot be submitted twice');
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  app.click('agent-call');await settlePromises();
+  assert.equal(accepted.length,2,'a sent request can be replaced');
+  assert.equal(accepted[0].signal.aborted,true);
+  assert.equal(accepted[1].call.previousSessionId,accepted[0].call.sessionId);
+  assert.notEqual(accepted[1].call.sessionId,accepted[0].call.sessionId);
   const phone=app.elements.get('user-phone');phone.value='+12025550124';phone.emit('input');
-  assert.equal(accepted[0].signal.aborted,true,'contact edits revoke even an accepted call request');
+  assert.equal(accepted[1].signal.aborted,true,'contact edits revoke even an accepted call request');
   assert.equal(handoffOf(app),null);
   enterUser(app);await app.flushTimers();app.click('agent-call');await settlePromises();
-  assert.equal(accepted.length,2);
-  const priorVersion=accepted[1].handoff.routeVersion;
+  assert.equal(accepted.length,3);
+  const priorVersion=accepted[2].handoff.routeVersion;
   app.click('route-choice-1');
-  assert.equal(accepted[1].signal.aborted,true,'a changed selected route revokes its accepted call request');
+  assert.equal(accepted[2].signal.aborted,true,'a changed selected route revokes its accepted call request');
   assert(handoffOf(app).routeVersion>priorVersion);
   app.click('agent-call');await settlePromises();
-  assert.equal(accepted.length,3);
-  assert.equal(accepted[2].signal.aborted,false);
+  assert.equal(accepted.length,4);
+  assert.equal(accepted[3].signal.aborted,false);
   app.click('reset-plan');
-  assert.equal(accepted[2].signal.aborted,true);
+  assert.equal(accepted[3].signal.aborted,true);
   assert.equal(handoffOf(app),null);
   assert.equal(app.elements.get('user-phone').value,'');
   assert.deepEqual(app.errors,[]);
@@ -1150,6 +1156,95 @@ test('CAL-34 saved results show precise reasons, block repeat calls and do not r
   assert.equal(app.elements.get('handoff-result').textContent,explanation);
   app.window.easygridDemo.setNegotiationResultSource(null);
   assert.throws(()=>app.window.easygridDemo.runRefusalDemo(),/new demo/,'disconnecting a source cannot erase a live failure');
+  assert.deepEqual(app.errors,[]);
+});
+
+function hostedProcedure(summary){
+  let calls=0,sessionId=null,parcelId=null;
+  const fetcher=async(url,options={})=>{
+    const address=String(url);
+    if(address==='/api/voice/config')return {ok:true,json:async()=>({enabled:true,mode:'database-procedure',origin:'https://voice.example',database:'easygrid_demo'})};
+    if(address.endsWith('/v1/identity'))return {ok:true,headers:{get:()=>'client-token'},json:async()=>({})};
+    if(address.endsWith('/call/reset_demo_call'))return {ok:true,json:async()=>'reset'};
+    if(address.endsWith('/call/start_call')){calls+=1;sessionId=JSON.parse(options.body)[0];return {ok:true,json:async()=>'requested'};}
+    if(address.endsWith('/sql'))return {ok:true,json:async()=>({rows:[{sessionId,parcelId,attemptId:'attempt1',mode:'live',phase:'finished',revision:2,nextAction:'stop',...summary}]})};
+    throw new Error(`unexpected ${address}`);
+  };
+  return {fetcher,calls:()=>calls,useParcel:id=>{parcelId=id;}};
+}
+async function finishHostedCall(app){for(let attempt=0;attempt<8;attempt++)await settlePromises();}
+
+test('a hosted price rejection blocks the caller parcel and draws the bypass once',async()=>{
+  const explanation='The owner declined the offered price. No agreement was saved.';
+  const call=hostedProcedure({reason:'PRICE_REJECTED',disposition:'unsuccessful',outcome:'refused',explanation});
+  class UnusedStream { close(){} }
+  const app=boot({fetcher:call.fetcher,EventSourceClass:UnusedStream});
+  placePair(app);await app.flushTimers();await settlePromises();
+  const before=handoffOf(app),parcel=before.userRole.parcelId;
+  call.useParcel(parcel);
+  assert(before.snapshot.routes[0].parcelIds.includes(parcel));
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  app.click('agent-call');await finishHostedCall(app);
+  assert.equal(app.canvas.dataset.previousRouteVisible,'true');
+  assert.equal(app.window.easygridDemo.getNegotiationState().phase,'rerouting');
+  assert.match(app.elements.get('negotiation-reason').textContent,/declined/);
+  await app.runTimersFor(1600);await app.flushTimers();await finishHostedCall(app);
+  const after=handoffOf(app);
+  assert.equal(after.userRole.parcelId,parcel);
+  assert.equal(after.userRole.liveCallLocked,true);
+  assert(!after.snapshot.routes[0].parcelIds.includes(parcel));
+  assert(!app.canvas.dataset.routeParcelIds.split(',').includes(parcel));
+  assert.notDeepEqual(after.snapshot.routes[0].geometry,before.snapshot.routes[0].geometry);
+  assert(after.routeVersion>before.routeVersion);
+  assert.equal(app.canvas.dataset.previousRouteVisible,'true');
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'DECLINED');
+  assert.equal(app.elements.get('handoff-result').textContent,'No further calls to this participant.');
+  assert.equal(app.window.easygridDemo.getNegotiationResult().view,null);
+  app.click('agent-call');await settlePromises();
+  assert.equal(call.calls(),1);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('an unclear hosted call stays on the current route',async()=>{
+  const explanation='The wording did not confirm a decision.';
+  const call=hostedProcedure({reason:'UNCLEAR_RESPONSE',disposition:'needs_review',outcome:'pending',explanation});
+  class UnusedStream { close(){} }
+  const app=boot({fetcher:call.fetcher,EventSourceClass:UnusedStream});
+  placePair(app);await app.flushTimers();await settlePromises();
+  const before=handoffOf(app),routeBefore=app.canvas.dataset.routeId;
+  call.useParcel(before.userRole.parcelId);
+  app.click('agent-call');await finishHostedCall(app);await app.flushTimers();
+  assert.equal(app.canvas.dataset.routeId,routeBefore);
+  assert.equal(app.canvas.dataset.previousRouteVisible,'false');
+  assert.deepEqual(handoffOf(app).snapshot.routes[0].geometry,before.snapshot.routes[0].geometry);
+  assert.equal(app.elements.get('handoff-result').textContent,explanation);
+  assert.equal(app.elements.get('agent-call').textContent,'Call again');
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  assert.equal(app.elements.get('simulate-approval').disabled,true);
+  app.click('agent-call');await finishHostedCall(app);
+  assert.equal(call.calls(),2);
+  assert.equal(app.canvas.dataset.routeId,routeBefore);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('a corridor-only neighbor does not disable Agent call for a priced participant parcel',async()=>{
+  const app=boot();
+  app.window.easygridDemo.setHandoffHandler(async()=>{});
+  app.click('next-site');app.click('confirm-placement');
+  app.click('next-site');app.click('next-site');app.click('confirm-placement');
+  await app.flushTimers();
+  const handoff=handoffOf(app),user=handoff.parcelAnalysis.find(row=>row.parcelId===handoff.userRole.parcelId);
+  const corridors=handoff.parcelAnalysis.filter(row=>row.corridorOnly).map(row=>row.parcelId);
+  assert.equal(handoff.snapshot.routes[0].eligible,false);
+  assert(corridors.length,'this placement touches an unpriced corridor');
+  assert.equal(user.recommendationStatus,'estimated');
+  assert(user.towerCount>0);
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'READY');
+  assert.match(app.elements.get('handoff-result').textContent,new RegExp(corridors.join(', ')));
+  assert.match(app.elements.get('handoff-result').textContent,new RegExp(user.parcelId));
+  assert.equal(app.elements.get('simulate-approval').disabled,true);
+  assert.equal(app.elements.get('simulate-refusal').disabled,false);
   assert.deepEqual(app.errors,[]);
 });
 
@@ -1495,7 +1590,7 @@ test('saved live voice acceptance opens the exact participant contract without s
   assert.deepEqual(app.errors,[]);
 });
 
-test('saved live refusal reroutes once and review keeps the original geometry without another call',async()=>{
+test('saved live refusal reroutes once and a review result keeps its route until Call again',async()=>{
   for(const outcome of ['refused','review_required']){
     const streams=[];let callCount=0;
     class Stream {constructor(){streams.push(this);}close(){this.closed=true;}}
@@ -1523,7 +1618,8 @@ test('saved live refusal reroutes once and review keeps the original geometry wi
       assert.equal(handoffOf(app).routeVersion,before.routeVersion);
     }
     stream.onmessage({data:JSON.stringify(event)});await settlePromises();app.click('agent-call');await settlePromises();
-    assert.equal(callCount,1);assert.equal(app.elements.get('contract-workspace').hidden,true);assert.deepEqual(app.errors,[]);
+    assert.equal(callCount,outcome==='refused'?1:2);
+    assert.equal(app.elements.get('contract-workspace').hidden,true);assert.deepEqual(app.errors,[]);
   }
 });
 

@@ -1,5 +1,5 @@
 import { SenderError, t } from 'spacetimedb/server';
-import { check_call, start_call } from './call.ts';
+import { check_call, reset_demo_call, start_call } from './call.ts';
 import { commitStoredReview } from './call-logic.ts';
 import {
   publishRoute,
@@ -15,7 +15,7 @@ import {
 } from './negotiation-state.ts';
 import { openSettlement, signSettlement, approveSettlement, paySettlement, settlementStatus } from './settlement-state.ts';
 
-export { check_call, start_call };
+export { check_call, reset_demo_call, start_call };
 
 const progress = t.object('SessionProgressRow', {
   sessionId: t.string(),

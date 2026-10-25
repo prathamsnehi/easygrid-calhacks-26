@@ -102,8 +102,11 @@ is what Firebase returns, loads the published file and installs the same
 browser-to-`start_call` adapter. A missing file, a disabled file, or an origin
 that is not credential-free HTTPS leaves **Agent call** offline. Provider keys
 remain in the published module environment. Contract and payment routes stay
-unavailable on Firebase. A route with an unpriced corridor-only parcel still
-shows **REVIEW** and does not place a call.
+unavailable on Firebase. Agent call is enabled for a priced participant
+parcel that has a tower, even when another parcel is an unpriced corridor
+contact. That neighbor is named, and Simulate approval stays disabled. The
+participant's own unpriced parcel still shows **REVIEW** and does not place a
+call.
 
 ### Configured server adapter
 

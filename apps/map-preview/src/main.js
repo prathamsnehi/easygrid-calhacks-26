@@ -408,8 +408,17 @@ if(typeof window.EventSource==='function'&&typeof fetch==='function'){
     if(config.mode==='database-procedure'){
       const target=procedureTarget(config);
       if(!target)return;
+      let confirmedRefusalEvent=null;
       const liveCalls=createLiveCallHost({origin:target.origin,database:target.database,
         lockLiveCall:()=>analysis.setLiveCallLockout(true),
+        onConfirmedRefusal:update=>{
+          if(confirmedRefusalEvent===update.eventId)return;
+          confirmedRefusalEvent=update.eventId;
+          voiceRefused=true;refusalDemoActive=true;
+          negotiation.applySavedVoiceResult({saved:true,mode:'live',kind:'easygrid-voice-result',
+            attemptId:update.summary.attemptId,eventId:update.eventId,mapBinding:update.mapBinding,
+            localParcelId:update.localParcelId,outcome:'refused'});
+        },
         installSource:source=>window.easygridDemo.setNegotiationResultSource(source)});
       analysis.setHandoffHandler(liveCalls.handle);
       return;

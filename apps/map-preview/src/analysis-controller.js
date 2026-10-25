@@ -28,6 +28,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   let snapshot=null,analysis=null,userParcelId=null,selectedParcelId=null,liveCallLocked=false;
   let negotiationDisplay=new Map();
   let participant=null,handler=null,pending=null,activeHandoff=null,revision=0,callRequested=false,lastDemoReady=false;
+  let callGeneration=0,sentCallSessionId=null,lastCallOpen=false;
   let resultContext=null;
   const settlement=createSettlementController({getHandoff});
   const negotiationResults=createNegotiationResultController({getHandoff,onChange:state=>{
@@ -102,11 +103,24 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       phoneDisplay:`Phone ending in ${participant.phoneE164.slice(-4)} · demo participant`,
       email:'Not collected for demo participant',originalOwnerAlias:owner.alias,roleplay:true};
   }
+  function participantRow(current){return current?.parcelAnalysis?.find(row=>row.parcelId===current.userRole?.parcelId)??null;}
+  function participantCallable(current){
+    const row=participantRow(current);
+    return Boolean(current&&current.userRole.roleOnRoute&&current.userRole.participantReady&&!current.userRole.liveCallLocked&&row&&
+      row.recommendationStatus==='estimated'&&row.withinOfferCap&&row.towerCount>0&&row.accessConsent!=='refused'&&row.negotiationStatus!=='refused');
+  }
+  const lockedCallReason=reason=>reason==='ACCESS_REFUSED'||reason==='DO_NOT_CALL'||reason==='PRICE_REJECTED';
   function renderHandoff() {
-    const current=getHandoff(),ready=current?.callPreparation.status==='ready-for-host-adapter';
+    const current=getHandoff(),callable=participantCallable(current);
     const saved=negotiationResults.getState(),result=saved.view;
+    if(result?.phase==='finished')lastCallOpen=false;
+    const lockedRefusal=liveCallLocked||lockedCallReason(result?.summary?.reason);
+    const successful=result?.phase==='finished'&&result.summary?.disposition==='successful';
+    const canReplace=Boolean(handler)&&callable&&!pending&&!lockedRefusal&&!successful&&!saved.superseded&&(callRequested||Boolean(result)||saved.unavailable);
+    const fresh=Boolean(handler)&&callable&&!pending&&!callRequested&&!result&&!saved.unavailable&&!lockedRefusal;
+    write('agent-call',pending?'Requesting call…':canReplace?'Call again':'Agent call');
+    el['agent-call'].disabled=!(fresh||canReplace);
     if(result||saved.unavailable){
-      el['agent-call'].disabled=true;
       if(saved.superseded){
         write('handoff-status-badge','TERMS CHANGED');
         feedback('handoff-result','A newer saved negotiation revision supersedes the earlier result. Contract preparation is locked until the current terms are verified.','error');return;
@@ -116,13 +130,16 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       feedback('handoff-result',saved.unavailable?(result?.phase==='finished'?`${result.summary.explanation} Shared state unavailable; showing the last saved result.`:'Shared state unavailable. The result could not be confirmed as saved.'):result.phase==='finished'?result.summary.explanation:result.phase==='confirming'?'Confirming result…':'Negotiation in progress…',result?.summary?.disposition==='successful'?'success':'');
       return;
     }
-    el['agent-call'].disabled=liveCallLocked||!ready||!handler||Boolean(pending)||callRequested;
-    write('agent-call',pending?'Requesting call…':'Agent call');
-    write('handoff-status-badge',liveCallLocked?'DECLINED':current?.userRole.roleOnRoute===false?'OFF ROUTE':callRequested?'REQUEST SENT':pending?'REQUESTING':!handler?'OFFLINE':ready?'READY':'REVIEW');
-    el['handoff-status-badge'].className=`role-badge${callRequested?' ready':''}`;
+    const corridors=(current?.parcelAnalysis??[]).filter(row=>row.corridorOnly).map(row=>row.parcelId);
+    write('handoff-status-badge',liveCallLocked?'DECLINED':current?.userRole.roleOnRoute===false?'OFF ROUTE':canReplace?'CALL AGAIN':pending?'REQUESTING':!handler?'OFFLINE':callable?'READY':'REVIEW');
+    el['handoff-status-badge'].className=`role-badge${fresh||canReplace?' ready':''}`;
     if(liveCallLocked)feedback('handoff-result','No further calls to this participant.');
     else if(current?.userRole.roleOnRoute===false)feedback('handoff-result','Your original parcel is outside this route.');
-    else if(current?.callPreparation.status==='review-required')feedback('handoff-result','Review parcel estimates, access and budget before calling.','error');
+    else if(current&&!callable){
+      const row=participantRow(current);
+      feedback('handoff-result',row&&(row.recommendationStatus!=='estimated'||row.towerCount<=0)?`${row.parcelId} has no priced tower or centerline to negotiate.`:'Review parcel estimates, access and budget before calling.','error');
+    }else if(fresh&&corridors.length)feedback('handoff-result',`This call covers ${current.userRole.parcelId}. ${corridors.join(', ')} still ${corridors.length===1?'needs':'need'} a priced estimate, so approval stays locked.`);
+    else if(!callRequested&&!pending)feedback('handoff-result','');
   }
   function renderDetail() {
     const row=analysis?.parcels.find(item=>item.parcelId===selectedParcelId);
@@ -242,7 +259,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   }
   function resetParticipant() {
     negotiationResults.reset();sessionId=newSessionId();userParcelId=null;liveCallLocked=false;snapshot=null;analysis=null;selectedParcelId=null;negotiationDisplay=new Map();
-    clearParticipant();
+    callGeneration=0;sentCallSessionId=null;lastCallOpen=false;clearParticipant();
   }
   function editParticipant() {
     invalidateHandoff();participant=null;el['user-consent'].checked=false;
@@ -304,20 +321,38 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   el['reset-plan'].addEventListener('click',resetParticipant);
   window.addEventListener('pagehide',()=>clearParticipant('Participant contact cleared. Enter your details again to begin.',false));
   el['agent-call'].addEventListener('click',async()=>{
-    if(negotiationResults.getState().view||negotiationResults.getState().unavailable||liveCallLocked||!handler||!participant||pending||callRequested)return;
+    const saved=negotiationResults.getState(),result=saved.view;
+    if(liveCallLocked||!handler||!participant||pending||saved.superseded)return;
+    if(lockedCallReason(result?.summary?.reason))return;
+    if(result?.phase==='finished'&&result.summary?.disposition==='successful')return;
     let handoff;
     try {handoff=getHandoff();}catch {feedback('handoff-result','The route changed. Recalculate before requesting a call.','error');return;}
-    if(handoff?.callPreparation.status!=='ready-for-host-adapter')return;
+    if(!participantCallable(handoff))return;
+    const replacing=callRequested||Boolean(result)||saved.unavailable;
+    const generation=callGeneration+1;
+    const nextCallSessionId=generation===1?sessionId:`${sessionId}:call:${generation}`;
+    if(nextCallSessionId.length>128){feedback('handoff-result','The call session could not be started. Reset the demo and try again.','error');return;}
+    const previousOpen=Boolean(sentCallSessionId)&&lastCallOpen;
     activeHandoff?.abort();
-    const ticket=revision,controller=new AbortController();activeHandoff=controller;pending=controller;renderHandoff();
+    const ticket=revision,controller=new AbortController();activeHandoff=controller;pending=controller;
+    if(replacing)negotiationResults.beginReplacement();
+    renderHandoff();
     feedback('handoff-result','Sending call request…');
     try {
-      await handler({handoff,participant:{...participant},signal:controller.signal});
+      await handler({handoff,participant:{...participant},signal:controller.signal,call:{
+        sessionId:nextCallSessionId,previousSessionId:sentCallSessionId,previousOpen}});
       if(ticket!==revision||controller.signal.aborted)return;
-      pending=null;callRequested=true;if(!negotiationResults.getState().view)feedback('handoff-result','Call request sent to the agent.','success');renderHandoff();
-    } catch {
+      pending=null;callRequested=true;callGeneration=generation;sentCallSessionId=nextCallSessionId;
+      lastCallOpen=negotiationResults.getState().view?.phase!=='finished';
+      renderHandoff();
+      if(!negotiationResults.getState().view)feedback('handoff-result','Call request sent to the agent.','success');
+    } catch(error) {
       if(ticket!==revision||controller.signal.aborted)return;
-      pending=null;if(negotiationResults.getState().installed)callRequested=true;feedback('handoff-result','The agent could not confirm the request. Check its status before trying again.','error');renderHandoff();
+      pending=null;if(negotiationResults.getState().installed)callRequested=true;
+      const stillOpen=error?.message==='The previous call is still open.';
+      if(!stillOpen)lastCallOpen=false;
+      renderHandoff();
+      feedback('handoff-result',stillOpen?'The previous call is still open.':'The agent could not confirm the request. Check its status before trying again.','error');
     }
   });
   renderParticipant();el['user-alias'].focus({preventScroll:true});

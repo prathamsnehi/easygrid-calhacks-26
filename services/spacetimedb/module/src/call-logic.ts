@@ -237,12 +237,52 @@ export function markDialFailure(ctx: Db, attemptId: string): void {
   syncSummary(ctx, attemptId);
 }
 
-export function rememberProviderCall(ctx: Db, attemptId: string, providerCallId: string): void {
+export function rememberProviderCall(ctx: Db, attemptId: string, providerCallId: string): 'saved' | 'cancel' | 'ignored' {
   const row = ctx.db.callAttempt.attemptId.find(attemptId);
-  if (!row || row.phase === 'finished' || row.providerCallId) return;
+  if (!row) return 'ignored';
   const id = text(providerCallId, 'Provider call id', 128);
+  if (row.phase === 'finished' && row.reason === 'SUPERSEDED') {
+    if (row.providerCallId) return 'ignored';
+    ctx.db.callAttempt.attemptId.update({ ...row, providerCallId: id });
+    return 'cancel';
+  }
+  if (row.phase === 'finished' || row.providerCallId) return 'ignored';
   ctx.db.callAttempt.attemptId.update({ ...row, providerCallId: id, lifecycle: 'requested', mode: 'live' });
   syncSummary(ctx, attemptId);
+  return 'saved';
+}
+
+/** Stop one demo call so a later click can dial a new session. This does not redial. */
+export function supersedeCall(ctx: Db, sessionId: string): { providerCallId: string } {
+  const id = text(sessionId, 'Session id', 128);
+  const session = ctx.db.session.sessionId.find(id);
+  if (!session) fail('NOT_FOUND', 'No session exists with that id.');
+  if (senderHex(ctx) !== session.operatorIdentity) fail('FORBIDDEN', 'This identity cannot change the session.');
+  const rows = attempts(ctx, id);
+  if (rows.some(row => row.reason === 'ACCESS_REFUSED' || row.reason === 'DO_NOT_CALL')) {
+    fail('BLOCKED_STATE', 'No further live call will be placed for this participant.');
+  }
+  let providerCallId = '';
+  const attemptIds = new Set(rows.map(row => row.attemptId));
+  for (const row of rows) {
+    if (row.phase === 'finished') continue;
+    if (row.providerCallId) providerCallId = row.providerCallId;
+    ctx.db.callAttempt.attemptId.update({
+      ...row,
+      lifecycle: 'cancelled',
+      phase: 'finished',
+      revision: row.revision + 1,
+      outcome: 'pending',
+      disposition: 'needs_review',
+      reason: 'SUPERSEDED',
+      explanation: 'The previous demo call was replaced before a new call.',
+      nextAction: 'stop',
+      agreedCents: 0,
+    });
+    syncSummary(ctx, row.attemptId);
+  }
+  for (const check of [...ctx.db.callCheck.iter()].filter(row => attemptIds.has(row.attemptId))) ctx.db.callCheck.delete(check);
+  return { providerCallId };
 }
 
 export function loadAttempt(ctx: Db, attemptId: string) {

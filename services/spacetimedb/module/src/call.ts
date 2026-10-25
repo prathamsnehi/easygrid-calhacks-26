@@ -6,6 +6,7 @@ import {
   markDialFailure,
   prepareCall,
   rememberProviderCall,
+  supersedeCall,
   speechVariables,
   turnsFor,
   VOICE_PROMPT,
@@ -62,6 +63,14 @@ function ensureAgent(ctx: Ctx): string {
     if (!tx.db.voiceAgent.id.find('negotiation')) tx.db.voiceAgent.insert({ id: 'negotiation', agentId });
   });
   return agentId;
+}
+
+function cancelCall(ctx: Ctx, providerCallId: string): void {
+  readJson(ctx, `${CARTESIA}/agents/calls/${encodeURIComponent(providerCallId)}/cancel`, 'POST', {
+    Authorization: `Bearer ${ctx.env.CARTESIA_API_KEY}`,
+    'Cartesia-Version': CARTESIA_VERSION,
+    'Content-Type': 'application/json',
+  }, '{}', DIAL_TIMEOUT);
 }
 
 function dial(ctx: Ctx, agentId: string, phone: string, variables: Record<string, string>): string {
@@ -196,11 +205,23 @@ export const start_call = spacetimedb.procedure(
     try {
       const agentId = ensureAgent(ctx);
       const providerCallId = dial(ctx, agentId, phone, speechVariables(attempt.openingCents, attempt.finalCents, attempt.monthlyRentCents));
-      ctx.withTx(tx => rememberProviderCall(tx, attempt.attemptId, providerCallId));
+      const saved = ctx.withTx(tx => rememberProviderCall(tx, attempt.attemptId, providerCallId));
+      if (saved === 'cancel') cancelCall(ctx, providerCallId);
     } catch {
       ctx.withTx(tx => markDialFailure(tx, attempt.attemptId));
     }
     return 'requested';
+  },
+);
+
+export const reset_demo_call = spacetimedb.procedure(
+  { name: 'reset_demo_call' },
+  { sessionId: t.string() },
+  t.string(),
+  (ctx, { sessionId }) => {
+    const superseded = ctx.withTx(tx => supersedeCall(tx, sessionId));
+    if (superseded.providerCallId) cancelCall(ctx, superseded.providerCallId);
+    return 'reset';
   },
 );
 
