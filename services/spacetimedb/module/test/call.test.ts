@@ -125,6 +125,30 @@ test('agreement is saved only for the opening or the one final amount', () => {
   const missedCall = decideReview({ ...base, turns: [], failureReason: 'NO_ANSWER', candidate: null });
   assert.equal(missedCall.outcome, 'pending');
   assert.equal(missedCall.reason, 'NO_ANSWER');
+  const interruptedOffer = decideReview({
+    ...base,
+    failureReason: 'MALFORMED_OUTPUT',
+    candidate: null,
+    turns: [
+      { id: 'vm', role: 'owner', text: "If you record your name and reason for calling, I'll see if this person is available. Yes, yes." },
+      { id: 'offer', role: 'agent', text: "Hi, I'm EasyGrid's AI demo agent. Our proposal is $100.00" },
+      { id: 'yes', role: 'owner', text: "Yes, I wanna go for that. Yes, let's do it." },
+      { id: 'thanks', role: 'agent', text: 'Thank you.' },
+      { id: 'ok', role: 'owner', text: 'Okay, got it.' },
+    ],
+  });
+  assert.equal(interruptedOffer.outcome, 'accepted');
+  assert.equal(interruptedOffer.agreedCents, 10_000);
+  const otherAmount = decideReview({
+    ...base,
+    failureReason: 'MALFORMED_OUTPUT',
+    candidate: null,
+    turns: [
+      { id: 'offer', role: 'agent', text: 'Our proposal is $110.00' },
+      { id: 'yes', role: 'owner', text: "Yes, let's do it." },
+    ],
+  });
+  assert.equal(otherAmount.outcome, 'pending');
 });
 
 test('a committed review is redacted and a second dial is refused', () => {

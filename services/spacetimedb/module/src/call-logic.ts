@@ -330,10 +330,13 @@ function statesOffer(spoken: string, compensationCents: number, monthlyRentCents
   const amounts = moneyMentions(spoken);
   const compensation = BigInt(compensationCents);
   const monthly = BigInt(monthlyRentCents);
+  if (!amounts.includes(compensation)) return false;
   const pair = amounts.some((value, index) => value === compensation && amounts[index + 1] === monthly);
-  return pair
-    && /month/i.test(spoken)
-    && (/\b(?:does|would|will) that work(?: for you)?\b|\bdo you agree\b|\bis that (?:okay|ok|acceptable|all right|alright)\b/i.test(spoken));
+  const question = /\b(?:does|would|will) that work(?: for you)?\b|\bdo you agree\b|\bis that (?:okay|ok|acceptable|all right|alright)\b/i.test(spoken);
+  if (pair && /month/i.test(spoken) && question) return true;
+  // Live transcripts often cut the offer after the lump sum, before the monthly fee and the question.
+  return /\b(?:proposal|offer|compensation)\b/i.test(spoken)
+    && amounts.every(value => value === compensation || value === monthly);
 }
 
 function corroborates(reason: string, spoken: string): boolean {
