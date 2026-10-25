@@ -231,7 +231,7 @@ No deployment, live call or real transcript request was made by this change.
 - [x] 141 shared contract tests; typecheck, six generated-artifact consistency
   checks and build pass. Includes bounded money decisions, transcript evidence,
   detailed failure reasons, replay/stale rejection and all-owner agreement gating.
-- [x] 210 map tests pass, including saved-result display, duplicate/stale delivery,
+- [x] 252 map tests pass, including saved-result display, duplicate/stale delivery,
   simulation isolation, New Demo and offline preservation of the last saved reason.
 - [x] 16 mocked Cartesia tests plus typecheck/build pass.
 - [x] 9 Claude/synthetic integration tests plus typecheck/build pass; real timeout
@@ -243,9 +243,15 @@ No deployment, live call or real transcript request was made by this change.
 ### Review against current main
 
 The review incorporates CAL-29 plus the newer contract/payment workflow from
-`29f3da1`. It preserves both build entries and all contract UI checks. Added
+`7d30137`, including the single-owner approval demo from PR #23. It preserves
+both build entries and all contract UI checks. Added
 regressions cover an agreement candidate followed by a refusal, negated or
 conditional spoken offers, price objections versus access refusal, friendly
 "no problem" replies, and model-invented technical failure codes. The current
 map regression also checks that contract simulation cannot replace a call result.
 CAL-29 module tests and typecheck pass locally; no module changes were made.
+
+The second main reconciliation also retains direct simulated approval/contract
+navigation. Those controls remain available in the standalone demo and are
+hidden and disabled while CAL-34 owns the call result. Installing a CAL-34 source
+cancels pending simulated approval navigation and revokes its contract package.

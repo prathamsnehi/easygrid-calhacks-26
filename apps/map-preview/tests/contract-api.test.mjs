@@ -70,9 +70,11 @@ test('Nessie readiness is explicit in config and contract state without exposing
     const result = {}, res = {writeHead(status) {result.status=status;return this;},end(value) {result.body=JSON.parse(value);}};
     await api({method:'GET',headers:{host:'127.0.0.1:4177'}},res,'/api/contracts/config');
     assert.equal(result.status,200);assert.equal(result.body.bankMode,'nessie-sandbox');assert.equal(result.body.paymentsEnabled,false);
+    assert.equal(result.body.paymentSemantics,'record-only');assert.equal(result.body.amountIncrementCents,100);
     const draft = createContractDraft(createContractExample(),'P-004',{id:'nessie-read-only-draft'});
     const execution = await call(api,'/api/contracts/state',{draft});
     assert.equal(execution.status,200);assert.equal(execution.body.bankMode,'nessie-sandbox');assert.equal(execution.body.paymentsEnabled,false);
+    assert.equal(execution.body.paymentSemantics,'record-only');assert.equal(execution.body.amountIncrementCents,100);
     for(const value of ['private-test-key','private-payer-account','private-owner-account','private-owner-customer']) assert(!JSON.stringify({config:result.body,state:execution.body}).includes(value));
     const persisted = JSON.parse(await readFile(join(directory,'nessie-full-contract-ledger.json'),'utf8'));
     assert.equal(persisted.bankMode,'nessie-sandbox');assert.match(persisted.bankIdentity,/^[a-f0-9]{64}$/);

@@ -165,9 +165,10 @@ test('a refusal reroute signs and pays only final-route owners, with server-vali
   assert.equal(persisted.ledger.journal.reduce((sum,p)=>sum+p.debitCents,0),handoff.snapshot.routes[0].upfrontCompensationCents);
 }));
 
-function nessieFixture(source, {pending = false} = {}) {
+function nessieFixture(source, {status = 'pending', failConfirmation = false} = {}) {
   const recipients = Object.fromEntries(source.parcels.map(parcel => [parcel.ownerId,{accountId:`account-${parcel.ownerId}`,customerId:`customer-${parcel.ownerId}`}])) ;
   const rows = [], calls = [];
+  let confirmationFailed = false;
   const environment = {
     EASYGRID_PAYMENT_PROVIDER:'nessie',NESSIE_API_KEY:'test-only-nessie-key',NESSIE_API_ORIGIN:'https://prod-api.nessieisreal.com',
     NESSIE_PAYER_ACCOUNT_ID:'test-project-payer',NESSIE_OWNER_RECIPIENTS:JSON.stringify(recipients),NESSIE_ALLOW_SANDBOX_TRANSFERS:'yes',
@@ -179,91 +180,126 @@ function nessieFixture(source, {pending = false} = {}) {
     if (url.pathname === '/accounts/test-project-payer') return Response.json({_id:'test-project-payer',balance:1000000});
     const recipient = Object.values(recipients).find(row => `/accounts/${row.accountId}` === url.pathname);
     if (recipient) return Response.json({_id:recipient.accountId,customer_id:recipient.customerId});
-    if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'GET') return Response.json(rows);
+    if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'GET') return rows.length ? Response.json(rows) : Response.json('No transfers found for this account',{status:404});
     if (url.pathname === '/accounts/test-project-payer/transfers' && options.method === 'POST') {
       const body = JSON.parse(options.body);
-      assert.equal(body.medium,'balance');
-      assert(Object.values(recipients).some(row => row.accountId === body.payee_id));
-      const row = {...body,_id:`test-transfer-${rows.length+1}`,payer_id:'test-project-payer',status:pending?'pending':'completed'};
-      rows.push(row);return Response.json({objectCreated:row},{status:201});
+      assert.deepEqual(Object.keys(body).sort(),['amount','description','status','transaction_date']);
+      assert.equal(body.status,'pending');assert(Number.isSafeInteger(body.amount));
+      assert.match(body.transaction_date,/^\d{4}-\d{2}-\d{2}$/);
+      assert.match(body.description,/^EasyGrid full-[a-f0-9]{32} [a-f0-9]{64} [a-f0-9]{64}$/);
+      const row = {...body,id:`test-record-${rows.length+1}`,status};
+      rows.push(row);return Response.json({objectCreated:{...body,_id:row.id}},{status:201});
     }
-    const transfer = rows.find(row => `/transfers/${row._id}` === url.pathname);
-    if (transfer) return Response.json(transfer);
+    const record = rows.find(row => `/transfers/${row.id}` === url.pathname);
+    if (record) {
+      if (failConfirmation && !confirmationFailed) {confirmationFailed = true;return Response.json('Confirmation temporarily unavailable',{status:503});}
+      return Response.json(record);
+    }
     throw new Error('Unexpected mock Nessie endpoint.');
   };
   return {environment,fetcher,rows,calls};
 }
 
-test('map contracts use Nessie only after all signatures, preserve exact amounts and never resend after restart', async () => withAPI(async (_simulation,options,directory) => {
+test('map Nessie records require all signatures, preserve exact whole-dollar amounts and never claim settlement', async () => withAPI(async (_simulation,options,directory) => {
   const context = mapContractRequest(proposal(),placements);
-  const source = contractSourceFromAgreement(agreement(),proposal()), mock = nessieFixture(source);
+  const source = contractSourceFromAgreement(agreement(),proposal()), mock = nessieFixture(source,{status:'completed'});
   const nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
   const api = await createContractAPI(nessieOptions);
   const approved = await call(api,'approve-map',{context});
   assert.equal(approved.status,200,approved.body.error);
   assert.equal(approved.body.bankMode,'nessie-sandbox');assert.equal(approved.body.paymentsEnabled,true);
+  assert.equal(approved.body.paymentSemantics,'record-only');assert.equal(approved.body.amountIncrementCents,100);
   const {packageId,input} = approved.body;
   const drafts = input.parcels.map((parcel,index) => createContractDraft(input,parcel.parcelId,{id:`nessie-map-${index}`}));
+  const index = input.parcels.findIndex(parcel => parcel.compensationCents % 100 === 0);
+  assert(index >= 0,'trusted map fixture must contain a whole-dollar contract');
+  const target = drafts[index];
   const command = async (operation,draft,extra={}) => {
     const result = await call(api,operation,{packageId,draft,...extra});
     assert.equal(result.status,200,result.body.error);assert.equal(result.body.bankMode,'nessie-sandbox');return result.body;
   };
-  assert.equal((await call(api,'submit',{packageId,draft:drafts[0]})).status,409);
-  await command('sign/utility',drafts[0]);await command('sign/landowner',drafts[0]);
-  assert.equal((await call(api,'submit',{packageId,draft:drafts[0]})).status,409);
+  assert.equal((await call(api,'submit',{packageId,draft:target})).status,409);
+  await command('sign/utility',target);await command('sign/landowner',target);
+  assert.equal((await call(api,'submit',{packageId,draft:target})).status,409);
   assert.equal(mock.calls.length,0,'unsigned packages must not contact the bank');
-  for(const draft of drafts.slice(1)) {await command('sign/utility',draft);await command('sign/landowner',draft);}
-  const first = await command('submit',drafts[0]);
-  assert.equal(first.payment.status,'paid');assert.equal(first.payment.mode,'nessie-sandbox');
-  assert.equal(first.payment.amountCents,input.parcels[0].compensationCents);
+  for(const draft of drafts.filter(draft => draft !== target)) {await command('sign/utility',draft);await command('sign/landowner',draft);}
+  const first = await command('submit',target);
+  assert.equal(first.payment.status,'recorded');assert.equal(first.payment.mode,'nessie-sandbox');
+  assert.equal(first.paymentSemantics,'record-only');assert.equal(first.payment.paymentSemantics,'record-only');
+  assert.equal(first.payment.amountCents,input.parcels[index].compensationCents);
   assert.equal(mock.rows[0].amount,first.payment.amountCents/100);
-  assert.equal(first.payment.transactionRef,'nessie-test-transfer-1');
-  await Promise.all([command('submit',drafts[0]),command('submit',drafts[0])]);
+  assert.equal(first.payment.transactionRef,'nessie-test-record-1');
+  assert.equal(first.journal.length,0);assert.equal(first.construction.status,'not-applicable');assert.equal(first.construction.paidCount,0);
+  await Promise.all([command('submit',target),command('submit',target)]);
   assert.equal(mock.rows.length,1);
   const restarted = await createContractAPI(nessieOptions);
-  const replay = await call(restarted,'submit',{packageId,draft:drafts[0]});
-  assert.equal(replay.body.payment.status,'paid');assert.equal(replay.body.journal.length,1);assert.equal(mock.rows.length,1);
-  const newDraft = {...drafts[0],id:'new-id-same-obligation'};
+  const replay = await call(restarted,'submit',{packageId,draft:target});
+  assert.equal(replay.body.payment.status,'recorded');assert.equal(replay.body.journal.length,0);assert.equal(mock.rows.length,1);
+  const newDraft = {...target,id:'new-id-same-obligation'};
   await call(restarted,'state',{packageId,draft:newDraft});
   assert.equal((await call(restarted,'submit',{packageId,draft:newDraft})).status,409);
-  assert.equal(mock.rows.length,1,'regenerated draft IDs must not create another payment');
-  assert.equal((await call(restarted,'submit',{packageId,draft:drafts[0],stage:'balance'})).status,409);
+  assert.equal(mock.rows.length,1,'regenerated draft IDs must not create another record');
+  assert.equal((await call(restarted,'submit',{packageId,draft:target,stage:'balance'})).status,409);
+  assert.equal((await call(restarted,'construction-complete',{packageId,draft:target,completion:{}})).status,409);
   const serialized = await readFile(join(directory,'nessie-map-contracts.json'),'utf8');
-  assert.equal(JSON.parse(serialized).bankMode,'nessie-sandbox');
-  assert.match(JSON.parse(serialized).bankIdentity,/^[a-f0-9]{64}$/);
+  const saved = JSON.parse(serialized);
+  assert.equal(saved.bankMode,'nessie-sandbox');assert.match(saved.bankIdentity,/^[a-f0-9]{64}$/);
+  assert.equal(saved.packages[packageId].ledger.journal.length,0);assert.equal(saved.packages[packageId].ledger.construction,undefined);
   for (const change of [{NESSIE_PAYER_ACCOUNT_ID:'different-project-payer'},{NESSIE_API_ORIGIN:'https://api.nessieisreal.com'}]) {
     await assert.rejects(createContractAPI({...nessieOptions,environment:{...mock.environment,...change}}),/different bank identity/);
   }
   for (const secret of [mock.environment.NESSIE_API_KEY,'test-project-payer',...Object.values(JSON.parse(mock.environment.NESSIE_OWNER_RECIPIENTS)).map(row=>row.accountId)]) assert(!serialized.includes(secret));
 }));
 
-test('pending Nessie payment reconciles after restart without resubmitting and simulation payments cannot satisfy it', async () => withAPI(async (simulation,options,directory) => {
+test('an unknown Nessie record reconciles after restart without resubmitting and simulation cannot satisfy it', async () => withAPI(async (simulation,options,directory) => {
   const context = mapContractRequest(proposal(),placements);
   const simulated = await call(simulation,'approve-map',{context}), {packageId,input} = simulated.body;
   const drafts = input.parcels.map((parcel,index)=>createContractDraft(input,parcel.parcelId,{id:`isolated-${index}`}));
+  const index = input.parcels.findIndex(parcel => parcel.compensationCents % 100 === 0);
+  assert(index >= 0,'trusted map fixture must contain a whole-dollar contract');
   for(const draft of drafts) {
     await call(simulation,'sign/utility',{packageId,draft});await call(simulation,'sign/landowner',{packageId,draft});
   }
-  assert.equal((await call(simulation,'submit',{packageId,draft:drafts[0]})).body.payment.status,'paid');
-  const mock = nessieFixture(input,{pending:true}), nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
+  assert.equal((await call(simulation,'submit',{packageId,draft:drafts[index]})).body.payment.status,'paid');
+  const mock = nessieFixture(input,{failConfirmation:true}), nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
   const api = await createContractAPI(nessieOptions);
-  assert.equal((await call(api,'state',{packageId,draft:drafts[0]})).status,409);
+  assert.equal((await call(api,'state',{packageId,draft:drafts[index]})).status,409);
   const approvedNessie = await call(api,'approve-map',{context});assert.equal(approvedNessie.status,200);
   const nessieDrafts = approvedNessie.body.input.parcels.map((parcel,index)=>createContractDraft(approvedNessie.body.input,parcel.parcelId,{id:`nessie-isolated-${index}`}));
-  const blank = await call(api,'state',{packageId,draft:nessieDrafts[0]});assert.equal(blank.status,200,blank.body.error);
+  const target = nessieDrafts[index];
+  const blank = await call(api,'state',{packageId,draft:target});assert.equal(blank.status,200,blank.body.error);
   assert.deepEqual(blank.body.signatures,{});assert.equal(blank.body.payment,null);
-  assert.equal((await call(api,'submit',{packageId,draft:nessieDrafts[0]})).status,409);
+  assert.equal((await call(api,'submit',{packageId,draft:target})).status,409);
   for(const draft of nessieDrafts) {await call(api,'sign/utility',{packageId,draft});await call(api,'sign/landowner',{packageId,draft});}
-  const pending = await call(api,'submit',{packageId,draft:nessieDrafts[0]});
-  assert.equal(pending.body.payment.status,'submitted');assert.equal(pending.body.journal.length,0);
-  assert.equal(pending.body.construction.status,'awaiting-payments');
+  const unknown = await call(api,'submit',{packageId,draft:target});
+  assert.equal(unknown.body.payment.status,'unknown');assert.equal(unknown.body.journal.length,0);
+  assert.equal(unknown.body.construction.status,'not-applicable');
   const restarted = await createContractAPI(nessieOptions);
-  await call(restarted,'submit',{packageId,draft:nessieDrafts[0]});assert.equal(mock.rows.length,1);
-  mock.rows[0].status='completed';
-  const confirmed = await call(restarted,'reconcile',{packageId,draft:nessieDrafts[0]});
-  assert.equal(confirmed.body.payment.status,'paid');assert.equal(confirmed.body.journal.length,1);assert.equal(mock.rows.length,1);
+  const stillUnknown = await call(restarted,'submit',{packageId,draft:target});
+  assert.equal(stillUnknown.body.payment.status,'unknown');assert.equal(mock.rows.length,1);
+  assert.equal(mock.rows[0].status,'pending');
+  const confirmed = await call(restarted,'reconcile',{packageId,draft:target});
+  assert.equal(confirmed.body.payment.status,'recorded');assert.equal(confirmed.body.journal.length,0);assert.equal(mock.rows.length,1);
+  assert.equal(confirmed.body.payment.transactionRef,'nessie-test-record-1');
+  assert.equal(confirmed.body.construction.paidCount,0);
   assert.equal(JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).bankMode,'simulation');
   assert.equal(JSON.parse(await readFile(join(directory,'nessie-map-contracts.json'),'utf8')).bankMode,'nessie-sandbox');
+}));
+
+test('fractional map compensation is held unchanged before any Nessie provider request', async () => withAPI(async (_simulation,options) => {
+  const source = contractSourceFromAgreement(agreement(),proposal()),mock = nessieFixture(source);
+  const api = await createContractAPI({...options,environment:mock.environment,fetcher:mock.fetcher});
+  const approved = await call(api,'approve-map',{context:mapContractRequest(proposal(),placements)});
+  const {packageId,input} = approved.body;
+  const drafts = input.parcels.map((parcel,index)=>createContractDraft(input,parcel.parcelId,{id:`fractional-${index}`}));
+  const index = input.parcels.findIndex(parcel => parcel.compensationCents % 100 !== 0);
+  assert(index >= 0,'trusted map fixture must include a fractional-dollar contract');
+  for(const draft of drafts) {await call(api,'sign/utility',{packageId,draft});await call(api,'sign/landowner',{packageId,draft});}
+  const held = await call(api,'submit',{packageId,draft:drafts[index]});
+  assert.equal(held.status,200,held.body.error);assert.equal(held.body.payment.status,'held');
+  assert.equal(held.body.payment.amountCents,input.parcels[index].compensationCents);
+  assert.match(held.body.payment.reason,/whole-dollar/);assert.equal(mock.calls.length,0);assert.equal(mock.rows.length,0);
+  assert.equal(held.body.journal.length,0);assert.equal(held.body.construction.status,'not-applicable');
 }));
 
 test('provider-tagged and legacy simulation ledgers cannot be loaded as Nessie evidence', async () => withAPI(async (api,options,directory) => {
@@ -339,4 +375,209 @@ test('same-package company migration evicts a cached worker and requires fresh E
   const paid = await call(restarted,'submit',{packageId,draft:drafts[0]});
   assert.equal(paid.status,200,paid.body.error);assert.equal(paid.body.payment.status,'paid');
   assert.equal(paid.body.payment.amountCents,updated.body.input.parcels[0].compensationCents);
+}));
+
+
+test('single-owner map scope preserves the full source and restricts signing, readiness and construction', async () => withAPI(async (api,options,directory) => {
+  const context = mapContractRequest(proposal(),placements);
+  const routeApproval = await call(api,'approve-map',{context});
+  assert.equal(routeApproval.status,200,routeApproval.body.error);
+  const approved = await call(api,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(approved.status,200,approved.body.error);
+  const {packageId,input,demoScope,demoParcelId} = approved.body, scope = {packageId,demoScope,demoParcelId};
+  assert.equal(packageId,routeApproval.body.packageId);assert.deepEqual(input,routeApproval.body.input);
+  assert.deepEqual(approved.body.agreement,routeApproval.body.agreement);
+  assert.deepEqual(approved.body.mapBinding,routeApproval.body.mapBinding);
+  assert.equal(demoScope,'single-owner');assert(input.parcels.length > 1);
+  const expected = input.parcels.find(p=>p.parcelId==='L017') ?? input.parcels.find(p=>p.compensationCents%100===0) ?? input.parcels[0];
+  assert.equal(demoParcelId,expected.parcelId);
+  const draft = createContractDraft(input,demoParcelId,{id:'single-owner-contract'});
+  const other = createContractDraft(input,input.parcels.find(p=>p.parcelId!==demoParcelId).parcelId,{id:'excluded-owner-contract'});
+  assert.equal((await call(api,'state',{packageId,draft})).status,409,'commands must bind the approved scope');
+  assert.equal((await call(api,'state',{...scope,demoParcelId:other.parcelId,draft})).status,409);
+  for (const operation of ['state','sign/utility','sign/landowner','submit']) {
+    assert.equal((await call(api,operation,{...scope,draft:other})).status,409,'scope must not authorize another owner');
+  }
+  assert.equal((await call(api,'submit',{...scope,draft})).status,409);
+  await call(api,'sign/utility',{...scope,draft});
+  const signed = await call(api,'sign/landowner',{...scope,draft});
+  assert.equal(signed.status,200,signed.body.error);assert.equal(signed.body.paymentReady,true);assert.equal(signed.body.packageReady,false);
+  assert.deepEqual(signed.body.agreementProgress,{signedCount:1,totalCount:1,nextUnsignedParcelId:null});
+  assert.equal(signed.body.routeAgreementProgress.signedCount,1);assert.equal(signed.body.routeAgreementProgress.totalCount,input.parcels.length);
+  const paid = await call(api,'submit',{...scope,draft});
+  assert.equal(paid.status,200,paid.body.error);assert.equal(paid.body.payment.status,'paid');
+  assert.equal(paid.body.payment.amountCents,expected.compensationCents);assert.equal(paid.body.packageReady,false);
+  assert.equal(paid.body.construction.status,'not-applicable');
+  assert.equal((await call(api,'construction-complete',{...scope,draft,completion:{}})).status,409);
+  const restarted = await createContractAPI(options), replay = await call(restarted,'submit',{...scope,draft});
+  assert.equal(replay.body.payment.obligationId,paid.body.payment.obligationId);assert.equal(replay.body.journal.length,1);
+  const newDraft = {...draft,id:'another-single-owner-id'};
+  assert.equal((await call(restarted,'submit',{...scope,draft:newDraft})).status,409);
+  const record = JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).packages[packageId];
+  assert.equal(Object.keys(record.ledger.obligations).length,1);assert.equal(record.ledger.construction,undefined);
+  assert.equal(record.demoParcelId,demoParcelId);assert.deepEqual(record.source,input);
+}));
+
+test('single-owner conversion preserves recorded and unknown Nessie obligations without another POST', async () => {
+  for (const failConfirmation of [false,true]) await withAPI(async (_simulation,options,directory) => {
+    const context = mapContractRequest(proposal(),placements),source = contractSourceFromAgreement(agreement(),proposal());
+    const mock = nessieFixture(source,{failConfirmation}), nessieOptions = {...options,environment:mock.environment,fetcher:mock.fetcher};
+    const api = await createContractAPI(nessieOptions), original = await call(api,'approve-map',{context});
+    const {packageId,input} = original.body;
+    const expected = input.parcels.find(p=>p.parcelId==='L017') ?? input.parcels.find(p=>p.compensationCents%100===0) ?? input.parcels[0];
+    assert.equal(expected.compensationCents%100,0);
+    const drafts = input.parcels.map((parcel,index)=>createContractDraft(input,parcel.parcelId,{id:`scope-convert-${index}`}));
+    for (const draft of drafts) {await call(api,'sign/utility',{packageId,draft});await call(api,'sign/landowner',{packageId,draft});}
+    const draft = drafts.find(draft=>draft.parcelId===expected.parcelId), before = await call(api,'submit',{packageId,draft});
+    assert.equal(before.status,200,before.body.error);assert.equal(before.body.payment.status,failConfirmation?'unknown':'recorded');
+    const path = join(directory,'nessie-map-contracts.json'), prior = JSON.parse(await readFile(path,'utf8')).packages[packageId];
+    const approved = await call(api,'approve-map',{context,demoScope:'single-owner'});
+    assert.equal(approved.status,200,approved.body.error);assert.equal(approved.body.packageId,packageId);
+    assert.equal(approved.body.demoParcelId,draft.parcelId);assert.deepEqual(approved.body.input,input);
+    const scope = {packageId,demoScope:approved.body.demoScope,demoParcelId:approved.body.demoParcelId};
+    const after = JSON.parse(await readFile(path,'utf8')).packages[packageId];
+    assert.deepEqual(after.ledger,prior.ledger,'scope changes must not reset attempts or audit evidence');
+    assert.equal((await call(api,'submit',{packageId,draft})).status,409,'old unscoped commands are stale');
+    const replay = await call(api,'submit',{...scope,draft});
+    assert.equal(replay.body.payment.obligationId,before.body.payment.obligationId);
+    assert.equal(replay.body.payment.status,before.body.payment.status);assert.equal(mock.rows.length,1);
+    const restarted = await createContractAPI(nessieOptions);
+    const confirmed = await call(restarted,'reconcile',{...scope,draft});
+    assert.equal(confirmed.status,200,confirmed.body.error);assert.equal(confirmed.body.payment.status,'recorded');
+    assert.equal(confirmed.body.payment.obligationId,before.body.payment.obligationId);assert.equal(confirmed.body.journal.length,0);
+    assert.equal(mock.calls.filter(call=>call.method==='POST').length,1);
+  });
+});
+
+test('a single-owner conversion cannot hide an unknown attempt belonging to an excluded parcel', async () => withAPI(async (api,options,directory) => {
+  const context = mapContractRequest(proposal(),placements), approved = await call(api,'approve-map',{context});
+  const {packageId,input} = approved.body, selected = input.parcels.find(p=>p.parcelId==='L017') ?? input.parcels.find(p=>p.compensationCents%100===0) ?? input.parcels[0];
+  const excluded = input.parcels.find(p=>p.parcelId!==selected.parcelId), path = join(directory,'map-contracts.json');
+  const registry = JSON.parse(await readFile(path,'utf8')), record = registry.packages[packageId];
+  const id = `full-${createHash('sha256').update(JSON.stringify([input.sessionId,excluded.parcelId])).digest('hex').slice(0,32)}`;
+  record.ledger.obligations[id] = {id,stage:'full',parcelId:excluded.parcelId,status:'unknown',amountCents:excluded.compensationCents,documentHash:'previous-current-document',reason:'Earlier response was lost'};
+  await writeFile(path,JSON.stringify(registry));
+  const restarted = await createContractAPI(options), blocked = await call(restarted,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(blocked.status,409);assert.match(blocked.body.error,/Other landowner payment attempts/);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),registry,'rejected conversion must preserve scope, source and every ledger record');
+  const normal = await call(restarted,'approve-map',{context});
+  assert.equal(normal.status,200,normal.body.error);assert.equal(normal.body.demoScope,null);assert.equal(normal.body.demoParcelId,null);
+}));
+
+test('scope changes wait for in-flight commands and reject queued commands carrying the old scope', async () => withAPI(async (_api,_options,directory) => {
+  const service = await createMapContractService({stateURL:pathToFileURL(join(directory,'scope-queue.json'))});
+  const context = mapContractRequest(proposal(),placements), original = await service.approve(context);
+  const selected = original.input.parcels.find(p=>p.parcelId==='L017') ?? original.input.parcels.find(p=>p.compensationCents%100===0) ?? original.input.parcels[0];
+  const draft = createContractDraft(original.input,selected.parcelId,{id:'queued-scope-contract'});
+  let release, started;
+  const gate = new Promise(resolve=>{release=resolve;}), entered = new Promise(resolve=>{started=resolve;});
+  const inFlight = service.execute(original.packageId,async workflow=>{
+    started();await gate;
+    return workflow.sign(draft,'utility',{id:'demo-utility-controller',role:'utility-approver'});
+  });
+  await entered;
+  const switching = service.approve(context,{demoScope:'single-owner'});
+  const stale = service.execute(original.packageId,workflow=>workflow.inspect(draft));
+  const staleRejected = assert.rejects(stale,/demo scope changed/);
+  release();await inFlight;
+  const converted = await switching;await staleRejected;
+  assert.equal(converted.packageId,original.packageId);assert.equal(converted.demoParcelId,draft.parcelId);
+  const restored = await service.execute(original.packageId,workflow=>workflow.inspect(draft),{demoScope:converted.demoScope,demoParcelId:converted.demoParcelId});
+  assert.equal(restored.signatures.utility.actorId,'demo-utility-controller');
+  assert.equal(restored.agreementProgress.totalCount,1);assert.equal(restored.paymentReady,false);
+}));
+
+
+test('participant approval selects the original-route roleplay parcel and preserves the full package across restart', async () => withAPI(async (api,options,directory) => {
+  const handoff = proposal(),context = mapContractRequest(handoff,placements);
+  const original = await call(api,'approve-map',{context});
+  assert.equal(original.status,200,original.body.error);assert.equal(original.body.demoTarget,null);
+  const representative = await call(api,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(representative.status,200,representative.body.error);assert.equal(representative.body.demoTarget,'representative');
+  assert.notEqual(representative.body.demoParcelId,context.userParcelId,'fixture must distinguish participant and representative');
+  const {packageId,input} = representative.body;
+  const priorDraft = createContractDraft(input,representative.body.demoParcelId,{id:'representative-before-participant'});
+  await call(api,'sign/utility',{packageId,demoScope:'single-owner',demoParcelId:priorDraft.parcelId,draft:priorDraft});
+  const path = join(directory,'map-contracts.json'), prior = JSON.parse(await readFile(path,'utf8')).packages[packageId];
+  const participant = await call(api,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(participant.status,200,participant.body.error);assert.equal(participant.body.packageId,packageId);
+  assert.equal(participant.body.demoTarget,'participant');assert.equal(participant.body.demoParcelId,context.userParcelId);
+  assert.equal(participant.body.demoParcelId,handoff.userRole.parcelId);
+  assert.deepEqual(participant.body.input,original.body.input);assert.deepEqual(participant.body.agreement,original.body.agreement);
+  assert.deepEqual(participant.body.mapBinding,original.body.mapBinding);
+  const converted = JSON.parse(await readFile(path,'utf8')).packages[packageId];
+  assert.deepEqual(converted.ledger,prior.ledger);assert.deepEqual(converted.source,prior.source);
+  assert.equal(converted.demoTarget,'participant');assert.equal(converted.demoParcelId,context.userParcelId);
+  const scope = {packageId,demoScope:'single-owner',demoParcelId:context.userParcelId};
+  assert.equal((await call(api,'state',{...scope,draft:priorDraft})).status,409);
+  const draft = createContractDraft(input,context.userParcelId,{id:'participant-current-contract'});
+  await call(api,'sign/utility',{...scope,draft});
+  const signed = await call(api,'sign/landowner',{...scope,draft});
+  assert.equal(signed.status,200,signed.body.error);assert.equal(signed.body.paymentReady,true);assert.equal(signed.body.packageReady,false);
+  assert.deepEqual(signed.body.agreementProgress,{signedCount:1,totalCount:1,nextUnsignedParcelId:null});
+  const restarted = await createContractAPI(options), restored = await call(restarted,'state',{...scope,draft});
+  assert.equal(restored.status,200,restored.body.error);assert.equal(restored.body.paymentReady,true);
+  assert.equal(restored.body.demoParcelId,context.userParcelId);
+  const reopened = await call(restarted,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(reopened.status,200,reopened.body.error);assert.equal(reopened.body.demoTarget,'participant');
+  assert.equal(reopened.body.packageId,packageId);assert.deepEqual(reopened.body.input,original.body.input);
+}));
+
+test('unknown participant targets or targets without single-owner scope are rejected without changing approval', async () => withAPI(async (api,_options,directory) => {
+  const context = mapContractRequest(proposal(),placements), original = await call(api,'approve-map',{context});
+  assert.equal(original.status,200,original.body.error);
+  const path = join(directory,'map-contracts.json'), before = await readFile(path,'utf8');
+  for (const extra of [
+    {demoScope:'single-owner',demoTarget:'arbitrary-owner'},
+    {demoScope:'single-owner',demoTarget:''},
+    {demoScope:'single-owner',demoTarget:true},
+    {demoTarget:'participant'},
+    {demoScope:null,demoTarget:'representative'},
+  ]) {
+    const rejected = await call(api,'approve-map',{context,...extra});
+    assert.equal(rejected.status,409,JSON.stringify(extra));
+    assert.equal(await readFile(path,'utf8'),before,'invalid target requests must not mutate approval or ledger');
+  }
+}));
+
+test('a refused original participant cannot be selected after rerouting excludes their parcel', async () => withAPI(async (api,_options,directory) => {
+  const original = proposal(), refused = original.userRole.parcelId;
+  const restrictions = {blockedParcelIds:[refused],blockedTowerParcelIds:[],exclusionZones:[]};
+  const rerouted = computeTransmissionRoutes(world,placements,restrictions);
+  const selected = rerouted.candidates.find(candidate => {
+    const handoff = createHandoff({world,route:candidate,placements,analysis:analyzeRouteParcels(world,candidate,rerouted.assumptions),sessionId:original.sessionId,routeVersion:2,userParcelId:refused});
+    return handoff.snapshot.routes[0].eligible;
+  });
+  assert(selected,'fixture must offer an eligible reroute');
+  const handoff = createHandoff({world,route:selected,placements,analysis:analyzeRouteParcels(world,selected,rerouted.assumptions),sessionId:original.sessionId,routeVersion:2,userParcelId:refused,liveCallLocked:true});
+  const context = mapContractRequest(handoff,placements,restrictions);
+  assert.equal(context.userParcelId,refused);assert(!selected.parcelIds.includes(refused));
+  const approved = await call(api,'approve-map',{context});
+  assert.equal(approved.status,200,approved.body.error);assert(!approved.body.input.parcels.some(parcel=>parcel.parcelId===refused));
+  const path = join(directory,'map-contracts.json'), before = await readFile(path,'utf8');
+  const rejected = await call(api,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(rejected.status,409);assert.equal(await readFile(path,'utf8'),before);
+  const representative = await call(api,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(representative.status,200,representative.body.error);assert.equal(representative.body.demoTarget,'representative');
+  assert.notEqual(representative.body.demoParcelId,refused);assert.equal(representative.body.packageId,approved.body.packageId);
+}));
+
+test('switching representative to participant cannot exclude an unresolved representative record', async () => withAPI(async (api,options,directory) => {
+  const context = mapContractRequest(proposal(),placements);
+  const representative = await call(api,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(representative.status,200,representative.body.error);
+  const {packageId,input,demoParcelId} = representative.body;
+  assert.notEqual(demoParcelId,context.userParcelId);
+  const path = join(directory,'map-contracts.json'), registry = JSON.parse(await readFile(path,'utf8'));
+  const record = registry.packages[packageId], parcel = input.parcels.find(parcel=>parcel.parcelId===demoParcelId);
+  const id = `full-${createHash('sha256').update(JSON.stringify([input.sessionId,demoParcelId])).digest('hex').slice(0,32)}`;
+  record.ledger.obligations[id] = {id,stage:'full',parcelId:demoParcelId,status:'unknown',amountCents:parcel.compensationCents,documentHash:'existing-approved-document',reason:'Provider confirmation was lost'};
+  await writeFile(path,JSON.stringify(registry));
+  const restarted = await createContractAPI(options);
+  const blocked = await call(restarted,'approve-map',{context,demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(blocked.status,409);assert.match(blocked.body.error,/Other landowner payment attempts/);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),registry,'target conversion must preserve prior scope and uncertain evidence');
+  const retained = await call(restarted,'approve-map',{context,demoScope:'single-owner'});
+  assert.equal(retained.status,200,retained.body.error);assert.equal(retained.body.demoTarget,'representative');
+  assert.equal(retained.body.demoParcelId,demoParcelId);assert.equal(retained.body.packageId,packageId);
 }));

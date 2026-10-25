@@ -37,34 +37,39 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
         })) throw new Error('The contract inputs must preserve the selected route and affected owners.');
       if (value.agreement && contractSourceKey(contractSourceFromAgreement(value.agreement,handoff())) !== contractSourceKey(input)) throw new Error('The contract source differs from the approved negotiation package.');
       if (approved && (contractSourceKey(input) !== contractSourceKey(approved.input) || !matchesContractBinding(current,approved.mapBinding))) workspace?.invalidate();
-      approved = {input,mapBinding:{...current},packageId:value.packageId,simulated:value.simulated === true};
+      if (value.demoScope === 'single-owner' && !input.parcels.some(parcel => parcel.parcelId === value.demoParcelId)) throw new Error('The representative demo contract is not part of the approved route.');
+      approved = {input,mapBinding:{...current},packageId:value.packageId,simulated:value.simulated === true,demoScope:value.demoScope,demoParcelId:value.demoParcelId,demoTarget:value.demoTarget ?? 'representative'};
       write(value.simulated ? 'Demo negotiation approved · no call was placed' : 'Negotiation approved · draft ready');refresh();
     } catch (error) {invalidate();throw error;}
   }
-  function open() {
+  function open({review = false} = {}) {
     if (!matching()) {invalidate();throw new Error('Approve the current route before opening contracts.');}
     let storage;try {storage = window.localStorage;} catch {storage = null;}
     if (!workspace) {
       workspace = createContractWorkspace({storage,isCurrent:() => Boolean(matching()),api:(...args) => {
         if (!matching()) return Promise.reject(new Error('The map approval changed.'));
-        return apiFactory({packageId:approved.packageId})(...args);
+        return apiFactory({packageId:approved.packageId,demoScope:approved.demoScope,demoParcelId:approved.demoParcelId})(...args);
       }});
       workspace.setConstructionHandler(constructionHandler);
     }
-    onOpen();workspace.open(approved.input,{simulationControls:approved.simulated});
+    onOpen();workspace.open(approved.input,{simulationControls:approved.simulated,demoParcelId:approved.demoScope === 'single-owner' ? approved.demoParcelId : null});
+    if (review) workspace.review();
   }
-  async function prepareAndOpen() {
+  async function prepareAndOpen({review = false, demoTarget = 'representative'} = {}) {
     if (!canSimulate()) throw new Error('Demo approval is unavailable while a call result is active. Start a new demo to simulate.');
-    if (busy) return;
-    if (matching()) {open();return;}
+    if (busy) return false;
+    if (!['representative','participant'].includes(demoTarget)) throw new Error('Unknown demo approval target.');
+    if (matching() && approved.demoTarget === demoTarget) {open({review});return true;}
     const context = mapContractRequest(handoff(),getPlacements(),getRoutingOptions()), ticket = ++generation;
     const controller = new AbortController();active = controller;busy = true;refresh();
-    write('Preparing agreements for the current route…');
+    write('Preparing the representative example agreement…');
     try {
-      const result = await requestApproval(context,{signal:controller.signal});
-      if (ticket !== generation || controller.signal.aborted) return;
+      const result = await requestApproval(context,{signal:controller.signal,demoTarget});
+      if (ticket !== generation || controller.signal.aborted) return false;
       if (!matchesContractBinding(result.mapBinding,binding())) throw new Error('The route changed before approval arrived.');
-      setNegotiation(result);open();
+      if (result.demoScope !== 'single-owner' || !result.input?.parcels?.some(parcel => parcel.parcelId === result.demoParcelId)) throw new Error('The local server does not support the representative contract demo yet. Open the updated server and try again.');
+      if (demoTarget === 'participant' && (result.demoTarget !== 'participant' || result.demoParcelId !== context.userParcelId)) throw new Error('The service did not approve the current call target. The contract was not opened.');
+      setNegotiation(result);open({review});return true;
     } catch (error) {
       if (ticket === generation) {approved = null;write(error.message);throw error;}
     } finally {if (ticket === generation) {busy = false;active = null;refresh();}}

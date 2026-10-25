@@ -59,7 +59,7 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
   function getState(){return copy({phase,reason,connected,sessionId,previous,next,
     costDeltaCents:previous&&next?next.totalCostCents-previous.totalCostCents:null,
     blockedParcelIds:constraints.blockedParcelIds,outcomes:[...outcomes.values()],
-    simulated:agreement!==null||phase==='negotiating',agreementReady:Boolean(agreement)});}
+    simulated:agreement!==null||phase==='negotiating'||phase==='approved',agreementReady:Boolean(agreement)});}
   function emit(){onChange(getState());}
   function stopTask(){if(task!==null)cancelTask(task);task=null;agreement=null;}
   function disconnect(){sourceGeneration++;sourceAbort?.abort();sourceAbort=null;const cleanup=sourceCleanup;sourceCleanup=null;connected=false;try{cleanup?.();}catch{/* Cleanup cannot prevent session invalidation. */}}
@@ -137,6 +137,19 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
     }else{phase=update.outcome==='accepted'?'awaiting_owners':'review_required';reason=update.outcome==='accepted'?'Waiting for remaining owners':'Owner terms need review';emit();}
     return {status:'applied',rerouteNeeded:reroute};
   }
+  function runApprovalDemo(){
+    const h=current();
+    if(source||!h||h.userRole.liveCallLocked||h.snapshot.routes[0].eligible!==true||!h.snapshot.routes[0].parcelIds.includes(h.userRole.parcelId))throw new Error('Select an eligible current demo route with the call target first.');
+    const p=h.ownerHandoff.parcels.find(parcel=>parcel.parcelId===h.userRole.parcelId);
+    if(!p)throw new Error('The current call target is not part of the approved route.');
+    if(phase==='approved'&&outcomes.get(p.parcelId)?.outcome==='accepted'&&outcomes.get(p.parcelId)?.sourceMode==='mock')return {status:'duplicate',rerouteNeeded:false};
+    if(phase!=='idle')throw new Error('Start this approval from the original current route.');
+    const result=applyUpdate({schemaVersion:1,kind:'easygrid-map-negotiation',eventId:`demo-approval-${h.routeVersion}`,mapBinding:getBinding(),
+      parcelId:p.parcelId,sourceMode:'mock',outcome:'accepted',accessConsent:'allowed',explicitConfirmation:true,
+      evidenceRefs:[`mock:approval-${p.parcelId}`],termsVersion:p.terms.termsVersion,hasUnresolvedConditions:false,
+      terms:{upfrontCents:p.terms.compensationCents,depositCents:0,depositCreditPolicy:'credited_to_upfront',monthlyRentCents:p.terms.monthlyRentCents,termMonths:h.ownerHandoff.rentHorizonMonths}});
+    phase='approved';reason='Current landowner approved · simulated';emit();return result;
+  }
   function runRefusalDemo(){
     // Refusing access does not require a priced or budget-approved proposal.
     // The replacement route still passes the agreement checks in routeChanged.
@@ -147,7 +160,7 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
       evidenceRefs:[`mock:refusal-${p.parcelId}`],termsVersion:p.terms.termsVersion,hasUnresolvedConditions:false,
       terms:{upfrontCents:p.terms.compensationCents,depositCents:0,depositCreditPolicy:'credited_to_upfront',monthlyRentCents:p.terms.monthlyRentCents,termMonths:h.ownerHandoff.rentHorizonMonths}});
   }
-  return {getBinding,getState,applyUpdate,setSource,routeChanged,noRoute,reset,runRefusalDemo,
+  return {getBinding,getState,applyUpdate,setSource,routeChanged,noRoute,reset,runRefusalDemo,runApprovalDemo,
     getRoutingOptions:()=>{synchronizeSession();return copy(constraints);},
     getAgreement:()=>agreement&&same(agreement.mapBinding,getBinding())?copy(agreement):null,
     hasSource:()=>source!==null};
