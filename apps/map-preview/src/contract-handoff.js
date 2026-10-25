@@ -24,6 +24,12 @@ export function contractSourceFromAgreement(agreement, handoff) {
   const binding = settlementBinding(handoff), packet = agreement?.ownerHandoff;
   requireState(sameBinding(binding, agreement?.mapBinding) && handoff.snapshot.routes[0].eligible === true, 'The approved negotiation does not match the displayed route.');
   requireState(packet?.kind === 'easygrid-owner-handoff' && packet.sourceMode === 'fixture' && packet.routeStatus === 'ready_for_agreements' && packet.referenceBinding === 'local-fixture', 'A complete approved development agreement packet is required.');
+  // Local agreement metadata preserves the exact source of previously signed drafts.
+  const contractTermsVersion = agreement.contractTermsVersion === undefined ? 1 : agreement.contractTermsVersion;
+  requireState(contractTermsVersion === 1 || contractTermsVersion === 2, 'Unsupported development contract terms version.');
+  const accessTerms = contractTermsVersion === 2
+    ? 'Use the approved corridor and tower sites. Coordinate access and restore the land.'
+    : 'Use only the selected fictional corridor and tower foundations. Coordinate access with the fictional landowner and restore disturbed ground.';
   const proposal = handoff.ownerHandoff;
   requireState(['sessionId','projectId','routeId','routeVersion'].every(key => packet[key] === proposal[key]) && packet.parcels.length === proposal.parcels.length && new Set(packet.parcels.map(p => p.parcelId)).size === proposal.parcels.length, 'The agreement must cover exactly the current route parcels.');
   const source = {sourceMode:'fixture', sessionId:packet.sessionId, paymentSchedule:'full-after-signatures',
@@ -47,7 +53,7 @@ export function contractSourceFromAgreement(agreement, handoff) {
       return {parcelId:parcel.parcelId,ownerId:parcel.ownerId,ownerName:owner.alias,accepted:true,termsVersion:parcel.terms.termsVersion,
         compensationCents:parcel.terms.compensationCents,
         landDescription:`Fictional ${original.landUse.replaceAll('-', ' ')} parcel ${parcel.parcelId}. The selected route uses ${original.impact.towerCount} tower foundations and ${original.impact.wireLengthMeters.toFixed(1)} m of overhead corridor.`,
-        accessTerms:'Use only the selected fictional corridor and tower foundations. Coordinate access with the fictional landowner and restore disturbed ground.'};
+        accessTerms};
     })};
   return normalizeContractSource(source);
 }
@@ -60,6 +66,6 @@ export function simulatedMapAgreement(handoff, {negotiationId, approvedAt}) {
   packet.routeStatus = 'ready_for_agreements';
   for (const parcel of packet.parcels) parcel.terms = {...parcel.terms, outcome:'accepted', accessConsent:'allowed',
     explicitConfirmation:true, confirmationRef:`${negotiationId}:${parcel.parcelId}`};
-  return {kind:'easygrid-simulated-agreement',schemaVersion:1,sourceMode:'mock', mapBinding:settlementBinding(handoff),
+  return {kind:'easygrid-simulated-agreement',schemaVersion:1,sourceMode:'mock',contractTermsVersion:2, mapBinding:settlementBinding(handoff),
     ownerHandoff:packet,negotiationId,negotiationVersion:1,approvedAt};
 }

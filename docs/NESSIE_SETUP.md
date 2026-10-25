@@ -1,11 +1,59 @@
 # CAL-37: Nessie fictional-account setup
 
-This CLI prepares Capital One Nessie sandbox accounts for EasyGrid's optional
-future provider connection. The current contract flow pays full compensation
-once after every final-route agreement has both signatures. Setup itself never
-creates a transfer.
+This CLI prepares Capital One Nessie sandbox accounts for EasyGrid's provider
+demo. Contract terms specify one full compensation payment after every
+final-route agreement has both signatures. The current Nessie capability is
+**record-only**: it creates and verifies a sandbox record, not a confirmed payment
+to the landowner. Setup itself never creates a transaction record.
 Balances and account holders are fictional. A provider connection does not turn
 the development click signatures into authenticated signatures.
+
+## Current provider behavior — October 25, 2026
+
+Live setup verified one payer and all 26 fictional recipient accounts. The
+account-scoped list endpoint represents an empty result with HTTP 404 and the
+exact JSON string `No transfers found for this account`. The adapter accepts
+only that response after verifying both account identities; other errors stay
+errors.
+
+The deployed create endpoint accepts `transaction_date`, `status`, `amount` and
+`description`; the tested status is `pending`. It rejects the historical SDK's
+`medium` and `payee_id` fields. Creation acknowledges `objectCreated._id`, while
+the subsequent record contains `id`, date, status, amount and description. No
+payer/payee field establishes a receiving account. A destination in description
+metadata is not bank confirmation that the destination was credited.
+
+A live schema check sent $0.01 and read back amount 0. Because the provider
+truncates fractional dollars, the application permits only approved whole-dollar
+amounts in record-only mode and checks the exact amount on readback. It never
+rounds compensation or changes signed terms. Existing suitable examples are
+Amelia's $1,144 map agreement and the standalone $12,000 Willow Creek agreement.
+The map still requires signatures on every current route agreement.
+
+The API advertises `paymentSemantics: 'record-only'` and
+`amountIncrementCents: 100`. A matched provider readback produces `recorded`,
+with a provider reference; it cannot produce `paid`, a paid journal entry or
+construction readiness. This remains true if the provider later labels the
+record completed. The default local simulation is a separate capability and
+can demonstrate simulated full settlement with exact cents.
+
+Previously pending, processing or unknown attempts stay locked. Check their
+recorded state and reconcile existing evidence; never clear a ledger, replace
+an obligation ID or resend merely because the capability changed. Successful
+record creation is not evidence of account-to-account settlement.
+
+## Verified contract-to-record flow
+
+On October 25, the main-map flow was exercised in the browser: simulated refusal,
+confirmed replacement route, all eight agreements signed, then one explicit
+registration for Amelia Shaw's full $1,144. The API generated a record ID; GET
+readback matched the ID and exact 114400 cents, and the payer list contained
+exactly one matching obligation record. The UI displayed `Recorded in Nessie`
+and disabled repeat registration. The provider status remained `pending`;
+the payer and recipient retained their seeded balances, no paid journal was
+posted, and construction remained absent. Three earlier uncertain compatibility
+attempts were preserved without replacement requests. No private identifiers
+or credentials are included in this evidence.
 
 ## Private configuration
 
@@ -34,9 +82,11 @@ node server/nessie-setup.mjs --create-demo-accounts --enable-transfers
 - No argument or `--check` performs GET requests only and changes no files.
 - `--create-demo-accounts` creates missing synthetic customers/accounts, saves
   validated mappings, selects the Nessie provider only after setup completes,
-  and leaves payment writes disabled.
+  and leaves sandbox record writes disabled.
 - Adding `--enable-transfers` permits the application's separately gated sandbox
-  transfers after full setup. This flag does not send a transfer itself.
+  record creation after full setup. The existing flag name is retained for
+  compatibility; it does not grant the provider a recipient-transfer capability
+  or create a record itself.
 
 The printed result separates provider account readiness (`accountsReady`) from
 saved mapping completeness (`configured`); `ready` requires both and no unresolved
@@ -109,32 +159,34 @@ do not delete evidence to make the new payment run. Unattempted holds can remain
 archived, but a full payment requires new signatures on the full-payment terms.
 Map packages retain their existing registry and similarly block earlier attempts.
 
-Setup is only account preparation. Demonstrate payments through the approved
-contract workflow: all required signatures, one explicit full-payment request
-per owner, then provider reconciliation. There is no construction gate or second
-payout. Check the current map-service integration before claiming that a
-standalone fixture transfer also proves the selected-map path.
+Setup is only account preparation. Demonstrate the Nessie record through the
+approved contract workflow: all required signatures, one explicit full-amount
+record request per owner, then exact provider readback. A verified record has no
+construction gate or second payout and never unlocks construction itself. Check
+the map integration separately; a standalone fixture record does not prove the
+selected-map path.
 
 ## Validation and historical live evidence
 
-Before the EasyGrid/full-payment revision, the authenticated official Nessie
+The following is historical evidence, superseded by the October 25 observations
+above where they differ. Before the EasyGrid/full-payment revision, the
+authenticated official Nessie
 documentation UI on October 24, 2026 returned HTTP 200 for customer listing and
 HTTP 201 for a synthetic customer under the former utility display name
-and Checking account. The local execution environment could not resolve the
-Nessie API hostname, so CLI setup and a live transfer have **not** been verified.
-The current Swagger Transfers section did not expose transfer creation; the
-adapter's account-transfer list/create routes still need live compatibility
-verification. Do not interpret mocked adapter tests as a successful bank payment.
+and Checking account. At that time, the local execution environment could not
+resolve the Nessie API hostname, so CLI setup and a live transfer were unverified.
+The Swagger Transfers section did not expose transfer creation, and the adapter's
+account-transfer list/create routes still needed live compatibility verification.
+The later record observations above do not verify recipient settlement. Do not
+interpret mocked adapter tests as a successful bank payment.
 
 The map and standalone workflows use separate provider ledgers and bind saved
 state to the API origin and payer. All route signatures and approval must match
-before a full-payment request is accepted. Signing does not send money: the
-operator submits the full payment separately. Only matching completed bank
-evidence marks the exact full-compensation obligation paid. Unknown outcomes
-require reconciliation; a failed or rejected transfer requires review. No new
-provider connection or transfer was tested for this simplification. All
-signatures and balances remain
-demonstration data; SpacetimeDB/authenticated signer integration is separate.
+before the operator can request a record for the full approved amount. Signing
+creates no record. Matching record evidence establishes only `recorded`, never
+paid compensation. Unknown outcomes require reconciliation; a failed or
+rejected outcome requires review. Signatures and balances remain demonstration
+data; SpacetimeDB/authenticated signer integration is separate.
 
 ```sh
 node --test tests/nessie-setup.test.mjs
@@ -146,3 +198,5 @@ read-only checks. They do not establish live provider connectivity. A successful
 live `--check`, provider records and later transaction reconciliation must be
 verified separately. Network restrictions may block the CLI even when the
 provider works in an authenticated browser.
+
+Record-only startup also refuses any existing paid obligation or settlement journal. Preserve that ledger for controller review; do not erase it to re-enable registration.

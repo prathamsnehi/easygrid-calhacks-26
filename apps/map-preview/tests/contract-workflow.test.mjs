@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createContractExample} from '../src/contract-fixtures.js';
 import {createContractDraft, updateContractDraft} from '../src/contract-authoring.js';
+import {createNessieSandboxBank} from '../server/nessie-sandbox.mjs';
 import {createContractWorkflow, createDemoBank, DEMO_ACTORS} from '../server/contract-workflow.mjs';
 
 const now = '2026-10-24T18:00:00Z';
@@ -234,5 +235,157 @@ test('a copied partial or inconsistent attempted record is never accepted as a f
     await assert.rejects(restored.flow.submit(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
     await assert.rejects(restored.flow.reconcile(original.draft,DEMO_ACTORS.requester),/does not establish this full compensation|legacy staged-payment attempt/);
     assert.equal(restored.transfers,0);assert.deepEqual(restored.flow.snapshot(),state);
+  }
+});
+
+
+test('verified record-only outcomes never post a paid journal or unlock construction, including restarts', async () => {
+  const base=createDemoBank();let calls=0;
+  const receipt=input=>({...input,recipientMatches:true,paymentSemantics:'record-only',status:'recorded',transactionRef:'nessie-record-1'});
+  let evidence=null;
+  const bank={...base,paymentSemantics:'record-only',amountIncrementCents:100,
+    transfer:async input=>{calls++;evidence=receipt(input);return evidence;},
+    inspect:async()=>({recipientMatches:true,balanceCents:10000000,existingEvidence:evidence})};
+  const app=setup({bank});await signBoth(app);
+  const result=await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+  assert.equal(result.payment.status,'recorded');assert.equal(result.payment.paymentSemantics,'record-only');
+  assert.equal(result.payment.amountCents,1200000);assert.equal(result.payment.transactionRef,'nessie-record-1');
+  assert.equal(result.journal.length,0);assert.equal(result.construction.status,'not-applicable');
+  assert.equal(result.construction.paidCount,0);assert.equal(app.flow.snapshot().construction,undefined);
+  await assert.rejects(app.flow.completeConstruction(app.draft,{},DEMO_ACTORS.construction),/does not establish payment/);
+  const restored=setup({bank,initialState:app.flow.snapshot()});
+  assert.equal((await restored.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'recorded');
+  assert.equal((await restored.flow.reconcile(app.draft,DEMO_ACTORS.requester)).payment.status,'recorded');
+  assert.equal(calls,1);assert.equal(restored.flow.snapshot().journal.length,0);
+});
+
+test('a record-only capability prevents completed or executed evidence from claiming money was paid', async () => {
+  for (const status of ['completed','executed']) {
+    const bank={...createDemoBank(),paymentSemantics:'record-only',transfer:async input=>({...input,recipientMatches:true,status,transactionRef:'provider-record'})};
+    const app=setup({bank});await signBoth(app);
+    const result=await app.flow.submit(app.draft,DEMO_ACTORS.requester);
+    assert.notEqual(result.payment.status,'paid');assert.equal(result.journal.length,0);
+    assert.equal(result.construction.status,'not-applicable');assert.equal(app.flow.snapshot().construction,undefined);
+  }
+});
+
+test('integer-only record preflight holds exact fractional compensation without calling the provider', async () => {
+  const source=createContractExample();source.parcels=source.parcels.slice(0,1);source.parcels[0].compensationCents=5516;
+  const draft=createContractDraft(source,'P-004',{id:'fractional-record'});let calls=0;
+  const bank=createNessieSandboxBank({apiKey:'test',baseUrl:'https://prod-api.nessieisreal.com',payerId:'payer',
+    recipients:{'OWNER-DEMO-004':{accountId:'payee',customerId:'customer'}},allowTransfers:true,
+    fetcher:async()=>{calls++;throw new Error('No provider calls allowed');}});
+  const flow=createContractWorkflow({source,bank});await signBoth({flow,draft});
+  const result=await flow.submit(draft,DEMO_ACTORS.requester);
+  assert.equal(result.payment.status,'held');assert.equal(result.payment.amountCents,5516);
+  assert.match(result.payment.reason,/whole-dollar/);assert.match(result.payment.reason,/not rounded/);
+  assert.equal(calls,0);assert.equal(result.journal.length,0);
+});
+
+test('prior unknown outcomes stay locked after switching to record-only semantics', async () => {
+  const app=setup({bank:{...createDemoBank(),transfer:async()=>{throw new Error('unconfirmed POST');}}});
+  await signBoth(app);assert.equal((await app.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'unknown');
+  let calls=0;
+  const bank={...createDemoBank(),paymentSemantics:'record-only',transfer:async()=>{calls++;throw new Error('must not retry');}};
+  const restored=setup({bank,initialState:app.flow.snapshot()});
+  assert.equal((await restored.flow.submit(app.draft,DEMO_ACTORS.requester)).payment.status,'unknown');
+  assert.equal((await restored.flow.reconcile(app.draft,DEMO_ACTORS.requester)).payment.status,'unknown');
+  assert.equal(calls,0);assert.equal(restored.flow.snapshot().journal.length,0);
+});
+
+test('record-only restart rejects prior paid or settlement-journal evidence without rewriting or hiding it', async () => {
+  const original=setup();await signBoth(original);await original.flow.submit(original.draft,DEMO_ACTORS.requester);
+  for (const evidence of ['paid-and-journal','paid-only','journal-only']) {
+    const state=original.flow.snapshot();
+    if (evidence==='paid-only') state.journal=[];
+    if (evidence==='journal-only') state.obligations={};
+    const before=JSON.stringify(state);let saved=0;
+    const bank={...createDemoBank(),paymentSemantics:'record-only',amountIncrementCents:100};
+    assert.throws(()=>createContractWorkflow({source:original.source,bank,initialState:state,persist:async()=>{saved++;}}),/Existing settlement evidence requires controller review/);
+    assert.equal(JSON.stringify(state),before,'old payment and journal evidence must stay intact');
+    assert.equal(saved,0,'startup failure must not replace the preserved ledger');
+  }
+});
+
+test('agreement progress counts only both current signatures and refreshes after another agreement changes', async () => {
+  const source=createContractExample(), drafts=source.parcels.map((parcel,index)=>createContractDraft(source,parcel.parcelId,{id:`progress-${index}`,now}));
+  let providerCalls=0;
+  const bank={...createDemoBank(),inspect:async()=>{providerCalls++;throw new Error('No provider access expected');},transfer:async()=>{providerCalls++;throw new Error('No provider access expected');}};
+  const flow=createContractWorkflow({source,bank,now:()=>now});
+  const check=(result,signedCount,nextUnsignedParcelId)=>{
+    assert.deepEqual(result.agreementProgress,{signedCount,totalCount:drafts.length,nextUnsignedParcelId});
+    assert.equal(result.packageReady,signedCount===drafts.length);
+  };
+  check(await flow.inspect(drafts[0]),0,drafts[0].parcelId);
+  for (let index=0;index<drafts.length;index++) {
+    check(await flow.sign(drafts[index],'utility',DEMO_ACTORS.utility),index,drafts[index].parcelId);
+    check(await flow.sign(drafts[index],'landowner',DEMO_ACTORS.landowner),index+1,drafts[index+1]?.parcelId ?? null);
+  }
+  const edited=updateContractDraft(drafts[1],{specialConditions:'New access schedule requires fresh consent'},source,now);
+  check(await flow.inspect(edited),drafts.length-1,edited.parcelId);
+  check(await flow.inspect(drafts[0]),drafts.length-1,edited.parcelId);
+  await assert.rejects(flow.submit(drafts[0],DEMO_ACTORS.requester),/Every final-route/);
+  check(await flow.sign(edited,'utility',DEMO_ACTORS.utility),drafts.length-1,edited.parcelId);
+  check(await flow.sign(edited,'landowner',DEMO_ACTORS.landowner),drafts.length,null);
+  const restored=createContractWorkflow({source,bank,initialState:flow.snapshot(),now:()=>now});
+  check(await restored.inspect(drafts[0]),drafts.length,null);
+  assert.equal(providerCalls,0);
+});
+
+test('agreement progress excludes signatures from an earlier source approval after restart', async () => {
+  const source=createContractExample(), bank=createDemoBank();
+  const flow=createContractWorkflow({source,bank,now:()=>now});
+  for (const parcel of source.parcels) await signBoth({flow,draft:createContractDraft(source,parcel.parcelId,{id:`old-progress-${parcel.parcelId}`,now})});
+  const changed=structuredClone(source);changed.project.signerName='A New Representative';
+  const restored=createContractWorkflow({source:changed,bank,initialState:flow.snapshot(),now:()=>now});
+  const draft=createContractDraft(changed,changed.parcels[0].parcelId,{id:'new-progress-source',now});
+  const result=await restored.inspect(draft);
+  assert.deepEqual(result.agreementProgress,{signedCount:0,totalCount:changed.parcels.length,nextUnsignedParcelId:changed.parcels[0].parcelId});
+  assert.equal(result.packageReady,false);
+});
+
+test('a single-owner example permits only its signed obligation without marking the full route ready', async () => {
+  const source=createContractExample(),draft=createContractDraft(source,source.parcels[0].parcelId,{id:'one-owner-example',now});
+  const other=createContractDraft(source,source.parcels[1].parcelId,{id:'excluded-owner',now});
+  let transfers=0;const base=createDemoBank(),bank={...base,transfer:async input=>{transfers++;return base.transfer(input);}};
+  const flow=createContractWorkflow({source,bank,demoParcelId:draft.parcelId,now:()=>now});
+  const before=await flow.inspect(draft);
+  assert.equal(before.demoScope,'single-owner');assert.equal(before.demoParcelId,draft.parcelId);
+  assert.equal(before.paymentReady,false);assert.equal(before.packageReady,false);
+  const signed=await signBoth({flow,draft});
+  assert.equal(signed.documentHash,before.documentHash,'scoping must not rewrite the existing approved draft');
+  assert.equal(signed.paymentReady,true);assert.equal(signed.packageReady,false);
+  assert.deepEqual(signed.agreementProgress,{signedCount:1,totalCount:1,nextUnsignedParcelId:null});
+  assert.deepEqual(signed.routeAgreementProgress,{signedCount:1,totalCount:2,nextUnsignedParcelId:other.parcelId});
+  await assert.rejects(flow.sign(other,'utility',DEMO_ACTORS.utility),/only its selected/);
+  await assert.rejects(flow.submit(other,DEMO_ACTORS.requester),/only its selected/);
+  const paid=await flow.submit(draft,DEMO_ACTORS.requester);
+  assert.equal(paid.payment.status,'paid');assert.equal(paid.paymentReady,true);assert.equal(paid.packageReady,false);
+  assert.equal(transfers,1);assert.equal(flow.snapshot().journal.length,1);
+  assert.equal(paid.construction.status,'not-applicable');assert.equal(flow.snapshot().construction,undefined);
+  await assert.rejects(flow.completeConstruction(draft,{},DEMO_ACTORS.construction),/does not establish payment or construction/);
+  const ordinary=createContractWorkflow({source,bank,initialState:flow.snapshot(),now:()=>now});
+  const ordinaryState=await ordinary.inspect(draft);
+  assert.equal(ordinaryState.demoScope,null);assert.equal(ordinaryState.paymentReady,false);assert.equal(ordinaryState.packageReady,false);
+  await assert.rejects(ordinary.submit(draft,DEMO_ACTORS.requester),/Every final-route/);
+  assert.equal(transfers,1);
+});
+
+test('converting the same selected owner to demo scope preserves unknown and recorded obligation locks', async () => {
+  for (const outcome of ['unknown','recorded']) {
+    const source=createContractExample(),drafts=source.parcels.map((parcel,index)=>createContractDraft(source,parcel.parcelId,{id:`preserved-${outcome}-${index}`,now}));
+    let calls=0;
+    const bank={...createDemoBank(),paymentSemantics:'record-only',transfer:async input=>{
+      calls++;if(outcome==='unknown')throw new Error('Unconfirmed provider outcome');
+      return {...input,paymentSemantics:'record-only',status:'recorded',recipientMatches:true,transactionRef:'existing-record'};
+    }};
+    const original=createContractWorkflow({source,bank,now:()=>now});
+    for(const draft of drafts)await signBoth({flow:original,draft});
+    const prior=await original.submit(drafts[0],DEMO_ACTORS.requester),state=original.snapshot();
+    const scoped=createContractWorkflow({source,bank,initialState:state,demoParcelId:drafts[0].parcelId,now:()=>now});
+    const replay=await scoped.submit(drafts[0],DEMO_ACTORS.requester);
+    assert.equal(replay.payment.status,outcome);assert.equal(replay.payment.obligationId,prior.payment.obligationId);
+    assert.equal(replay.documentHash,prior.documentHash);assert.equal(calls,1);
+    assert.deepEqual(scoped.snapshot(),state,'scope must not replace an earlier payment attempt');
   }
 });

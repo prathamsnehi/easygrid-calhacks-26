@@ -198,18 +198,25 @@ analysis=createAnalysisController({world:landscape.world,canvas,
 contracts=createContractEntry({getHandoff:()=>analysis.getHandoff(),getPlacements:()=>planner.getPlacements(),
   getRoutingOptions:()=>negotiation?.getRoutingOptions()??{},onOpen:()=>analysis.close({restoreFocus:false})});
 const negotiationMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
-let refusalDemoActive=false;
+let refusalDemoActive=false,approvalDemoBusy=false,approvalDemoOpened=false,approvalDemoBinding=null,approvalDemoError='',approvalDemoGeneration=0;
+const approvalBindingKey=()=>JSON.stringify(negotiation?.getBinding()??null);
+function resetApprovalDemo(){approvalDemoGeneration++;approvalDemoBusy=false;approvalDemoOpened=false;approvalDemoBinding=null;approvalDemoError='';}
 function renderNegotiation(state){
   const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=negotiation?.hasSource()??false;
+  if(approvalDemoBinding&&(approvalDemoBinding!==approvalBindingKey()||connectedSource))resetApprovalDemo();
   const get=id=>document.querySelector(`#${id}`),write=(id,value)=>{get(id).textContent=value;};
   get('negotiation-progress').hidden=!active;
   get('simulate-refusal').hidden=connectedSource;
-  get('simulate-refusal').disabled=connectedSource||active||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
+  get('simulate-refusal').disabled=connectedSource||active||approvalDemoBusy||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
+  get('simulate-approval').hidden=connectedSource;
+  get('simulate-approval').disabled=connectedSource||approvalDemoBusy||!['idle','approved'].includes(state.phase)||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked||h?.snapshot?.routes?.[0]?.eligible!==true;
+  write('simulate-approval',approvalDemoBusy?'Opening contract…':approvalDemoOpened?'Open approved contract':'Simulate approval');
+  if(state.phase==='approved')write('handoff-result',approvalDemoError|| (approvalDemoBusy?'Current owner approved · opening the demo contract…':'Current owner approved · simulated'));
   get('negotiation-result').hidden=!active;
   write('negotiation-mode',connectedSource?'Owner responses':'Demo scenario');
-  const labels={idle:connectedSource?(state.connected?'Listening':'Connecting'):'Ready',rerouting:'Rerouting',negotiating:'Simulating',confirmed:'Confirmed · simulated',review_required:'Review needed',no_route:'No route',awaiting_owners:'Pending owners'};
+  const labels={idle:connectedSource?(state.connected?'Listening':'Connecting'):'Ready',rerouting:'Rerouting',negotiating:'Simulating',confirmed:'Confirmed · simulated',review_required:'Review needed',no_route:'No route',awaiting_owners:'Pending owners',approved:'Approved · simulated'};
   write('negotiation-status',labels[state.phase]??'Pending');
-  get('negotiation-status').className=`role-badge${state.phase==='confirmed'?' ready':''}`;
+  get('negotiation-status').className=`role-badge${['confirmed','approved'].includes(state.phase)?' ready':''}`;
   write('negotiation-reason',state.reason);
   const hasNew=Boolean(state.next),confirmed=state.phase==='confirmed';
   get('negotiation-steps').hidden=!state.previous;
@@ -235,6 +242,8 @@ function renderNegotiation(state){
     analysis.setNegotiationDisplay({routeVersion:h.routeVersion,outcomes:rows});
   }else analysis.setNegotiationDisplay(null);
   analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,()=>contracts.prepareAndOpen());
+  const participantContractReady=approvalDemoOpened&&!approvalDemoBusy&&!connectedSource&&state.phase==='approved'&&approvalDemoBinding===approvalBindingKey();
+  analysis.settlement.setContractNavigation(participantContractReady?{mapBinding:negotiation.getBinding(),parcelId:h.userRole.parcelId}:null,()=>contracts.prepareAndOpen({review:true,demoTarget:'participant'}));
   if(confirmed){
     write('route-title','Updated connection');write('route-badge','DEMO AGREED');
     write('route-status-note',`${state.outcomes.length} owners accepted · simulated`);
@@ -248,11 +257,23 @@ document.querySelector('#overview-settlement').addEventListener('click',()=>{
   if(document.querySelector('#overview-settlement').disabled)return;
   analysis.open();document.querySelector('#settle-payment').click();
 });
+async function simulateApproval(){
+  if(document.querySelector('#simulate-approval').disabled)return;
+  const ticket=++approvalDemoGeneration;
+  approvalDemoBinding=approvalBindingKey();approvalDemoBusy=true;approvalDemoError='';refusalDemoActive=false;
+  try{
+    negotiation.runApprovalDemo();renderNegotiation(negotiation.getState());
+    const opened=await contracts.prepareAndOpen({review:true,demoTarget:'participant'});
+    if(ticket===approvalDemoGeneration&&approvalDemoBinding===approvalBindingKey()&&negotiation.getState().phase==='approved'&&!negotiation.hasSource())approvalDemoOpened=opened===true;
+  }catch(error){if(ticket===approvalDemoGeneration)approvalDemoError=error.message;}
+  finally{if(ticket===approvalDemoGeneration){approvalDemoBusy=false;renderNegotiation(negotiation.getState());}}
+}
+document.querySelector('#simulate-approval').addEventListener('click',()=>{simulateApproval();});
 document.querySelector('#simulate-refusal').addEventListener('click',()=>{
   try{refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose a current route with the demo participant before starting this scenario.';}
 });
-document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoActive=false;negotiation.reset();});
-window.addEventListener('pagehide',()=>{refusalDemoActive=false;negotiation.reset();});
+document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoActive=false;resetApprovalDemo();negotiation.reset();});
+window.addEventListener('pagehide',()=>{refusalDemoActive=false;resetApprovalDemo();negotiation.reset();});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
   getContractBinding:()=>contracts.getBinding(),setContractNegotiation:value=>contracts.setNegotiation(value),
@@ -264,7 +285,7 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
   resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
   getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
-  setNegotiationSource:source=>{refusalDemoActive=false;analysis.settlement.invalidate();contracts.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
+  setNegotiationSource:source=>{refusalDemoActive=false;resetApprovalDemo();analysis.settlement.invalidate();contracts.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
   getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{refusalDemoActive=true;return negotiation.runRefusalDemo();}});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,

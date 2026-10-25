@@ -47,3 +47,5 @@
 .previous-key:before{background:#9c775c;opacity:.5}.updated-key:before{background:#126748}
 #demo-settlement-summary{margin:12px 0;padding:12px;background:#eff5e9;border:1px solid #cadac2;border-radius:10px}
 #demo-settlement-summary h3{font-size:13px}#demo-settlement-summary p{font-size:10px;line-height:1.5}
+
+.call-demo-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.handoff-box .call-demo-actions>.secondary-button{width:100%;margin-top:0;padding:10px 6px;font-size:10px;white-space:normal;line-height:1.4;min-height:38px}

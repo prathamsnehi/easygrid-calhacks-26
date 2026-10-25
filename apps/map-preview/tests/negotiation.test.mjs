@@ -176,3 +176,69 @@ test('recalculation after a refusal reconfirms new simulated terms without reope
   assert.equal(h.controller.getState().previous,null,'manual edits do not keep a misleading old-route comparison');
   assert.deepEqual(h.controller.getRoutingOptions().blockedParcelIds,[original]);assert.equal(h.locks,1);
 });
+
+test('simulated approval accepts only the original call target without rerouting or claiming all-owner agreement',()=>{
+  const h=harness(),beforeBinding=h.controller.getBinding(),beforeOptions=h.controller.getRoutingOptions();
+  const initialCopy=structuredClone(initial);
+  assert.deepEqual(h.controller.runApprovalDemo(),{status:'applied',rerouteNeeded:false});
+  const state=h.controller.getState();
+  assert.equal(state.phase,'approved');assert.equal(state.reason,'Current landowner approved · simulated');
+  assert.equal(state.simulated,true);
+  assert.deepEqual(state.outcomes,[{parcelId:original,outcome:'accepted',sourceMode:'mock'}]);
+  assert.deepEqual(h.controller.getBinding(),beforeBinding,'approval preserves the original route binding');
+  assert.deepEqual(h.controller.getRoutingOptions(),beforeOptions,'approval adds no refusal or spatial constraints');
+  assert.equal(h.requests.length,0);assert.equal(h.locks,0);assert.equal(h.invalidations,1);
+  assert.equal(state.previous,null);assert.equal(state.next,null);
+  assert.equal(state.agreementReady,false);assert.equal(h.controller.getAgreement(),null,'one owner is not an all-route agreement');
+  h.flush();assert.equal(h.controller.getAgreement(),null,'approval schedules no hidden all-owner signing');
+  assert.deepEqual(initial,initialCopy,'the original fixture and route are not changed');
+  for(const secret of [participant.alias,participant.phoneE164])assert(!JSON.stringify(state).includes(secret));
+});
+
+test('repeating simulated approval is idempotent for the current binding and performs no hidden follow-up',()=>{
+  const h=harness();h.controller.runApprovalDemo();
+  const state=h.controller.getState(),emissions=h.states.length;
+  assert.deepEqual(h.controller.runApprovalDemo(),{status:'duplicate',rerouteNeeded:false});
+  assert.deepEqual(h.controller.getState(),state);
+  assert.equal(h.states.length,emissions,'retrying contract preparation does not emit a second approval');
+  assert.equal(h.invalidations,1);assert.equal(h.requests.length,0);assert.equal(h.locks,0);
+});
+
+test('approval demo rejects missing, ineligible, locked, off-route or host-owned targets before side effects',()=>{
+  const mutate=[
+    h=>h.setHandoff(null),
+    h=>{const packet=structuredClone(initial);packet.snapshot.routes[0].eligible=false;h.setHandoff(packet);},
+    h=>{const packet=structuredClone(initial);packet.userRole.liveCallLocked=true;h.setHandoff(packet);},
+    h=>{const packet=structuredClone(initial);packet.userRole.roleOnRoute=false;packet.snapshot.routes[0].parcelIds=packet.snapshot.routes[0].parcelIds.filter(id=>id!==original);h.setHandoff(packet);},
+    h=>{const packet=structuredClone(initial);packet.ownerHandoff.parcels=packet.ownerHandoff.parcels.filter(parcel=>parcel.parcelId!==original);h.setHandoff(packet);},
+    h=>h.controller.setSource(()=>{}),
+    h=>h.controller.setSource(stream=>stream.onReady()),
+    h=>h.controller.setSource(stream=>stream.onUnavailable()),
+    h=>{h.controller.runApprovalDemo();h.controller.setSource(()=>{});},
+  ];
+  for(const setup of mutate){
+    const h=harness();assert.equal(typeof h.controller.runApprovalDemo,'function');setup(h);const invalidations=h.invalidations,state=h.controller.getState();
+    assert.throws(()=>h.controller.runApprovalDemo());
+    assert.equal(h.invalidations,invalidations);assert.equal(h.requests.length,0);assert.equal(h.locks,0);
+    assert.deepEqual(h.controller.getState(),state);assert.equal(h.controller.getAgreement(),null);
+  }
+});
+
+test('approval demo cannot replace an in-progress result and old approval evidence does not survive route changes',()=>{
+  for(const outcome of ['pending','counteroffer','refused']){
+    const h=harness();
+    h.controller.applyUpdate(h.update(outcome==='refused'?{}:{outcome,accessConsent:'unknown',explicitConfirmation:false,hasUnresolvedConditions:true}));
+    const state=h.controller.getState(),invalidations=h.invalidations,requests=h.requests.length;
+    assert.throws(()=>h.controller.runApprovalDemo());
+    assert.deepEqual(h.controller.getState(),state);assert.equal(h.invalidations,invalidations);assert.equal(h.requests.length,requests);
+  }
+  const h=harness(),old=h.update({eventId:'old-approved-evidence',outcome:'accepted',accessConsent:'allowed'});
+  h.controller.runApprovalDemo();
+  h.setHandoff(packet(baseline,{version:2,userParcelId:original}));
+  assert.equal(h.controller.getState().phase,'idle');assert.deepEqual(h.controller.getState().outcomes,[]);
+  assert.equal(h.controller.getAgreement(),null);
+  assert.throws(()=>h.controller.applyUpdate(old),/Stale/);
+  assert.deepEqual(h.controller.runApprovalDemo(),{status:'applied',rerouteNeeded:false});
+  assert.equal(h.controller.getState().phase,'approved');assert.equal(h.requests.length,0);
+  h.reset();assert.throws(()=>h.controller.runApprovalDemo());assert.equal(h.controller.getState().phase,'idle');
+});
