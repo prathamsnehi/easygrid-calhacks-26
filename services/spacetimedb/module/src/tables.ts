@@ -93,6 +93,151 @@ export const agreement = table(
   },
 );
 
+/** One dial for the registered participant. The phone number stays in `contact`. */
+export const callAttempt = table(
+  { name: 'call_attempt', indexes: [{ accessor: 'bySession', algorithm: 'btree', columns: ['sessionId'] }] },
+  {
+    attemptId: t.string().primaryKey(),
+    sessionId: t.string(),
+    parcelId: t.string(),
+    routeVersion: t.u32(),
+    providerCallId: t.string(),
+    lifecycle: t.string(),
+    mode: t.string(),
+    phase: t.string(),
+    openingCents: t.u32(),
+    finalCents: t.u32(),
+    monthlyRentCents: t.u32(),
+    revision: t.u32(),
+    checks: t.u32(),
+    dialClaimed: t.bool(),
+    reviewClaimed: t.bool(),
+    outcome: t.string(),
+    disposition: t.string(),
+    reason: t.string(),
+    explanation: t.string(),
+    nextAction: t.string(),
+    agreedCents: t.u32(),
+  },
+);
+
+/** Provider transcript. Private, and never copied into the public summary. */
+export const callTurn = table(
+  { name: 'call_turn', indexes: [{ accessor: 'byAttempt', algorithm: 'btree', columns: ['attemptId'] }] },
+  {
+    id: t.string().primaryKey(),
+    attemptId: t.string(),
+    role: t.string(),
+    text: t.string(),
+    startMs: t.u32(),
+    endMs: t.u32(),
+    ordinal: t.u32(),
+  },
+);
+
+/** Reused negotiation agent. This is not `CARTESIA_AGENT_ID`. */
+export const voiceAgent = table(
+  { name: 'voice_agent' },
+  {
+    id: t.string().primaryKey(),
+    agentId: t.string(),
+  },
+);
+
+/** Wakes `check_call` after the dialing procedure returns. */
+export const callCheck = table(
+  { name: 'call_check' },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+    attemptId: t.string(),
+  },
+);
+
+/** Redacted result the map can read. No phone number and no transcript text. */
+export const negotiationSummary = table(
+  {
+    name: 'negotiation_summary',
+    public: true,
+    indexes: [{ accessor: 'bySession', algorithm: 'btree', columns: ['sessionId'] }],
+  },
+  {
+    attemptId: t.string().primaryKey(),
+    sessionId: t.string(),
+    parcelId: t.string(),
+    mode: t.string(),
+    phase: t.string(),
+    lifecycle: t.string(),
+    revision: t.u32(),
+    outcome: t.string(),
+    disposition: t.string(),
+    reason: t.string(),
+    explanation: t.string(),
+    nextAction: t.string(),
+    openingCents: t.u32(),
+    finalCents: t.u32(),
+    monthlyRentCents: t.u32(),
+    agreedCents: t.u32(),
+  },
+);
+
+/** CAL-41 snapshots are private. Public clients only see authorized, redacted views. */
+export const negotiationSession = table(
+  { name: 'negotiation_session' },
+  {
+    sessionId: t.string().primaryKey(),
+    importRequestId: t.string(),
+    importFingerprint: t.string(),
+    mapBindingJson: t.string(),
+    stateJson: t.string(),
+  },
+);
+
+export const negotiationResult = table(
+  { name: 'negotiation_result', indexes: [{ accessor: 'bySession', algorithm: 'btree', columns: ['sessionId'] }] },
+  {
+    id: t.string().primaryKey(),
+    sessionId: t.string(),
+    attemptId: t.string(),
+    revision: t.u32(),
+    updateJson: t.string(),
+  },
+);
+
+/** A review lease belongs to one durable claim, not a process-local lock. */
+export const negotiationReview = table(
+  { name: 'negotiation_review' },
+  {
+    id: t.string().primaryKey(),
+    sessionId: t.string(),
+    attemptId: t.string(),
+    claimId: t.string(),
+    workerIdentity: t.string(),
+    leaseUntilMicros: t.u64(),
+    completed: t.bool(),
+  },
+);
+
+/** One live voice attempt per session. Only its application-worker identity can read it. */
+export const voiceAttempt = table(
+  { name: 'voice_attempt', indexes: [{ accessor: 'byWorker', algorithm: 'btree', columns: ['workerIdentity'] }] },
+  {
+    id: t.string().primaryKey(),
+    sessionId: t.string().unique(),
+    workerIdentity: t.string(),
+    revision: t.u32(),
+    status: t.string(),
+    fingerprint: t.string(),
+    attemptJson: t.string(),
+  },
+);
+
+/** Provider IDs cannot be rebound to another saved attempt. */
+export const voiceProviderCall = table(
+  { name: 'voice_provider_call' },
+  { providerCallId: t.string().primaryKey(), attemptId: t.string() },
+);
+
 export const spacetimedb = schema({
   session,
   contact,
@@ -101,4 +246,25 @@ export const spacetimedb = schema({
   receipt,
   obligation,
   agreement,
+  callAttempt,
+  callTurn,
+  voiceAgent,
+  callCheck,
+  negotiationSummary,
+  negotiationSession,
+  negotiationResult,
+  negotiationReview,
+  voiceAttempt,
+  voiceProviderCall,
+}, {
+  env: {
+    CARTESIA_API_KEY: t.string(),
+    CARTESIA_VOICE_ID: t.string(),
+    CARTESIA_MODEL_ID: t.string(),
+    CARTESIA_FROM_NUMBER_ID: t.string(),
+    CARTESIA_FALLBACK_TO_NUMBER: t.string().optional(),
+    CARTESIA_NEGOTIATION_AGENT_ID: t.string().optional(),
+    ANTHROPIC_API_KEY: t.string(),
+    ANTHROPIC_MODEL: t.string().optional(),
+  },
 });

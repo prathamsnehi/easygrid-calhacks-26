@@ -48,6 +48,11 @@ export function createWorld() {
     { x0: -28, x1: -13, z0: 6, z1: 7, kind: 'fence' },
     { x0: -25, x1: -22, z0: 17, z1: 20, kind: 'hay-bales' },
   ];
+  // These activity buffers refer to the exact farm objects rendered by landscape.js.
+  // They are fictional routing preferences, not surveyed boundaries or legal setbacks.
+  const activityAreas=fixedOccupancy.filter(area=>['farmstead','wind-pump','hay-bales'].includes(area.kind))
+    .map((area,index)=>({...area,id:'activity-'+index,kind:area.kind==='farmstead'?'home-and-work':'worksite',
+      sourceKind:area.kind,bufferTiles:area.kind==='farmstead'?3:2}));
   const tiles = [];
   const lookup = new Map();
   for (let iz = 0; iz < WORLD_DEPTH; iz++) {
@@ -143,7 +148,7 @@ export function createWorld() {
   const parcelFixtures = createParcelFixtures({ tiles, width: WORLD_WIDTH, depth: WORLD_DEPTH });
   return {
     width: WORLD_WIDTH, depth: WORLD_DEPTH, tileSize: 1, fields, tiles, clearings,
-    farmyard, trees, rocks, sourceMode: 'fixture', tileAt, isReserved, noise,
+    farmyard, activityAreas, trees, rocks, sourceMode: 'fixture', tileAt, isReserved, noise,
     ...parcelFixtures,
   };
 }

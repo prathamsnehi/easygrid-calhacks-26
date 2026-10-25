@@ -10,16 +10,32 @@
     ".": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
+    },
+    "./negotiation": {
+      "types": "./dist/negotiation-host.d.ts",
+      "import": "./dist/negotiation-host.js"
+    },
+    "./negotiation-client": {
+      "types": "./dist/negotiation-client.d.ts",
+      "import": "./dist/negotiation-client.js"
+    },
+    "./voice": {
+      "types": "./dist/voice-store.d.ts",
+      "import": "./dist/voice-store.js"
     }
   },
   "files": ["dist", "README.md"],
   "engines": { "node": ">=22" },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "build": "node scripts/check-voice-bindings.mjs source && tsc -p tsconfig.build.json && node scripts/check-voice-bindings.mjs built",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test negotiation-client.test.ts tests/voice-store.test.ts",
+    "test:voice": "node --experimental-strip-types --test tests/voice-store.test.ts",
+    "generate:voice": "../../.tools/spacetime-cli generate --lang typescript --out-dir voice-bindings --module-path module --no-config --yes && node scripts/normalize-voice-bindings.mjs"
   },
   "dependencies": {
-    "spacetimedb": "2.13.0"
+    "spacetimedb": "2.13.0",
+    "@easygrid/contracts": "file:../../packages/contracts"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

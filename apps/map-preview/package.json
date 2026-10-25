@@ -9,6 +9,9 @@
     "test": "node build.mjs && node --test tests/*.test.mjs",
     "nessie:check": "node server/nessie-setup.mjs --check",
     "nessie:setup": "node server/nessie-setup.mjs --create-demo-accounts",
-    "dev:nessie": "node build.mjs && node --env-file=.env.nessie serve.mjs"
+    "dev:nessie": "node build.mjs && node --env-file=.env.nessie serve.mjs",
+    "dev:voice": "node build.mjs && node --env-file=.env.voice serve.mjs",
+    "voice:check": "node --env-file=.env.voice server/voice-setup.mjs --check",
+    "voice:setup": "node --env-file=.env.voice server/voice-setup.mjs --provision"
   }
 }

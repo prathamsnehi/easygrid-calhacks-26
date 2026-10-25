@@ -5,6 +5,9 @@ import { createRouteController } from './route-controller.js';
 import { createAnalysisController } from './analysis-controller.js';
 import { createNegotiationController } from './negotiation-controller.js';
 import { createContractEntry } from './contract-entry.js';
+import { createVoiceClient, voiceResultView } from './voice-client.js';
+import { createLiveCallHost } from './voice-host.js';
+import { matchesContractBinding } from './contract-handoff.js';
 
 const canvas = document.querySelector('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -72,6 +75,8 @@ let analysis = null;
 let negotiation = null;
 let contracts = null;
 let scopedNegotiationSource=false;
+let expectedRestoration=null;
+let applyRegisteredDemo=()=>{throw new Error('Map routing is not ready.');};
 let demoReady = false;
 const pointers = new Map();
 let pinchDistance = 0;
@@ -186,6 +191,7 @@ planner=createPlanner({THREE,scene,camera,canvas,world:landscape.world,
 });
 analysis=createAnalysisController({world:landscape.world,canvas,
   onContextChange:()=>contracts?.invalidate(),
+  onNegotiationResultChange:()=>syncContractNavigation(),
   getPlacements:()=>planner.getPlacements(),
   onDemoReadyChange:ready=>{
     demoReady=ready;pointers.clear();pinchDistance=0;canvas.classList.remove('dragging');
@@ -196,13 +202,24 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   },
   onUserRoleChange:()=>planner.refreshParcelRoles(),
 });
-function canSimulateNegotiation(){return !scopedNegotiationSource&&!analysis.negotiationResults.getState().view;}
+let voiceActive=false,voiceRefused=false;
+function canSimulateNegotiation(){return !scopedNegotiationSource&&(!voiceActive||(voiceRefused&&analysis.getHandoff()?.userRole.roleOnRoute===false))&&!analysis.negotiationResults.getState().view;}
 contracts=createContractEntry({getHandoff:()=>analysis.getHandoff(),getPlacements:()=>planner.getPlacements(),
+  getAcceptedTerms:()=>analysis.negotiationResults.getAcceptedTerms(),
   getRoutingOptions:()=>negotiation?.getRoutingOptions()??{},canSimulate:canSimulateNegotiation,onOpen:()=>analysis.close({restoreFocus:false})});
 const negotiationMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
 let refusalDemoActive=false,approvalDemoBusy=false,approvalDemoOpened=false,approvalDemoBinding=null,approvalDemoError='',approvalDemoGeneration=0;
 const approvalBindingKey=()=>JSON.stringify(negotiation?.getBinding()??null);
 function resetApprovalDemo(){approvalDemoGeneration++;approvalDemoBusy=false;approvalDemoOpened=false;approvalDemoBinding=null;approvalDemoError='';}
+function syncContractNavigation(){
+  if(!analysis||!contracts)return;
+  const accepted=analysis.negotiationResults.getAcceptedTerms(),h=analysis.getHandoff();
+  if(accepted?.available&&accepted.parcelId===h?.userRole.parcelId){
+    analysis.settlement.setContractNavigation({mapBinding:analysis.settlement.getBinding(),parcelId:accepted.parcelId,negotiated:true},()=>contracts.prepareAcceptedAndOpen());return;
+  }
+  const ready=approvalDemoOpened&&!approvalDemoBusy&&canSimulateNegotiation()&&!negotiation?.hasSource()&&negotiation?.getState().phase==='approved'&&approvalDemoBinding===approvalBindingKey();
+  analysis.settlement.setContractNavigation(ready?{mapBinding:negotiation.getBinding(),parcelId:h.userRole.parcelId}:null,()=>contracts.prepareAndOpen({review:true,demoTarget:'participant'}));
+}
 function renderNegotiation(state){
   const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=!canSimulateNegotiation()||(negotiation?.hasSource()??false);
   if(approvalDemoBinding&&(approvalDemoBinding!==approvalBindingKey()||connectedSource))resetApprovalDemo();
@@ -216,7 +233,7 @@ function renderNegotiation(state){
   if(state.phase==='approved'&&!connectedSource)write('handoff-result',approvalDemoError|| (approvalDemoBusy?'Current owner approved · opening the demo contract…':'Current owner approved · simulated'));
   get('negotiation-result').hidden=!active;
   write('negotiation-mode',connectedSource?'Owner responses':'Demo scenario');
-  const labels={idle:connectedSource?(state.connected?'Listening':'Connecting'):'Ready',rerouting:'Rerouting',negotiating:'Simulating',confirmed:'Confirmed · simulated',review_required:'Review needed',no_route:'No route',awaiting_owners:'Pending owners',approved:'Approved · simulated'};
+  const labels={idle:connectedSource?(state.connected?'Listening':'Connecting'):'Ready',rerouting:'Rerouting',negotiating:'Simulating',confirmed:'Confirmed · simulated',review_required:'Review needed',no_route:'No route',awaiting_owners:'Pending owners',approved:state.simulated?'Approved · simulated':'Approved · live call'};
   write('negotiation-status',labels[state.phase]??'Pending');
   get('negotiation-status').className=`role-badge${['confirmed','approved'].includes(state.phase)?' ready':''}`;
   write('negotiation-reason',state.reason);
@@ -244,8 +261,7 @@ function renderNegotiation(state){
     analysis.setNegotiationDisplay({routeVersion:h.routeVersion,outcomes:rows});
   }else analysis.setNegotiationDisplay(null);
   analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,()=>contracts.prepareAndOpen());
-  const participantContractReady=approvalDemoOpened&&!approvalDemoBusy&&!connectedSource&&state.phase==='approved'&&approvalDemoBinding===approvalBindingKey();
-  analysis.settlement.setContractNavigation(participantContractReady?{mapBinding:negotiation.getBinding(),parcelId:h.userRole.parcelId}:null,()=>contracts.prepareAndOpen({review:true,demoTarget:'participant'}));
+  syncContractNavigation();
   if(confirmed){
     write('route-title','Updated connection');write('route-badge','DEMO AGREED');
     write('route-status-note',`${state.outcomes.length} owners accepted · simulated`);
@@ -274,7 +290,10 @@ document.querySelector('#simulate-approval').addEventListener('click',()=>{simul
 document.querySelector('#simulate-refusal').addEventListener('click',()=>{
   try{if(!canSimulateNegotiation())throw new Error('Call result is active.');refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose a current route with the demo participant before starting this scenario.';}
 });
-document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoActive=false;resetApprovalDemo();negotiation.reset();});
+document.querySelector('#reset-plan').addEventListener('click',()=>{
+  expectedRestoration=null;delete canvas.dataset.authoritativeDemo;
+  voiceActive=false;voiceRefused=false;refusalDemoActive=false;resetApprovalDemo();negotiation.reset();
+});
 window.addEventListener('pagehide',()=>{refusalDemoActive=false;resetApprovalDemo();negotiation.reset();});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
@@ -292,13 +311,20 @@ window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHando
     analysis.negotiationResults.setSource(source);renderNegotiation(negotiation.getState());
   },getNegotiationResult:()=>analysis.negotiationResults.getState(),
   getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
+  restoreRegisteredDemo:record=>applyRegisteredDemo(record),
   setNegotiationSource:source=>{if(source!==null&&!canSimulateNegotiation())throw new Error('Start a new demo before enabling rerouting.');refusalDemoActive=false;resetApprovalDemo();analysis.settlement.invalidate();contracts.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
   getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{if(!canSimulateNegotiation())throw new Error('Start a new demo before simulating refusal.');refusalDemoActive=true;return negotiation.runRefusalDemo();}});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),
   getRoutingOptions:()=>negotiation.getRoutingOptions(),
-  onRouteChange:snapshot=>{analysis.setRoute(snapshot);negotiation.routeChanged();},onNoRoute:()=>negotiation.noRoute(),
+  onRouteChange:snapshot=>{
+    analysis.setRoute(snapshot);negotiation.routeChanged();
+    if(!expectedRestoration||!snapshot)return;
+    const binding=negotiation.getBinding();
+    const same=binding&&['sessionId','routeId','routeVersion','proposalKey'].every(key=>binding[key]===expectedRestoration[key]);
+    canvas.dataset.authoritativeDemo=same?'restored':'unmatched';
+  },onNoRoute:()=>negotiation.noRoute(),
   onFitRoute:(_route,diagnostics)=>{
     rebuildViewBounds(diagnostics.maxY+1);resetCamera();
     if(width>900)pan(-Math.min(width*.12,160),0);
@@ -306,7 +332,80 @@ routing=createRouteController({THREE,scene,world:landscape.world,landscape,canva
     fitCamera();draw(performance.now());
   },
 });
+function sameRestorationBinding(binding,record){
+  return binding&&record&&binding.sessionId===record.sessionId&&binding.routeId===record.routeId&&binding.routeVersion===record.routeVersion
+    &&typeof binding.proposalKey==='string'&&binding.proposalKey.length>0;
+}
+applyRegisteredDemo=record=>{
+  if(!record||typeof record!=='object'||Array.isArray(record))throw new TypeError('A saved demo record is required.');
+  for(const key of ['phone','phoneE164','participant','alias','contact','handoff','ownerHandoff','handoffJson']){
+    if(Object.hasOwn(record,key))throw new Error('Participant contact stays on the server.');
+  }
+  const allowed=['sessionId','routeId','routeVersion','userParcelId','mapBinding'];
+  if(Object.keys(record).some(key=>!allowed.includes(key)))throw new Error('Unknown restoration field.');
+  if(!sameRestorationBinding(record.mapBinding,record))throw new Error('The restoration record does not match its map binding.');
+  if(canvas.dataset.demoReady==='true'||canvas.dataset.routeState==='ok'||canvas.dataset.routeState==='calculating')throw new Error('The current demo already started.');
+  analysis.adoptRegisteredSession({sessionId:record.sessionId,userParcelId:record.userParcelId});
+  routing.adoptRegisteredRoute({routeId:record.routeId,routeVersion:record.routeVersion});
+  expectedRestoration=record.mapBinding;canvas.dataset.authoritativeDemo='pending';
+};
 renderNegotiation(negotiation.getState());
+// A configured same-origin adapter is the sole source of saved live outcomes.
+// Fixture buttons retain their existing explicit simulation path.
+async function applyVoiceResult(raw){
+  if(!matchesContractBinding(raw.mapBinding,negotiation.getBinding()))return;
+  voiceActive=true;
+  let result=raw;
+  if(raw.relocation?.status==='applied'||raw.outcome==='accepted'&&raw.relocation){
+    if(raw.outcome!=='accepted'||raw.relocation.status!=='applied'||!raw.contractApproval||
+      !matchesContractBinding(raw.contractApproval.mapBinding,raw.relocation.mapBinding))throw new Error('The relocation needs verified final terms.');
+    routing.installVerifiedRoute(raw.relocation.snapshot,raw.mapBinding.routeVersion);
+    if(!matchesContractBinding(raw.relocation.mapBinding,negotiation.getBinding()))throw new Error('The displayed relocation does not match the saved result.');
+    result={...raw,mapBinding:raw.relocation.mapBinding};
+  }
+  const applied=analysis.negotiationResults.applyVoiceUpdate(voiceResultView(result,analysis.getHandoff()));
+  if(!['applied','duplicate'].includes(applied.status))return;
+  if(!['finished','review_required'].includes(result.status)){renderNegotiation(negotiation.getState());return;}
+  if(applied.status==='duplicate'){
+    if(result.outcome==='accepted'&&result.contractApproval)contracts.openVerifiedAcceptance(result.contractApproval,{openDocument:false});
+    return;
+  }
+  if(result.outcome==='refused'){voiceRefused=true;refusalDemoActive=true;}
+  negotiation.applySavedVoiceResult(result);
+  if(result.outcome==='accepted'){
+    if(result.contractApproval)contracts.openVerifiedAcceptance(result.contractApproval);
+    else await contracts.prepareAcceptedAndOpen();
+  }
+}
+if(typeof window.EventSource==='function'&&typeof fetch==='function'){
+  const voice=createVoiceClient({getPlacements:()=>planner.getPlacements(),getRoutingOptions:()=>negotiation.getRoutingOptions(),
+    eventSourceFactory:url=>new window.EventSource(url),makeRequestKey:()=>window.crypto.randomUUID(),onResult:async raw=>{
+      try{return await applyVoiceResult(raw);}catch(error){
+        const binding=negotiation.getBinding();
+        if(matchesContractBinding(raw.mapBinding,binding)||raw.relocation&&binding?.sessionId===raw.mapBinding.sessionId&&binding.routeVersion===raw.relocation.snapshot?.routeVersion)
+          analysis.negotiationResults.markUnavailable();
+        throw error;
+      }
+    }});
+  voice.getConfig().then(async config=>{
+    if(config.enabled!==true||config.ready===false)return;
+    if(config.mode==='database-procedure'){
+      const liveCalls=createLiveCallHost({origin:config.origin,database:config.database,
+        lockLiveCall:()=>analysis.setLiveCallLockout(true),
+        installSource:source=>window.easygridDemo.setNegotiationResultSource(source)});
+      analysis.setHandoffHandler(liveCalls.handle);
+      return;
+    }
+    analysis.setHandoffHandler(input=>{voiceActive=true;renderNegotiation(negotiation.getState());return voice.requestCall(input);});
+    analysis.negotiationResults.setSource(voice.subscribe);
+    const {active}=await voice.getActive();
+    if(!active||canvas.dataset.demoReady==='true'||['ok','calculating'].includes(canvas.dataset.routeState))return;
+    const placements=planner.getPlacements();
+    const sameFacilities=['substation','datacenter'].every(kind=>['x','z'].every(axis=>
+      Number.isInteger(active.facilities?.[kind]?.[axis])&&placements?.[kind]?.[axis]===active.facilities[kind][axis]));
+    if(sameFacilities)applyRegisteredDemo(active.record);
+  }).catch(()=>{/* Offline previews remain usable without a configured voice service. */});
+}
 canvas.addEventListener('pointerdown', e => {
   if(!demoReady)return;
   if (![0, 1, 2].includes(e.button)) return;

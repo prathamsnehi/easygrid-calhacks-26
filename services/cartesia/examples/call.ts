@@ -8,7 +8,8 @@ function required(name: string): string {
 
 // Validate the destination and originating number before creating any resources.
 const fromNumberId = required("CARTESIA_FROM_NUMBER_ID");
-const toNumber = required("CARTESIA_TO_NUMBER");
+const toNumber = process.env.CARTESIA_FALLBACK_TO_NUMBER?.trim() || process.env.CARTESIA_TO_NUMBER?.trim();
+if (!toNumber) throw new Error("Set CARTESIA_FALLBACK_TO_NUMBER before running this example.");
 const cartesia = createCartesiaService({ apiKey: required("CARTESIA_API_KEY") });
 
 let agentId = process.env.CARTESIA_AGENT_ID?.trim();
