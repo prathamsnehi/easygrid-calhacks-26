@@ -53,6 +53,12 @@ Do not build this trusted record from an incoming model response or counteroffer
 
 ## Calling-agent integration
 
-Use the recommendation as the initial proposed compensation and the cap as the agent's internal limit. Explain the route impact and separate monthly fee. A request above the cap should return `review_required`, without promising acceptance. Enforce the cap and current project budget in the host before recording an accepted agreement; prompt instructions alone are not an enforcement boundary.
+Use the recommendation as the initial proposed compensation and the cap as the agent's internal limit. Explain the route impact and separate monthly fee. For the approved CAL-34 demo, an owner's request above the cap receives one
+final counteroffer at the smaller of the cap and available project budget; it
+is not acceptance or automatically a review failure. A proposal by the system
+above either limit must be blocked. Monthly fees stay fixed. A rejected final
+offer stops the flow without automatic rerouting. See [CAL-34 scope](cal-34-negotiation-policy.md).
+Enforce these limits in the host before promising or recording terms; prompt
+instructions alone are not an enforcement boundary.
 
 This change provides the UI, handoff data and shared validation. Live host storage, per-offer enforcement and calling-agent wiring remain integration work.

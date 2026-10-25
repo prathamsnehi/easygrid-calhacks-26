@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import Cartesia from "@cartesia/cartesia-js";
-import { CARTESIA_VERSION, createCartesiaService } from "../client.js";
+import { CARTESIA_VERSION, createCartesiaService, enforceConnectedCallDeadline } from "../client.js";
 
 interface CapturedRequest {
   method: string;
@@ -45,7 +45,7 @@ const callOptions = {
 test("construction makes no requests and needs an explicit API key", () => {
   const { service, requests } = mockService({});
   assert.deepEqual(Object.keys(service).sort(), [
-    "call", "createAgent", "getCall", "updateAgentPrompt",
+    "call", "cancelCall", "createAgent", "getCall", "updateAgentPrompt",
   ]);
   assert.equal(requests.length, 0);
   assert.throws(() => createCartesiaService({ apiKey: " " }), /API key is required/);
@@ -206,4 +206,42 @@ test("does not retry call creation after a connection failure", async () => {
   });
   await assert.rejects(service.call(callOptions), Cartesia.APIConnectionError);
   assert.equal(attempts, 1);
+});
+
+test('per-call variables are isolated and do not patch shared instructions', async () => {
+  const { service, requests } = mockService({ calls: [{ agent_call_id: 'one', number: '+14155550123' }] });
+  await service.call({ ...callOptions, dynamicVariables: { opening_compensation: '$10,000', monthly_fee: '$300', attempt_ref: 'one' } });
+  await service.call({ ...callOptions, dynamicVariables: { opening_compensation: '$11,000', monthly_fee: '$300', attempt_ref: 'two' } });
+  const a = requests[0]!.body as { outbound_calls: { dynamic_variables: Record<string, string> }[] };
+  const b = requests[1]!.body as typeof a;
+  assert.equal(a.outbound_calls[0]!.dynamic_variables.attempt_ref, 'one');
+  assert.equal(b.outbound_calls[0]!.dynamic_variables.attempt_ref, 'two');
+  assert(requests.every(request => request.method === 'POST'));
+});
+test('cancels the provider call with a correctly escaped ID', async () => {
+  const { service, requests } = mockService({ cancelled: true });
+  assert.deepEqual(await service.cancelCall('call/one'), { cancelled: true });
+  assert.equal(requests[0]!.url, 'https://api.cartesia.ai/agents/calls/call%2Fone/cancel');
+});
+
+
+test('attaches provisioned tools while preserving existing agent defaults', async () => {
+  const { service, requests } = mockService({ id: 'agent' });
+  await service.createAgent({ ...agentOptions, toolIds: ['evaluate', 'response', 'refusal'] });
+  const body = requests[0]!.body as { config: { tools: { id: string }[] } };
+  assert.deepEqual(body.config.tools, [{ id: 'evaluate' }, { id: 'response' }, { id: 'refusal' }]);
+  await assert.rejects(service.createAgent({ ...agentOptions, toolIds: ['same', 'same'] }), /Tool IDs/);
+});
+test('connected safety deadline is independent of prompt target and reports uncertain cancellation honestly', async () => {
+  let cancellations = 0;
+  const service = { getCall: async () => ({ id: 'call', agent_id: 'agent', status: 'started' }),
+    cancelCall: async () => { cancellations++; return { cancelled: true }; } };
+  const args = { service, callId: 'call', connectedAtMs: 1000 };
+  assert.equal((await enforceConnectedCallDeadline({ ...args, nowMs: 46_000 })).status, 'within_limit');
+  assert.equal(cancellations, 0);
+  assert.equal((await enforceConnectedCallDeadline({ ...args, nowMs: 61_000 })).status, 'cancelled');
+  assert.equal(cancellations, 1);
+  const unknown = await enforceConnectedCallDeadline({ ...args, nowMs: 61_000,
+    service: { ...service, cancelCall: async () => { throw new Error('private provider failure'); } } });
+  assert.equal(unknown.status, 'unknown');assert(!JSON.stringify(unknown).includes('private'));
 });

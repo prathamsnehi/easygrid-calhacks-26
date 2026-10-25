@@ -47,3 +47,12 @@ jobs:
 
       - name: Build SpacetimeDB
         run: npm run build --prefix services/spacetimedb
+
+      - name: Build shared negotiation contracts for Claude review
+        run: npm ci --ignore-scripts --prefix packages/contracts && npm run build --prefix packages/contracts
+
+      - name: Install Claude review adapter
+        run: npm ci --ignore-scripts --prefix services/claude-api
+
+      - name: Verify Claude review with synthetic transcripts
+        run: npm run typecheck --prefix services/claude-api && npm test --prefix services/claude-api && npm run build --prefix services/claude-api

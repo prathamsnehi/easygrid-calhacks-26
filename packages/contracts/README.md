@@ -90,3 +90,16 @@ Examples are **independent boundary samples**, not a complete sequential server 
 All three owners must review before freezing the revised interface or replacing mocks with integrations. Tests passing do not constitute teammate review. CAL-27 remains open for the broader workflow migration and review.
 
 Linear: https://linear.app/easygrid-calhacks-2026/issue/CAL-27
+
+
+## Short negotiation policy (CAL-34)
+
+The additive `applyNegotiationCommand` transition uses the revised owner handoff,
+fixed recommendation/cap, full-route budget reservations and one final offer.
+It returns a reducer snapshot plus attempt/receipt for an atomic CAL-29 commit;
+it is not a mutable store. `createNegotiationTools` binds CAL-33 tools to an
+explicit authorized host port. `NegotiationSummary` and
+`createNegotiationResultUpdate` provide redacted terminal reasons for the map.
+`NEGOTIATION_VOICE_PROMPT` targets 30–45 seconds with no extra readback ceremony.
+These additions do not change the legacy API v1 deposit-based normalization.
+See [integration and verification](../../docs/CAL34_INTEGRATION.md).

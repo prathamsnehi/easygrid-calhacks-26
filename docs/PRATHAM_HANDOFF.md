@@ -137,3 +137,15 @@ npm test --prefix apps/map-preview
 ```
 
 `handoff.test.mjs` checks participant validation, redaction, single-role assignment, cost conservation, synthetic coordinates, cap/budget blocking and stale inputs. `handoff-contract.test.mjs` imports the actual shared Zod schemas and validates the snapshot and canonical `createCallSession` request. These checks do not prove a live backend import, real call, browser layout or GPU rendering.
+
+
+## CAL-34 saved result display
+
+For the approved short negotiation, install
+`window.easygridDemo.setNegotiationResultSource(source)` rather than the CAL-35
+rerouting source. It displays committed progress and specific terminal reasons,
+blocks repeat calls, and preserves the result until New Demo. The host factory
+survives reset and must subscribe to the new authorized session; old callbacks
+are cancelled/ignored. This is a public view adapter, not a persistence service.
+See [CAL-34 integration](CAL34_INTEGRATION.md) for the exact envelope, canonical
+import binding and the remaining live state/provider integration requirements.

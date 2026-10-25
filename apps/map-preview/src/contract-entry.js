@@ -6,7 +6,7 @@ import {approveMapContracts, createContractAPIClient} from './contract-api-clien
 
 /** Local contract navigation; the service independently validates every payment gate. */
 export function createContractEntry({getHandoff, getPlacements = () => null, getRoutingOptions = () => null,
-  onOpen = () => {}, requestApproval = approveMapContracts, apiFactory = createContractAPIClient}) {
+  canSimulate = () => true, onOpen = () => {}, requestApproval = approveMapContracts, apiFactory = createContractAPIClient}) {
   const button = document.querySelector('#contract-proceed'), status = document.querySelector('#contract-entry-status');
   const simulate = document.querySelector('#contract-simulate-approval');
   let approved = null, workspace = null, constructionHandler = null, active = null, generation = 0, busy = false;
@@ -16,7 +16,7 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
   const write = message => {if (status) status.textContent = message;};
   function refresh() {
     if (simulate) {
-      simulate.disabled = busy || handoff()?.snapshot?.routes?.[0]?.eligible !== true;
+      simulate.disabled = busy || !canSimulate() || handoff()?.snapshot?.routes?.[0]?.eligible !== true;
       simulate.textContent = busy ? 'Approving demo terms…' : matching() ? 'Demo negotiation approved' : 'Simulate approved negotiation';
     }
     if (button) button.disabled = busy || !matching();
@@ -56,6 +56,7 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
     if (review) workspace.review();
   }
   async function prepareAndOpen({review = false, demoTarget = 'representative'} = {}) {
+    if (!canSimulate()) throw new Error('Demo approval is unavailable while a call result is active. Start a new demo to simulate.');
     if (busy) return false;
     if (!['representative','participant'].includes(demoTarget)) throw new Error('Unknown demo approval target.');
     if (matching() && approved.demoTarget === demoTarget) {open({review});return true;}

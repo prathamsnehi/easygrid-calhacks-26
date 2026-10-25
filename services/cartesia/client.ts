@@ -41,3 +41,5 @@ export function createCartesiaService(options: CartesiaServiceOptions) {
 }
 
 export type CartesiaService = ReturnType<typeof createCartesiaService>;
+
+export { enforceConnectedCallDeadline } from './calls.service.js';

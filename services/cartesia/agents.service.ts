@@ -5,6 +5,8 @@ export interface CreateAgentOptions {
   voiceId: string;
   modelId: string;
   name?: string;
+  /** Already provisioned authenticated webhook/client tools, maximum 64. */
+  toolIds?: string[];
   /** Set null to wait for the other person to speak first. */
   initialMessage?: string | null;
 }
@@ -19,6 +21,9 @@ export interface Agent {
 export function createAgentsService(client: Cartesia) {
   return {
     async createAgent(options: CreateAgentOptions): Promise<Agent> {
+      if (options.toolIds && (options.toolIds.length > 64 || new Set(options.toolIds).size !== options.toolIds.length || options.toolIds.some(id => !id.trim()))) {
+        throw new Error("Tool IDs must be nonempty, unique, and at most 64.");
+      }
       // The SDK's typed agents resource targets the older /agents API.
       // Managed Agent configuration uses /v1/agents instead.
       return client.post<Agent>("/v1/agents", {
@@ -34,6 +39,7 @@ export function createAgentsService(client: Cartesia) {
             language: { primary: "en" },
             audio: { output: { voice_id: options.voiceId } },
             system_tools: { end_call: {} },
+          ...(options.toolIds ? { tools: options.toolIds.map(id => ({ id })) } : {}),
           },
         },
       });

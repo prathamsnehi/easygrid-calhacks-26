@@ -5,6 +5,8 @@ export interface CallOptions {
   fromNumberId: string;
   /** Full international format, for example +14155550123. */
   toNumber: string;
+  /** Non-secret, per-call context; never mutate a shared agent prompt. */
+  dynamicVariables?: Record<string, string | number | boolean>;
 }
 
 export interface StartedCall {
@@ -53,7 +55,8 @@ export function createCallsService(client: Cartesia) {
           body: {
             agent_id: options.agentId,
             from_number_id: options.fromNumberId,
-            outbound_calls: [{ to_number: options.toNumber }],
+            outbound_calls: [{ to_number: options.toNumber,
+              ...(options.dynamicVariables ? { dynamic_variables: options.dynamicVariables } : {}) }],
           },
         },
       );
@@ -80,10 +83,33 @@ export function createCallsService(client: Cartesia) {
       };
     },
 
+    /** Only a started provider call can be cancelled; request abort does not hang up. */
+    async cancelCall(callId: string): Promise<{ cancelled: boolean }> {
+      return client.post<{ cancelled: boolean }>(`/agents/calls/${encodeURIComponent(callId)}/cancel`);
+    },
+
     /** Fetch the latest status and transcript; does not wait for completion. */
     async getCall(callId: string): Promise<CallRecord> {
       // Keep current call statuses instead of using the SDK's older status enum.
       return client.get<CallRecord>(`/agents/calls/${encodeURIComponent(callId)}`);
     },
   };
+}
+
+/** CAL-29 schedules this check using a persisted connected timestamp, not a browser timer. */
+export async function enforceConnectedCallDeadline({ service, callId, connectedAtMs, nowMs, limitMs = 60_000 }: {
+  service: { getCall(id: string): Promise<CallRecord>; cancelCall(id: string): Promise<{ cancelled: boolean }> };
+  callId: string; connectedAtMs: number; nowMs: number; limitMs?: number;
+}): Promise<{ status: 'within_limit' | 'ended' | 'cancelled' | 'unknown'; reason: 'TIME_LIMIT' | null }> {
+  if (![connectedAtMs, nowMs, limitMs].every(Number.isSafeInteger) || connectedAtMs < 0 || nowMs < connectedAtMs || limitMs <= 0) {
+    throw new Error('Valid persisted timestamps and a positive connected-call limit are required.');
+  }
+  if (nowMs - connectedAtMs < limitMs) return { status: 'within_limit', reason: null };
+  try {
+    const record = await service.getCall(callId);
+    if (record.status === 'completed' || record.status === 'failed') return { status: 'ended', reason: null };
+    if (record.status !== 'started') return { status: 'unknown', reason: 'TIME_LIMIT' };
+    const result = await service.cancelCall(callId);
+    return { status: result.cancelled ? 'cancelled' : 'unknown', reason: 'TIME_LIMIT' };
+  } catch { return { status: 'unknown', reason: 'TIME_LIMIT' }; }
 }
