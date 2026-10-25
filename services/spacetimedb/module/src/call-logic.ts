@@ -289,35 +289,147 @@ export function loadAttempt(ctx: Db, attemptId: string) {
   return ctx.db.callAttempt.attemptId.find(attemptId);
 }
 
+const spokenNumbers: Record<string, number> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+
+function spokenInteger(words: string): bigint {
+  let total = 0n;
+  let group = 0n;
+  for (const word of words.toLowerCase().split(/[ -]+/)) {
+    if (word === 'and') continue;
+    if (word === 'hundred') group *= 100n;
+    else if (word === 'thousand' || word === 'million' || word === 'billion') {
+      total += group * ({ thousand: 1000n, million: 1_000_000n, billion: 1_000_000_000n }[word] ?? 1n);
+      group = 0n;
+    } else group += BigInt(spokenNumbers[word] ?? 0);
+  }
+  return total + group;
+}
+
 function moneyMentions(textValue: string): bigint[] {
   const mentions: { index: number; value: bigint }[] = [];
   for (const match of textValue.matchAll(/(?:\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)|\b([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:US\s*)?dollars?\b)/gi)) {
     const [whole, fraction = ''] = (match[1] ?? match[2]!).replaceAll(',', '').split('.');
     mentions.push({ index: match.index ?? 0, value: BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, '0')) });
   }
+  const word = `(?:${Object.keys(spokenNumbers).join('|')}|hundred|thousand|million|billion|and)`;
+  const pattern = new RegExp(`\\b(${word}(?:[ -]+${word})*)\\s+dollars?\\b(?:\\s+and\\s+(${word}(?:[ -]+${word})*)\\s+cents?\\b)?`, 'gi');
+  for (const match of textValue.matchAll(pattern)) {
+    const cents = match[2] ? spokenInteger(match[2]) : 0n;
+    if (cents < 100n) mentions.push({ index: match.index ?? 0, value: spokenInteger(match[1]!) * 100n + cents });
+  }
   return mentions.sort((a, b) => a.index - b.index).map(item => item.value);
 }
 
 function statesOffer(spoken: string, compensationCents: number, monthlyRentCents: number): boolean {
+  if (/(?:\b(?:cannot|can't|won't|unable to|not able to)\s+(?:\w+\s+){0,3}(?:offer|pay|agree|provide)|\bnot\s+(?:offering|paying|proposing)\b)/i.test(spoken)) return false;
   const amounts = moneyMentions(spoken);
-  return !/(?:\b(?:cannot|can't|won't|unable to|not able to)\s+(?:\w+\s+){0,3}(?:offer|pay|agree|provide)|\bnot\s+(?:offering|paying|proposing)|\b(?:if|unless|provided that|conditional on)\b)/i.test(spoken)
-    && amounts.length === 2
-    && amounts[0] === BigInt(compensationCents)
-    && amounts[1] === BigInt(monthlyRentCents)
+  const compensation = BigInt(compensationCents);
+  const monthly = BigInt(monthlyRentCents);
+  const pair = amounts.some((value, index) => value === compensation && amounts[index + 1] === monthly);
+  return pair
     && /month/i.test(spoken)
-    && /does that work(?: for you)?/i.test(spoken);
-}
-
-function affirmative(spoken: string): boolean {
-  return /^(?:yes(?: please)?|yeah|yep|sure|okay|ok|absolutely|i agree|i accept|agreed|that works|sounds good|let's do it|lets do it)(?:[,.! ]+(?:that works|that's fine|that sounds good|i agree|i accept|thank you|thanks|sounds good|for me|please|to (?:that|the) offer))*[.! ]*$/i.test(spoken.trim());
+    && (/\b(?:does|would|will) that work(?: for you)?\b|\bdo you agree\b|\bis that (?:okay|ok|acceptable|all right|alright)\b/i.test(spoken));
 }
 
 function corroborates(reason: string, spoken: string): boolean {
   if (reason === 'DO_NOT_CALL') return /(?:stop calling|do not call|don't call|do not call me)/i.test(spoken);
   if (reason === 'ACCESS_REFUSED') {
-    return /(?:not interested|no (?:transmission|land access)|(?:don't want|do not want|refuse)[^.!?]{0,50}\b(?:transmission|land access|access|power lines?|towers?|on my (?:land|property))\b)/i.test(spoken);
+    return /(?:not interested|no (?:transmission|land access)|(?:don't want|do not want|refuse)[^.!?]{0,60}\b(?:transmission|land access|access|power lines?|towers?|on my (?:land|property))\b)/i.test(spoken);
   }
-  return /(?:\bno\b(?!\s+(?:problem|worries|objection)\b)|decline|reject|too low|not enough|can't accept|cannot accept)/i.test(spoken);
+  return /(?:\bno\b(?!\s+(?:problem|worries|objection)\b)|nope|nah|decline|reject|too low|not enough|can't accept|cannot accept|(?:don't|do not) agree|disagree|(?:doesn't|does not) work|(?:don't|do not) want|not going to (?:do|accept) (?:that|this|it))/i.test(spoken);
+}
+
+function refusalFromSpeech(spoken: string): 'DO_NOT_CALL' | 'ACCESS_REFUSED' | 'PRICE_REJECTED' | null {
+  if (corroborates('DO_NOT_CALL', spoken)) return 'DO_NOT_CALL';
+  if (corroborates('ACCESS_REFUSED', spoken)) return 'ACCESS_REFUSED';
+  if (corroborates('PRICE_REJECTED', spoken)) return 'PRICE_REJECTED';
+  return null;
+}
+
+function affirmative(spoken: string): boolean {
+  const text = spoken.trim();
+  if (!text || text.length > 320) return false;
+  if (/(?:\bif\b|\bunless\b|\bexcept\b|\bonly if\b|\bas long as\b|\bprovided that\b|\bbut\b)/i.test(text)) return false;
+  if (refusalFromSpeech(text) || moneyMentions(text).length > 0) return false;
+  return /^(?:(?:um+|uh+|well|oh|so|hi|hello|okay so|ok so)[,. ]+)*(?:yes|yeah|yep|yup|sure|okay|ok|absolutely|definitely|of course|i agree|i accept|i do|agreed|that works|that sounds good|sounds good|i'm good|im good|let's do it|lets do it|go ahead|that's fine|that is fine|i'm okay with that|im okay with that)\b/i.test(text);
+}
+
+function acceptedDecision(compensationCents: number, monthlyRentCents: number): ReviewDecision {
+  return {
+    outcome: 'accepted',
+    disposition: 'successful',
+    reason: 'AGREED',
+    explanation: `Owner agreed to ${money(compensationCents)} plus ${money(monthlyRentCents)} per month. This saved demo result is not a payment.`,
+    nextAction: 'continue',
+    agreedCents: compensationCents,
+    lockLiveCalls: false,
+  };
+}
+
+function refusedDecision(reason: 'DO_NOT_CALL' | 'ACCESS_REFUSED' | 'PRICE_REJECTED'): ReviewDecision {
+  const lock = reason === 'ACCESS_REFUSED' || reason === 'DO_NOT_CALL';
+  return {
+    outcome: 'refused',
+    disposition: 'unsuccessful',
+    reason,
+    explanation: reason === 'PRICE_REJECTED'
+      ? 'The owner declined the offered price. No agreement was saved.'
+      : reason === 'DO_NOT_CALL'
+        ? 'The owner asked not to be called. No further live call will be placed for this session.'
+        : 'The owner refused access. No further live call will be placed for this session.',
+    nextAction: 'stop',
+    agreedCents: 0,
+    lockLiveCalls: lock,
+  };
+}
+
+/** Last clear yes to an allowed offer, or the last clear refusal. A condition stays unresolved. */
+function transcriptResolution(input: {
+  openingCents: number;
+  finalCents: number;
+  monthlyRentCents: number;
+  turns: readonly StoredTurn[];
+}): { decision: ReviewDecision; ownerId: string } | null {
+  let offer: number | null = null;
+  let agreed: { compensation: number; ownerId: string } | null = null;
+  let refusal: { reason: 'DO_NOT_CALL' | 'ACCESS_REFUSED' | 'PRICE_REJECTED'; ownerId: string } | null = null;
+  for (let index = 0; index < input.turns.length; index++) {
+    const turn = input.turns[index]!;
+    if (turn.role === 'agent') {
+      let text = turn.text;
+      let end = index;
+      while (input.turns[end + 1]?.role === 'agent') {
+        end += 1;
+        text = `${text} ${input.turns[end]!.text}`;
+      }
+      let matched: number | null = null;
+      for (const compensation of [input.openingCents, input.finalCents]) {
+        if (statesOffer(text, compensation, input.monthlyRentCents)) matched = compensation;
+      }
+      if (matched !== null) offer = matched;
+      index = end;
+      continue;
+    }
+    if (turn.role !== 'owner') continue;
+    const refused = refusalFromSpeech(turn.text);
+    if (refused) {
+      refusal = { reason: refused, ownerId: turn.id };
+      agreed = null;
+      continue;
+    }
+    if (offer !== null && affirmative(turn.text)) {
+      agreed = { compensation: offer, ownerId: turn.id };
+      refusal = null;
+    }
+  }
+  if (agreed) return { decision: acceptedDecision(agreed.compensation, input.monthlyRentCents), ownerId: agreed.ownerId };
+  if (refusal) return { decision: refusedDecision(refusal.reason), ownerId: refusal.ownerId };
+  return null;
 }
 
 function pending(reason: string, explanation: string): ReviewDecision {
@@ -334,7 +446,9 @@ export function decideReview(input: {
   candidate: ReviewCandidate | null;
   failureReason: string;
 }): ReviewDecision {
+  const heard = transcriptResolution(input);
   if (input.failureReason) {
+    if (heard && ['MODEL_UNAVAILABLE', 'MODEL_TIMEOUT', 'MALFORMED_OUTPUT'].includes(input.failureReason)) return heard.decision;
     const explanations: Record<string, string> = {
       SERVICE_UNAVAILABLE: 'The phone provider reported a failed call. No agreement was saved, and it was not redialed.',
       NO_ANSWER: 'The phone was not answered. No agreement was saved, and the same provider call was not redialed.',
@@ -349,57 +463,37 @@ export function decideReview(input: {
     return pending(input.failureReason, explanations[input.failureReason] ?? 'The call result could not be verified. Agreement was not saved.');
   }
   const candidate = input.candidate;
-  if (!candidate) return pending('MALFORMED_OUTPUT', 'The transcript review could not be read. Agreement was not saved.');
+  if (!candidate) return heard?.decision ?? pending('MALFORMED_OUTPUT', 'The transcript review could not be read. Agreement was not saved.');
   const owners = input.turns.filter(turn => turn.role === 'owner');
   const namedOwner = candidate.ownerTurnId ? owners.find(turn => turn.id === candidate.ownerTurnId) : undefined;
   if (candidate.reason === 'AGREED') {
     const compensation = candidate.compensationCents;
     const monthly = candidate.monthlyRentCents;
-    if (compensation === null || monthly === null || (compensation !== input.openingCents && compensation !== input.finalCents) || monthly !== input.monthlyRentCents) {
+    const wrongAmount = compensation !== null && compensation !== input.openingCents && compensation !== input.finalCents;
+    const wrongMonthly = monthly !== null && monthly !== input.monthlyRentCents;
+    if (wrongAmount || wrongMonthly) {
       return pending('CONFLICTING_EVIDENCE', 'The spoken agreement was not the opening amount or the one permitted final amount. It was left pending.');
     }
-    const agentIndex = input.turns.findIndex(turn => turn.role === 'agent' && statesOffer(turn.text, compensation, monthly));
-    const owner = input.turns.slice(agentIndex + 1).find(turn => turn.role === 'owner');
-    const laterRefusal = owner ? input.turns.slice(input.turns.indexOf(owner) + 1).some(turn => turn.role === 'owner' && corroborates('PRICE_REJECTED', turn.text)) : false;
-    if (agentIndex < 0 || !owner || !affirmative(owner.text) || laterRefusal || (candidate.ownerTurnId !== '' && owner.id !== candidate.ownerTurnId)) {
-      return pending('CONFLICTING_EVIDENCE', 'A short yes after the allowed offer was not in the transcript. Agreement was not saved.');
-    }
-    return {
-      outcome: 'accepted',
-      disposition: 'successful',
-      reason: 'AGREED',
-      explanation: `Owner agreed to ${money(compensation)} plus ${money(input.monthlyRentCents)} per month. This saved demo result is not a payment.`,
-      nextAction: 'continue',
-      agreedCents: compensation,
-      lockLiveCalls: false,
-    };
+    if (heard?.decision.outcome === 'accepted' && (compensation === null || heard.decision.agreedCents === compensation)
+      && (candidate.ownerTurnId === '' || heard.ownerId === candidate.ownerTurnId)) return heard.decision;
+    if (heard?.decision.outcome === 'refused') return heard.decision;
+    return pending('CONFLICTING_EVIDENCE', 'A short yes after the allowed offer was not in the transcript. Agreement was not saved.');
   }
   if (candidate.reason === 'ACCESS_REFUSED' || candidate.reason === 'DO_NOT_CALL' || candidate.reason === 'PRICE_REJECTED') {
     const evidence = namedOwner ?? owners.find(turn => corroborates(candidate.reason, turn.text));
-    if (!evidence || !corroborates(candidate.reason, evidence.text)) {
-      return pending('CONFLICTING_EVIDENCE', 'The review label did not match the owner’s words. The result was left pending.');
-    }
-    const lock = candidate.reason === 'ACCESS_REFUSED' || candidate.reason === 'DO_NOT_CALL';
-    return {
-      outcome: 'refused',
-      disposition: 'unsuccessful',
-      reason: candidate.reason,
-      explanation: candidate.reason === 'PRICE_REJECTED'
-        ? 'The owner declined the offered price. No agreement was saved.'
-        : candidate.reason === 'DO_NOT_CALL'
-          ? 'The owner asked not to be called. No further live call will be placed for this session.'
-          : 'The owner refused access. No further live call will be placed for this session.',
-      nextAction: 'stop',
-      agreedCents: 0,
-      lockLiveCalls: lock,
-    };
+    if (evidence && corroborates(candidate.reason, evidence.text)) return refusedDecision(candidate.reason);
+    const spoken = refusalFromSpeech(evidence?.text ?? '') ?? owners.map(turn => refusalFromSpeech(turn.text)).find(Boolean) ?? null;
+    if (spoken) return refusedDecision(spoken);
+    return pending('CONFLICTING_EVIDENCE', 'The review label did not match the owner’s words. The result was left pending.');
   }
   if (['UNCLEAR_RESPONSE', 'ADDITIONAL_CONDITIONS', 'CONFLICTING_EVIDENCE'].includes(candidate.reason)) {
+    if (candidate.reason !== 'ADDITIONAL_CONDITIONS' && heard) return heard.decision;
+    if (candidate.reason === 'ADDITIONAL_CONDITIONS' && heard?.decision.outcome === 'refused') return heard.decision;
     return pending(candidate.reason, candidate.reason === 'ADDITIONAL_CONDITIONS'
       ? 'The owner added conditions. Those conditions were not accepted.'
       : 'The owner’s response was not a clear agreement. The result was left pending.');
   }
-  return pending('MALFORMED_OUTPUT', 'The transcript review could not be read. Agreement was not saved.');
+  return heard?.decision ?? pending('MALFORMED_OUTPUT', 'The transcript review could not be read. Agreement was not saved.');
 }
 
 export function applyDecision(ctx: Db, attemptId: string, decision: ReviewDecision, lifecycle: string): void {

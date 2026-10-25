@@ -81,6 +81,50 @@ test('agreement is saved only for the opening or the one final amount', () => {
   const refused = decideReview({ ...base, turns: [{ id: 'b', role: 'owner', text: 'Please do not call me again.' }], candidate: { reason: 'DO_NOT_CALL', offerTurnId: '', ownerTurnId: 'b', compensationCents: null, monthlyRentCents: null } });
   assert.equal(refused.lockLiveCalls, true);
   assert.equal(refused.outcome, 'refused');
+  const spokenYes = decideReview({
+    ...base,
+    turns: [
+      { id: 'a', role: 'agent', text: 'Our proposal is one hundred dollars plus twenty five dollars per month. Does that work for you?' },
+      { id: 'b', role: 'owner', text: 'Yeah, I agree to that.' },
+    ],
+    candidate: { reason: 'UNCLEAR_RESPONSE', offerTurnId: '', ownerTurnId: '', compensationCents: null, monthlyRentCents: null },
+  });
+  assert.equal(spokenYes.outcome, 'accepted');
+  assert.equal(spokenYes.agreedCents, 10_000);
+  const spokenNo = decideReview({
+    ...base,
+    candidate: { reason: 'UNCLEAR_RESPONSE', offerTurnId: '', ownerTurnId: 'b', compensationCents: null, monthlyRentCents: null },
+    turns: [
+      { id: 'a', role: 'agent', text: 'Our proposal is $100.00 plus $25.00 per month. Does that work for you?' },
+      { id: 'b', role: 'owner', text: "No, I don't agree." },
+    ],
+  });
+  assert.equal(spokenNo.outcome, 'refused');
+  assert.equal(spokenNo.reason, 'PRICE_REJECTED');
+  assert.equal(spokenNo.lockLiveCalls, false);
+  const reviewDown = decideReview({
+    ...base,
+    failureReason: 'MODEL_TIMEOUT',
+    candidate: null,
+    turns: [
+      { id: 'a1', role: 'agent', text: 'Our proposal is $100.00 plus $25.00 per month.' },
+      { id: 'a2', role: 'agent', text: 'Does that work for you?' },
+      { id: 'b', role: 'owner', text: 'Yes.' },
+    ],
+  });
+  assert.equal(reviewDown.outcome, 'accepted');
+  const conditional = decideReview({
+    ...base,
+    candidate: { reason: 'AGREED', offerTurnId: 'a', ownerTurnId: 'b', compensationCents: 10_000, monthlyRentCents: 2500 },
+    turns: [
+      { id: 'a', role: 'agent', text: 'Our proposal is $100.00 plus $25.00 per month. Does that work for you?' },
+      { id: 'b', role: 'owner', text: 'Yes, but only if you move the line.' },
+    ],
+  });
+  assert.equal(conditional.outcome, 'pending');
+  const missedCall = decideReview({ ...base, turns: [], failureReason: 'NO_ANSWER', candidate: null });
+  assert.equal(missedCall.outcome, 'pending');
+  assert.equal(missedCall.reason, 'NO_ANSWER');
 });
 
 test('a committed review is redacted and a second dial is refused', () => {
