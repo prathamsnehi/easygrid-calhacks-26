@@ -27,3 +27,8 @@ coverage/
 
 # Private local contract ledgers and sandbox setup checkpoints
 .local/
+
+# Firebase deployment cache and temporary GitHub OIDC credentials
+.firebase/
+firebase-debug.log*
+gha-creds-*.json

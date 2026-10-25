@@ -1,0 +1,88 @@
+name: Firebase Hosting
+
+on:
+  pull_request:
+    paths:
+      - 'apps/map-preview/**'
+      - 'packages/contracts/**'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/firebase-hosting.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/map-preview/**'
+      - 'packages/contracts/**'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/firebase-hosting.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: packages/contracts/package-lock.json
+      - run: npm ci --ignore-scripts --prefix packages/contracts
+      - run: npm test --prefix apps/map-preview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firebase-hosting-site
+          path: apps/map-preview/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: firebase-hosting-live
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: firebase-hosting-site
+          path: apps/map-preview/dist/
+      - name: Check the frontend is still current on main
+        id: current
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          if git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- apps/map-preview packages/contracts firebase.json .firebaserc .github/workflows/firebase-hosting.yml; then
+            echo 'deploy=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Skipped stale deployment; newer frontend inputs exist on main.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Authenticate to Firebase with short-lived Google credentials
+        if: steps.current.outputs.deploy == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: easygrid-calhacks-26
+          workload_identity_provider: projects/862446162013/locations/global/workloadIdentityPools/github-actions/providers/easygrid-frontend
+          service_account: github-hosting@easygrid-calhacks-26.iam.gserviceaccount.com
+      - name: Deploy the validated frontend to the live channel
+        if: steps.current.outputs.deploy == 'true'
+        run: npx --yes firebase-tools@15.33.0 deploy --only hosting --project easygrid-calhacks-26 --non-interactive
+      - name: Verify the public site
+        if: steps.current.outputs.deploy == 'true'
+        run: |
+          curl --fail --silent --show-error --retry 3 https://easygrid-calhacks-26.web.app/ -o /tmp/easygrid-live.html
+          cmp apps/map-preview/dist/index.html /tmp/easygrid-live.html
+          echo 'Live site: https://easygrid-calhacks-26.web.app/' >> "$GITHUB_STEP_SUMMARY"

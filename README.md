@@ -6,6 +6,8 @@ The repository contains the [shared contract and TypeScript client](packages/con
 
 The team baseline also includes the existing [Cartesia service](services/cartesia/README.md), [SpacetimeDB setup](services/spacetimedb/README.md) and [shared development setup](docs/shared-setup.md). These services still need to be connected to the map through the documented handoff.
 
+The static frontend is hosted at [easygrid-calhacks-26.web.app](https://easygrid-calhacks-26.web.app/). See [Firebase Hosting and CI/CD](docs/FIREBASE_HOSTING.md) for deployment setup and backend boundaries. Automatic deployment requires the CAL-47 workflow on `main`.
+
 For a ready-to-open download, see [web preview instructions](apps/map-preview/PREVIEW.md).
 
 From the repository root, use Node 24 (also used by the map CI):
