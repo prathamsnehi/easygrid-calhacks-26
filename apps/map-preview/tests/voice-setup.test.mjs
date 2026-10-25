@@ -84,6 +84,26 @@ test('checkpoint persistence failure stops before a provider POST',async t=>{
   assert.equal(f.calls.filter(c=>c.method==='POST').length,0);
 });
 
+test('a definitive tool rejection records only its status and permits an explicit corrected retry',async t=>{
+  const f=await fixture(t);
+  await assert.rejects(configureVoiceProvider({...f.options,mode:'provision',fetcher:async()=>
+    Response.json({message:'sensitive-provider-response'}, {status:400})}),error=>{
+      assert.match(error.message,/HTTP 400/);assert(!error.message.includes('sensitive-provider-response'));return true;
+    });
+  const saved=await f.checkpoint();assert.equal(saved.pending,null);
+  assert.deepEqual(saved.lastRejected,{kind:'tool',name:'evaluate_counteroffer',status:400});
+  assert.equal(Object.keys(saved.toolIds).length,0);
+  assert.equal((await configureVoiceProvider({...f.options,mode:'provision'})).verified,true);
+});
+
+test('a server failure retains uncertain tool creation and blocks another POST',async t=>{
+  const f=await fixture(t);let requests=0;
+  const options={...f.options,mode:'provision',fetcher:async()=>{requests++;return Response.json({}, {status:500});}};
+  await assert.rejects(configureVoiceProvider(options),/HTTP 500/);
+  assert.equal((await f.checkpoint()).pending.name,'evaluate_counteroffer');
+  await assert.rejects(configureVoiceProvider(options),/previous resource creation/);assert.equal(requests,1);
+});
+
 test('changed setup origin, unreadable checkpoint, modified prompt and wrong callback stay unverified',async t=>{
   const f=await fixture(t);await configureVoiceProvider({...f.options,mode:'provision'});
   const original=await readFile(f.options.checkpointURL,'utf8'),calls=f.calls.length;

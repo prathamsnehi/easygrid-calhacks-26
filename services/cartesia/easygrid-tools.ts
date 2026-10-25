@@ -22,18 +22,18 @@ export function easyGridVoiceToolDefinitions(publicBaseUrl: string) {
     description:'Check an exact requested compensation against the approved limits before speaking any changed offer. The server returns the only permitted offer.',
     api_schema:api('/api/voice/tools/counteroffer',{
       requestId,
-      requestedCompensationCents:{type:'integer',nullable:true,description:'Exact requested USD cents. Use null if the owner objects to price without an exact amount. Never invent or round an amount.'},
-    },['requestId','requestedCompensationCents']),
+      requestedCompensationCents:{type:'integer',description:'Exact requested USD cents. Omit this field if the owner objects to price without an exact amount. Never invent or round an amount.'},
+    },['requestId']),
   },{ ...common, name:'record_owner_response' as const,
     description:'Record a candidate from the owner’s actual words. Conditional requires explicit tower-placement agreement if one named edge of their original parcel is used. Whole-line relocation requires review. This tool never finalizes acceptance or payment.',
     api_schema:api('/api/voice/tools/response',{
       requestId,
       decision:{type:'string',enum:['accepted','refused','conditional','review_required'],description:'Owner response; a request or unclear answer is review_required.'},
-      acceptedCompensationCents:{type:'integer',nullable:true,description:'Exact tool-approved compensation accepted by the owner, in USD cents. Null for refused/review_required.'},
+      acceptedCompensationCents:{type:'integer',description:'Required for accepted or conditional: exact tool-approved compensation accepted by the owner, in USD cents. Omit for refused or review_required. Never infer or invent an accepted amount.'},
       conditionDirection:{type:'string',enum:['north','south','east','west','none'],description:'The explicitly agreed edge. Use none when no supported location condition exists.'},
       conditionQuote:{type:'string',description:'Exact conditional agreement sentence; empty string for an unconditional decision.'},
       evidenceQuote:{type:'string',description:'The complete owner response in their own words; do not shorten away qualifications.'},
-    },['requestId','decision','acceptedCompensationCents','conditionDirection','conditionQuote','evidenceQuote']),
+    },['requestId','decision','conditionDirection','conditionQuote','evidenceQuote']),
   }];
 }
 
@@ -54,7 +54,7 @@ export async function provisionEasyGridVoiceTools({ apiKey, publicBaseUrl, exist
       headers:{Authorization:`Bearer ${apiKey}`,'Cartesia-Version':'2026-08-14','Content-Type':'application/json'},
       ...(!existing ? {body:JSON.stringify(definition)} : {}),
     });
-    if (!response.ok) throw new Error('Cartesia tool setup was not confirmed; reconcile saved resources before retrying.');
+    if (!response.ok) throw new Error(`Cartesia tool setup was not confirmed (HTTP ${response.status}); inspect the saved setup status before retrying.`);
     const body = await response.json() as {id?:unknown;name?:unknown;api_schema?:{url?:unknown;request_headers?:unknown}};
     if (typeof body.id !== 'string' || !body.id || body.name !== definition.name) throw new Error('Cartesia returned an unexpected tool record.');
     if (existing && (body.id !== existing || body.api_schema?.url !== definition.api_schema.url || JSON.stringify(body.api_schema?.request_headers) !== JSON.stringify(definition.api_schema.request_headers))) throw new Error('The saved tool does not match this authenticated callback configuration.');
