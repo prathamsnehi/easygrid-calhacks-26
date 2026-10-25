@@ -38,6 +38,129 @@ const STRUCTURES=new Set(['farmstead','wind-pump','fence','hay-bales','bridge'])
 const FOUNDATION_OBSTACLES=new Set([...STRUCTURES,'road','tree','orchard-tree','rock']);
 const EPS=1e-8;
 const emptyCosts=emptyRouteCosts;
+const localRouteGraphs=new Map();
+const tileLookups=new WeakMap();
+const spanSeen=new Int32Array(256*256);
+let spanStamp=1;
+const ROUTE_GRAPH_CACHE_LIMIT=8;
+
+function routeGraphCache(){
+  const shared=globalThis.__easygridRouteCache;
+  return shared instanceof Map?shared:localRouteGraphs;
+}
+function mixHash(hash,value){return Math.imul(hash^(value|0),16777619);}
+function hashText(text){
+  let hash=2166136261;
+  for(let i=0;i<text.length;i++)hash=Math.imul(hash^text.charCodeAt(i),16777619);
+  return hash;
+}
+function occupiedCode(tile){
+  const occupied=tile.occupiedBy??[];
+  let hash=mixHash(2166136261,occupied.length);
+  for(let j=0;j<occupied.length;j++)hash=mixHash(hash,hashText(occupied[j]));
+  return hash;
+}
+function hashParcel(parcel){
+  let hash=hashText(parcel?.id??'');
+  hash=mixHash(hash,parcel?.accessConsent==='allowed'?3:parcel?.accessConsent==='refused'?2:1);
+  hash=mixHash(hash,parcel?.negotiationStatus==='refused'?2:1);
+  const compensation=parcel?.compensation;
+  hash=mixHash(hash,compensation?.upfrontPerTileCents??0);
+  hash=mixHash(hash,compensation?.monthlyPerTileCents??0);
+  return hash;
+}
+function worldRouteStamp(world){
+  let hash=2166136261,check=2166136261^0x9e3779b9;
+  const tiles=world.tiles??[];
+  hash=mixHash(hash,tiles.length);check=mixHash(check,tiles.length^0x85ebca6b);
+  hash=mixHash(hash,Math.round((world.width??0)*1000));
+  hash=mixHash(hash,Math.round((world.depth??0)*1000));
+  for(let i=0;i<tiles.length;i++){
+    const tile=tiles[i];
+    hash=mixHash(hash,Math.round((tile.height??0)*2));
+    hash=mixHash(hash,Math.round((tile.x??0)*2));
+    hash=mixHash(hash,Math.round((tile.z??0)*2));
+    hash=mixHash(hash,hashText(tile.terrain??''));
+    hash=mixHash(hash,hashText(tile.parcelId??''));
+    hash=mixHash(hash,occupiedCode(tile));
+    hash=mixHash(hash,tile.routingPolicy?.linePassage==='blocked'?3:tile.routingPolicy?.linePassage==='review'?2:1);
+    check=Math.imul(check^hash,2246822519);
+  }
+  if(world.parcelById?.forEach)world.parcelById.forEach(parcel=>{hash=mixHash(hash,hashParcel(parcel));check=Math.imul(check^hash,2246822519);});
+  else if(world.parcels)for(const parcel of world.parcels){hash=mixHash(hash,hashParcel(parcel));check=Math.imul(check^hash,2246822519);}
+  const areas=world.activityAreas??[];
+  for(let i=0;i<areas.length;i++){
+    const area=areas[i];
+    const areaKey=`${area.kind??''}:${area.bufferTiles??0}:${area.x0},${area.x1},${area.z0},${area.z1}`;
+    hash=mixHash(hash,hashText(areaKey));check=mixHash(check,hashText(areaKey)^0x27d4eb2f);
+  }
+  return `${hash>>>0}:${check>>>0}`;
+}
+function placementStamp(placements){
+  const parts=[];
+  for(const kind of ['substation','datacenter']){
+    const placement=placements?.[kind];
+    parts.push(placement?[placement.x,placement.z,placement.y,placement.connectionPoint?.x,placement.connectionPoint?.z,
+      placement.footprint?.x0,placement.footprint?.x1,placement.footprint?.z0,placement.footprint?.z1].join(','):kind);
+  }
+  return parts.join('|');
+}
+function stableKey(value){
+  if(typeof value==='function'||typeof value==='symbol')return null;
+  if(value===null||typeof value!=='object')return JSON.stringify(value)??'null';
+  if(Array.isArray(value)){
+    let text='[';
+    for(let i=0;i<value.length;i++){const part=stableKey(value[i]);if(part===null)return null;if(i)text+=',';text+=part;}
+    return `${text}]`;
+  }
+  const keys=Object.keys(value).sort();
+  let text='{';
+  for(let i=0;i<keys.length;i++){const part=stableKey(value[keys[i]]);if(part===null)return null;if(i)text+=',';text+=`${JSON.stringify(keys[i])}:${part}`;}
+  return `${text}}`;
+}
+function graphCacheKey(world,placements,options){
+  const optionsKey=stableKey(options??{});
+  if(optionsKey===null)return null;
+  return `${ROUTING_ASSUMPTIONS.version}:${worldRouteStamp(world)}:${placementStamp(placements)}:${optionsKey}`;
+}
+function recallRouteGraph(key){
+  const cache=routeGraphCache(),hit=cache.get(key);
+  if(!hit)return null;
+  cache.delete(key);cache.set(key,hit);return hit;
+}
+function rememberRouteGraph(key,graph){
+  const cache=routeGraphCache();
+  cache.delete(key);cache.set(key,graph);
+  while(cache.size>ROUTE_GRAPH_CACHE_LIMIT)cache.delete(cache.keys().next().value);
+  return graph;
+}
+function routeTileAt(world){
+  const cached=tileLookups.get(world);
+  if(cached)return cached;
+  let minX=Infinity,minZ=Infinity,maxX=-Infinity,maxZ=-Infinity;
+  for(const tile of world.tiles??[]){
+    const x=Math.floor(tile.x),z=Math.floor(tile.z);
+    if(x<minX)minX=x;if(z<minZ)minZ=z;if(x>maxX)maxX=x;if(z>maxZ)maxZ=z;
+  }
+  if(!Number.isFinite(minX)){const lookup=world.tileAt??(()=>undefined);tileLookups.set(world,lookup);return lookup;}
+  const width=maxX-minX+1,height=maxZ-minZ+1,cells=new Array(width*height);
+  for(const tile of world.tiles)cells[(Math.floor(tile.z)-minZ)*width+(Math.floor(tile.x)-minX)]=tile;
+  const lookup=(x,z)=>{
+    const ix=Math.floor(x)-minX,iz=Math.floor(z)-minZ;
+    if(ix<0||iz<0||ix>=width||iz>=height)return undefined;
+    return cells[iz*width+ix];
+  };
+  tileLookups.set(world,lookup);
+  return lookup;
+}
+function beginSpanSeen(){if(++spanStamp>=0x7fffffff){spanSeen.fill(0);spanStamp=1;}}
+function claimSpanCell(x,z){
+  const ix=x+128,iz=z+128;
+  if(ix<0||iz<0||ix>=256||iz>=256)return -1;
+  const index=ix+iz*256;
+  if(spanSeen[index]===spanStamp)return 0;
+  spanSeen[index]=spanStamp;return 1;
+}
 const totalCosts=costs=>COST_KEYS.reduce((sum,key)=>sum+(costs[key]??0),0);
 function sumCosts(target,source){for(const key of COST_KEYS)target[key]+=source[key]??0;return target;}
 function rectOverlap(a,b){return a.x0<b.x1-EPS&&a.x1>b.x0+EPS&&a.z0<b.z1-EPS&&a.z1>b.z0+EPS;}
@@ -70,7 +193,7 @@ export function traceSpanCells(world,a,b){
   const cells=[];
   for(let i=1;i<cuts.length;i++){
     const from=cuts[i-1],to=cuts[i];if(to-from<EPS)continue;
-    const t=(from+to)/2,tile=world.tileAt(a.x+(b.x-a.x)*t,a.z+(b.z-a.z)*t);
+    const t=(from+to)/2,tile=routeTileAt(world)(a.x+(b.x-a.x)*t,a.z+(b.z-a.z)*t);
     cells.push({tile,from,to,length:(to-from)*distance});
   }
   return cells;
@@ -134,12 +257,19 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
       if(segmentRectInterval(a,b,body))return null;
     }else if(segmentRectInterval(a,b,{x0:f.x0-pad,x1:f.x1+pad,z0:f.z0-pad,z1:f.z1+pad}))return null;
   }
-  const parcelIds=new Set(),touchedCells=[],cropIntervals=[],roadIntervals=[];
-  for(let z=Math.floor(Math.min(a.z,b.z)-pad);z<=Math.floor(Math.max(a.z,b.z)+pad);z++){
-    for(let x=Math.floor(Math.min(a.x,b.x)-pad);x<=Math.floor(Math.max(a.x,b.x)+pad);x++){
+  const parcelIds=new Set(),cropIntervals=[],roadIntervals=[],centerline=traceSpanCells(world,a,b);
+  const tileAt=routeTileAt(world),radius=Math.floor(1+pad-1e-9),outside=new Set();
+  beginSpanSeen();
+  for(const cell of centerline){
+    if(!cell.tile)return null;
+    const cx=Math.floor(cell.tile.x),cz=Math.floor(cell.tile.z);
+    for(let dz=-radius;dz<=radius;dz++)for(let dx=-radius;dx<=radius;dx++){
+      const x=cx+dx,z=cz+dz,claim=claimSpanCell(x,z);
+      if(claim===0||(claim<0&&outside.has(`${x},${z}`)))continue;
+      if(claim<0)outside.add(`${x},${z}`);
       const interval=segmentRectInterval(a,b,{x0:x-pad,x1:x+1+pad,z0:z-pad,z1:z+1+pad});
       if(!interval)continue;
-      const tile=world.tileAt(x+.5,z+.5);
+      const tile=tileAt(x+.5,z+.5);
       if(!tile||isRefused(world,tile,blocked)||tile.routingPolicy?.linePassage==='blocked'||tile.occupiedBy.some(value=>STRUCTURES.has(value)))return null;
       if(tile.terrain==='field'||tile.occupiedBy.includes('agriculture')||tile.occupiedBy.includes('orchard-tree'))cropIntervals.push(interval);
       if(tile.terrain==='road'||tile.occupiedBy.includes('road'))roadIntervals.push(interval);
@@ -148,14 +278,13 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
         tile.terrain==='field'?1.3:0,tile.occupiedBy.includes('rock')?2:0,tile.occupiedBy.includes('grass')?.5:0);
       const terrainTop=(water?.79:tile.height)+canopy;
       if(minimumWireHeight(a,b,...interval,config)-config.conductorRadiusTiles<terrainTop+config.minClearanceTiles-EPS)return null;
-      parcelIds.add(tile.parcelId);touchedCells.push({x:tile.x,z:tile.z,parcelId:tile.parcelId});
+      parcelIds.add(tile.parcelId);
     }
   }
   const costs=emptyCosts(),metrics={...spanHumanMetrics(world,a,b,pad,lengthTiles,cropIntervals,roadIntervals),waterLengthTiles:0,agricultureLengthTiles:0,vegetationLengthTiles:0,roadLengthTiles:0,elevationChangeTiles:Math.abs(b.groundY-a.groundY)};
   const rates=config.rates;
   costs.lineCents=Math.round(lengthTiles*rates.linePerTileCents);
   let terrain=metrics.elevationChangeTiles*rates.elevationChangePerTileCents,compensation=0,rent=0;
-  const centerline=traceSpanCells(world,a,b);
   for(const {tile,length} of centerline){
     if(!tile)return null;
     const parcel=parcelFor(world,tile),prices=parcel?.compensation;
@@ -173,7 +302,7 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
   costs.vegetationCents=Math.round(metrics.vegetationLengthTiles*rates.vegetationPerTileCents);
   costs.roadCents=Math.round(metrics.roadLengthTiles*rates.roadPerTileCents);
   applyConstructionAllowances(costs);
-  return {lengthTiles,costs,metrics,parcelIds:[...parcelIds].filter(Boolean).sort(),touchedCells};
+  return {lengthTiles,costs,metrics,parcelIds:[...parcelIds].filter(Boolean).sort()};
 }
 
 export function evaluateTowerSite(world,x,z,placements,config=ROUTING_ASSUMPTIONS,blocked=new Set()){
@@ -183,7 +312,7 @@ export function evaluateTowerSite(world,x,z,placements,config=ROUTING_ASSUMPTION
   let groundY=null,cropCells=0;const parcelIds=new Set(),costs=emptyCosts();
   for(let tz=Math.floor(foundation.z0);tz<Math.ceil(foundation.z1);tz++){
     for(let tx=Math.floor(foundation.x0);tx<Math.ceil(foundation.x1);tx++){
-      const tile=world.tileAt(tx+.5,tz+.5);
+      const tile=routeTileAt(world)(tx+.5,tz+.5);
       if(!tile||isRefused(world,tile,blocked)||config.blockedTowerParcelIds?.includes(tile.parcelId)||['river','shore','road','farmyard'].includes(tile.terrain)||tile.occupiedBy.some(kind=>FOUNDATION_OBSTACLES.has(kind)))return null;
       if(groundY===null)groundY=tile.height;else if(groundY!==tile.height)return null;
       if(tile.terrain==='field')cropCells++;
@@ -252,6 +381,8 @@ export function buildTransmissionGraph(world,placements,options={}){
     !Number.isFinite(config.minClearanceTiles)||config.minClearanceTiles<0||config.minClearanceTiles>20||
     !Number.isFinite(config.supportHeightTiles)||config.supportHeightTiles<config.sagTiles+config.minClearanceTiles||config.supportHeightTiles>50||
     !Number.isInteger(config.rentHorizonMonths)||config.rentHorizonMonths<0||config.rentHorizonMonths>1200)throw new Error('Invalid demo foundation, clearance or rent assumptions.');
+  const cacheKey=graphCacheKey(world,placements,options);
+  if(cacheKey){const cached=recallRouteGraph(cacheKey);if(cached)return cached;}
   const nodes=[],adjacency=[],lattice=new Map();
   const add=node=>{node.id=`support-${nodes.length}`;nodes.push(node);adjacency.push([]);return nodes.length-1;};
   for(const kind of ['substation','datacenter']){
@@ -281,7 +412,7 @@ export function buildTransmissionGraph(world,placements,options={}){
       const j=lattice.get(`${node.ix+dx},${node.iz+dz}`);if(j!==undefined)connect(i,j);
     }
   }
-  return {nodes,adjacency,start,goal,config};
+  return cacheKey?rememberRouteGraph(cacheKey,{nodes,adjacency,start,goal,config}):{nodes,adjacency,start,goal,config};
 }
 
 function routeFromPath(graph,path,profile,world){

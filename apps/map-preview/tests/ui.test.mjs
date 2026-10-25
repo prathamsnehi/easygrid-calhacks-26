@@ -19,9 +19,39 @@ const hook='return exports;})();';
 assert(embedded.includes(hook),'Standalone Three wrapper changed; update the test renderer hook.');
 const worldHook='const landscape = createLandscape(THREE);';
 assert(embedded.includes(worldHook),'World initialization changed; update the fixture hook.');
-const compiled=new vm.Script(embedded
+const scriptBody=embedded
   .replace(hook,'return {...exports, WebGLRenderer: TestRenderer};})();')
-  .replace(worldHook,`${worldHook}\nprepareWorld(landscape.world);`),{filename:'standalone-map.js'});
+  .replace(worldHook,`${worldHook}\nprepareWorld(landscape.world);`);
+// A fresh vm context kept this same solver several times slower and spent most of the
+// suite there. Compile once in this realm, with the fake browser globals closed over.
+const runStandalone=vm.compileFunction(`
+function boot(scope) {
+  'use strict';
+  const globalThis = scope;
+  const document = scope.document;
+  const window = scope.window;
+  const TestRenderer = scope.TestRenderer;
+  const prepareWorld = scope.prepareWorld;
+  const fetch = scope.fetch;
+  const URL = scope.URL;
+  const AbortController = scope.AbortController;
+  const AbortSignal = scope.AbortSignal;
+  const Date = scope.Date;
+  const performance = scope.performance;
+  const matchMedia = scope.matchMedia;
+  const requestAnimationFrame = scope.requestAnimationFrame;
+  const cancelAnimationFrame = scope.cancelAnimationFrame;
+  const setTimeout = scope.setTimeout;
+  const clearTimeout = scope.clearTimeout;
+  const setInterval = scope.setInterval;
+  const clearInterval = scope.clearInterval;
+  const console = scope.console;
+  ${scriptBody}
+}
+return boot;
+`, [], {filename:'standalone-map.js'})();
+const sharedRouteGraphs=new Map();
+globalThis.__easygridRouteCache=sharedRouteGraphs;
 const expectedWorld=createWorld();
 const privateUser={alias:'Test User',phone:'+12025550123'};
 
@@ -124,7 +154,7 @@ function boot({fetcher=undefined,EventSourceClass=undefined,sessionUUID='10e8be2
     render(scene,camera){scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);currentScene=scene;currentCamera=camera;}
   }
   class ClockDate extends Date {static now(){return clock;}}
-  const context=vm.createContext({
+  const scope={
     document,window,TestRenderer,prepareWorld,fetch:fetcher,URL,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
     matchMedia:()=>({matches:true,addEventListener(){}}),
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},
@@ -133,8 +163,9 @@ function boot({fetcher=undefined,EventSourceClass=undefined,sessionUUID='10e8be2
     setInterval:(callback,delay=0,...args)=>{const id=++timerSequence;timers.set(id,{callback,args,at:clock+(Number(delay)||0)});return id;},
     clearInterval:id=>timers.delete(id),
     console:{error:error=>errors.push(String(error)),warn(){},log(){}},
-  });
-  compiled.runInContext(context,{timeout:10000});
+    __easygridRouteCache:sharedRouteGraphs,
+  };
+  runStandalone(scope);
   assert.equal(document.documentElement.dataset.mapReady,'true',document.documentElement.dataset.mapError??errors.join('\n'));
   assert.equal(elements.get('error').hidden,true);
   const point=(x,z,y=1.5)=>{
