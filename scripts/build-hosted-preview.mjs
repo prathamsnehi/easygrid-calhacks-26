@@ -7,6 +7,7 @@ import {build} from '../services/cartesia/node_modules/esbuild/lib/main.js';
 // Worker source used by the Sites worker-esm starter; no credentials are copied.
 const root = fileURLToPath(new URL('../',import.meta.url));
 const destination = process.argv[2];
+const cloudflare = process.argv.includes('--cloudflare');
 if (!destination) throw new Error('Usage: node scripts/build-hosted-preview.mjs /absolute/site/worker/index.js');
 await import('../apps/map-preview/build.mjs');
 const assets = {};
@@ -15,13 +16,13 @@ for (const name of ['index.html','contracts.html','parcel-fixtures.json','demo-h
   if (name.endsWith('.html')) {
     body = body.replace('Fictional site simulation','Hosted simulation · calls unavailable');
     body = body.replace('<div class="onboarding-brand">',
-      '<p style="font-size:11px;line-height:1.6;color:#526548;margin:0 0 16px">Private demo · simulated agreements and payments. Live phone calls are not configured.</p><div class="onboarding-brand">');
+      `<p style="font-size:11px;line-height:1.6;color:#526548;margin:0 0 16px">${cloudflare ? 'Browser-scoped' : 'Private'} demo · simulated agreements and payments. Live phone calls are not configured.</p><div class="onboarding-brand">`);
   }
   assets[`/${name}`] = {body,type:name.endsWith('.html')?'text/html; charset=utf-8':'application/json; charset=utf-8'};
 }
 await mkdir(dirname(resolve(destination)),{recursive:true});
 await build({
-  entryPoints:[resolve(root,'apps/map-preview/server/hosted-worker.mjs')],
+  entryPoints:[resolve(root,`apps/map-preview/server/${cloudflare ? 'cloudflare-worker' : 'hosted-worker'}.mjs`)],
   outfile:resolve(destination),bundle:true,format:'esm',platform:'neutral',target:'es2022',
   external:['node:crypto','node:buffer'],
   mainFields:['module','main'],

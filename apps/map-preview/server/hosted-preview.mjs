@@ -13,11 +13,13 @@ const emptySnapshot = () => ({schemaVersion:1,files:{}});
  * retry is safe only because every effect belongs to the transaction snapshot.
  * The authentication header is supplied by the Sites access boundary.
  */
-export function createHostedPreview({database} = {}) {
+export function createHostedPreview({database, resolveOwner = request => request.headers.get('oai-authenticated-user-id'),
+  storageDescription = 'durable private preview ledger (D1); not SpacetimeDB'} = {}) {
   return async request => {
     const url = new URL(request.url), pathname = url.pathname;
     if (!pathname.startsWith('/api/')) return null;
-    const owner = request.headers.get('oai-authenticated-user-id');
+    // resolveOwner is a trusted server-side boundary, never a request option.
+    const owner = await resolveOwner(request);
     if (!owner || owner.length > 512) return json(401,{error:'Sign in to this private preview to continue.'});
     const origin = request.headers.get('origin');
     if ((origin && origin !== url.origin) || ['cross-site','same-site'].includes(request.headers.get('sec-fetch-site')))
@@ -87,7 +89,7 @@ export function createHostedPreview({database} = {}) {
         if (!handled) return json(404,{error:'Unknown contract endpoint.'});
         if (pathname === '/api/contracts/config' && status === 200) {
           const config = JSON.parse(responseBody);
-          responseBody = JSON.stringify({...config,storage:'durable private preview ledger (D1); not SpacetimeDB',
+          responseBody = JSON.stringify({...config,storage:storageDescription,
             deploymentMode:'hosted-simulation',liveVoiceEnabled:false});
         }
         const after = JSON.stringify(snapshot);
