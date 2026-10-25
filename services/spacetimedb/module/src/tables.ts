@@ -93,6 +93,43 @@ export const agreement = table(
   },
 );
 
+/** CAL-41 snapshots are private. Public clients only see authorized, redacted views. */
+export const negotiationSession = table(
+  { name: 'negotiation_session' },
+  {
+    sessionId: t.string().primaryKey(),
+    importRequestId: t.string(),
+    importFingerprint: t.string(),
+    mapBindingJson: t.string(),
+    stateJson: t.string(),
+  },
+);
+
+export const negotiationResult = table(
+  { name: 'negotiation_result', indexes: [{ accessor: 'bySession', algorithm: 'btree', columns: ['sessionId'] }] },
+  {
+    id: t.string().primaryKey(),
+    sessionId: t.string(),
+    attemptId: t.string(),
+    revision: t.u32(),
+    updateJson: t.string(),
+  },
+);
+
+/** A review lease belongs to one durable claim, not a process-local lock. */
+export const negotiationReview = table(
+  { name: 'negotiation_review' },
+  {
+    id: t.string().primaryKey(),
+    sessionId: t.string(),
+    attemptId: t.string(),
+    claimId: t.string(),
+    workerIdentity: t.string(),
+    leaseUntilMicros: t.u64(),
+    completed: t.bool(),
+  },
+);
+
 export const spacetimedb = schema({
   session,
   contact,
@@ -101,4 +138,7 @@ export const spacetimedb = schema({
   receipt,
   obligation,
   agreement,
+  negotiationSession,
+  negotiationResult,
+  negotiationReview,
 });

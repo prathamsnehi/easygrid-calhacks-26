@@ -39,6 +39,9 @@ jobs:
       - name: Build Cartesia
         run: npm run build --prefix services/cartesia
 
+      - name: Build shared negotiation contracts
+        run: npm ci --ignore-scripts --prefix packages/contracts && npm run build --prefix packages/contracts
+
       - name: Install SpacetimeDB dependencies
         run: npm ci --prefix services/spacetimedb
 
@@ -48,8 +51,8 @@ jobs:
       - name: Build SpacetimeDB
         run: npm run build --prefix services/spacetimedb
 
-      - name: Build shared negotiation contracts for Claude review
-        run: npm ci --ignore-scripts --prefix packages/contracts && npm run build --prefix packages/contracts
+      - name: Verify atomic negotiation state and backend handoff
+        run: npm ci --ignore-scripts --prefix services/spacetimedb/module && npm run typecheck --prefix services/spacetimedb/module && npm test --prefix services/spacetimedb/module
 
       - name: Install Claude review adapter
         run: npm ci --ignore-scripts --prefix services/claude-api

@@ -6,6 +6,10 @@ import {
   startSession,
 } from './logic.ts';
 import { spacetimedb } from './tables.ts';
+import {
+  bindNegotiation, executeNegotiation, claimNegotiationReview, commitNegotiationReview,
+  closeNegotiation, recordNegotiationTranscript, negotiationResults, negotiationWorkerState, negotiationReviewState, negotiationAgreements,
+} from './negotiation-state.ts';
 
 const progress = t.object('SessionProgressRow', {
   sessionId: t.string(),
@@ -163,6 +167,50 @@ export const record_outcome = spacetimedb.reducer(
     explanation: t.string(),
   },
   (ctx, input) => recordOutcome(ctx, input),
+);
+
+export const bind_negotiation = spacetimedb.reducer(
+  { sessionId: t.string(), expectedRevision: t.u32(), requestKey: t.string(), handoffJson: t.string(), mapBindingJson: t.string() },
+  (ctx, input) => bindNegotiation(ctx, input),
+);
+export const execute_negotiation = spacetimedb.reducer(
+  { sessionId: t.string(), commandJson: t.string(), providerTurnsJson: t.string() },
+  (ctx, input) => executeNegotiation(ctx, input),
+);
+export const claim_negotiation_review = spacetimedb.reducer(
+  { sessionId: t.string(), attemptId: t.string(), claimId: t.string() },
+  (ctx, input) => claimNegotiationReview(ctx, input),
+);
+export const record_negotiation_transcript = spacetimedb.reducer(
+  { sessionId: t.string(), attemptId: t.string(), requestId: t.string(), providerTurnsJson: t.string() },
+  (ctx, input) => recordNegotiationTranscript(ctx, input),
+);
+export const commit_negotiation_review = spacetimedb.reducer(
+  { sessionId: t.string(), claimId: t.string(), commandJson: t.string(), providerTurnsJson: t.string() },
+  (ctx, input) => commitNegotiationReview(ctx, input),
+);
+export const close_negotiation = spacetimedb.reducer(
+  { sessionId: t.string() }, (ctx, input) => closeNegotiation(ctx, input),
+);
+export const negotiation_results = spacetimedb.view(
+  { name: 'negotiation_results', public: true }, { sessionId: t.string() },
+  t.array(t.object('NegotiationResultRow', { attemptId: t.string(), revision: t.u32(), updateJson: t.string() })),
+  (ctx, { sessionId }) => negotiationResults(ctx, sessionId),
+);
+export const negotiation_worker_state = spacetimedb.view(
+  { name: 'negotiation_worker_state', public: true }, { sessionId: t.string() },
+  t.array(t.object('NegotiationWorkerStateRow', { stateJson: t.string(), mapBindingJson: t.string() })),
+  (ctx, { sessionId }) => negotiationWorkerState(ctx, sessionId),
+);
+export const negotiation_review_state = spacetimedb.view(
+  { name: 'negotiation_review_state', public: true }, { sessionId: t.string(), attemptId: t.string() },
+  t.array(t.object('NegotiationReviewStateRow', { claimId: t.string(), leaseUntilMicros: t.u64(), completed: t.bool() })),
+  (ctx, { sessionId, attemptId }) => negotiationReviewState(ctx, sessionId, attemptId),
+);
+export const negotiation_agreements = spacetimedb.view(
+  { name: 'negotiation_agreements', public: true }, { sessionId: t.string() },
+  t.array(t.object('NegotiationAgreementRow', { revision: t.u32(), packetJson: t.string() })),
+  (ctx, { sessionId }) => negotiationAgreements(ctx, sessionId),
 );
 
 export default spacetimedb;

@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
+    },
+    "./negotiation": {
+      "types": "./dist/negotiation-host.d.ts",
+      "import": "./dist/negotiation-host.js"
     }
   },
   "files": ["dist", "README.md"],
@@ -19,7 +23,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "spacetimedb": "2.13.0"
+    "spacetimedb": "2.13.0",
+    "@easygrid/contracts": "file:../../packages/contracts"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

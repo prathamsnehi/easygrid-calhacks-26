@@ -1,5 +1,16 @@
 # SpacetimeDB service scaffold
 
+## CAL-41 integration workstream
+
+The new worker-only negotiation reducers and authorized views integrate CAL-34
+commands atomically while preserving the legacy module described below. Use
+[`CAL41_STATE_HANDOFF.md`](../../docs/CAL41_STATE_HANDOFF.md) for the current
+state/voice boundary, `@easygrid/spacetimedb/negotiation` backend adapter, review
+leases and remaining integration acceptance. Build `packages/contracts` before
+typechecking/building this package or its module. The new module has not been
+published by this change. Legacy rerouting/20% behavior below is not the CAL-41
+workflow; imported CAL-41 sessions cannot invoke it.
+
 Backend configuration and connection setup for the shared Maincloud development
 database. Requires Node.js 22+. The SDK is pinned to `2.13.0`, matching the
 verified repo-local CLI baseline.
