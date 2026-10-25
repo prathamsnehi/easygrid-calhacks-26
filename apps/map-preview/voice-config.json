@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "mode": "database-procedure",
+  "origin": "https://maincloud.spacetimedb.com",
+  "database": "easygrid-demo"
+}

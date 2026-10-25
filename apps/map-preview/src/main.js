@@ -377,6 +377,22 @@ async function applyVoiceResult(raw){
     else await contracts.prepareAcceptedAndOpen();
   }
 }
+function procedureTarget(config){
+  if(!config||config.mode!=='database-procedure')return null;
+  let url;
+  try{url=new URL(config.origin);}catch{return null;}
+  if(url.protocol!=='https:'||url.username||url.password||url.origin!==config.origin)return null;
+  if(typeof config.database!=='string'||!/^[-a-zA-Z0-9_]+$/.test(config.database))return null;
+  return {origin:url.origin,database:config.database};
+}
+async function loadVoiceConfig(){
+  const api=await fetch('/api/voice/config',{credentials:'same-origin',cache:'no-store'});
+  if(api.ok)return api.json();
+  if(api.status!==404)throw new Error('The voice service is not available.');
+  const published=await fetch('/voice-config.json',{cache:'no-store'});
+  if(!published.ok)throw new Error('The hosted voice configuration is not available.');
+  return published.json();
+}
 if(typeof window.EventSource==='function'&&typeof fetch==='function'){
   const voice=createVoiceClient({getPlacements:()=>planner.getPlacements(),getRoutingOptions:()=>negotiation.getRoutingOptions(),
     eventSourceFactory:url=>new window.EventSource(url),makeRequestKey:()=>window.crypto.randomUUID(),onResult:async raw=>{
@@ -387,10 +403,12 @@ if(typeof window.EventSource==='function'&&typeof fetch==='function'){
         throw error;
       }
     }});
-  voice.getConfig().then(async config=>{
-    if(config.enabled!==true||config.ready===false)return;
+  loadVoiceConfig().then(async config=>{
+    if(!config||config.enabled!==true||config.ready===false)return;
     if(config.mode==='database-procedure'){
-      const liveCalls=createLiveCallHost({origin:config.origin,database:config.database,
+      const target=procedureTarget(config);
+      if(!target)return;
+      const liveCalls=createLiveCallHost({origin:target.origin,database:target.database,
         lockLiveCall:()=>analysis.setLiveCallLockout(true),
         installSource:source=>window.easygridDemo.setNegotiationResultSource(source)});
       analysis.setHandoffHandler(liveCalls.handle);

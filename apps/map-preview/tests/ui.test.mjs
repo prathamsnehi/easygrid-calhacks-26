@@ -125,7 +125,7 @@ function boot({fetcher=undefined,EventSourceClass=undefined,sessionUUID='10e8be2
   }
   class ClockDate extends Date {static now(){return clock;}}
   const context=vm.createContext({
-    document,window,TestRenderer,prepareWorld,fetch:fetcher,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
+    document,window,TestRenderer,prepareWorld,fetch:fetcher,URL,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
     matchMedia:()=>({matches:true,addEventListener(){}}),
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},
     setTimeout:(callback,delay=0,...args)=>{const id=++timerSequence;timers.set(id,{callback,args,at:clock+delay});return id;},
@@ -1387,6 +1387,69 @@ test('explicit database-procedure configuration enables Agent call without diali
   assert.equal(app.elements.get('handoff-status-badge').textContent,'READY');
   assert.equal(app.elements.get('settle-payment').disabled,true,'a callable participant does not approve a contract');
   assert.deepEqual(requests,['/api/voice/config']);assert.deepEqual(app.errors,[]);
+});
+
+test('a missing voice API uses the published database-procedure config without dialing',async()=>{
+  const requests=[];
+  class UnusedStream {}
+  const app=boot({EventSourceClass:UnusedStream,fetcher:async url=>{
+    requests.push(url);
+    if(url==='/api/voice/config')return {ok:false,status:404,json:async()=>({})};
+    assert.equal(url,'/voice-config.json');
+    return {ok:true,status:200,json:async()=>({enabled:true,mode:'database-procedure',origin:'https://maincloud.spacetimedb.com',database:'easygrid-demo'})};
+  }});
+  await settlePromises();
+  assert.deepEqual(requests,['/api/voice/config','/voice-config.json'],'registration does not dial');
+  placePair(app);await app.flushTimers();await settlePromises();
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'READY');
+  assert.deepEqual(requests,['/api/voice/config','/voice-config.json']);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('a disabled local voice API stays offline and does not read the published config',async()=>{
+  const requests=[];
+  class UnusedStream {}
+  const app=boot({EventSourceClass:UnusedStream,fetcher:async url=>{
+    requests.push(url);assert.equal(url,'/api/voice/config');
+    return {ok:true,status:200,json:async()=>({enabled:false,mode:'unavailable'})};
+  }});
+  await settlePromises();placePair(app);await app.flushTimers();await settlePromises();
+  assert.equal(app.elements.get('agent-call').disabled,true);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'OFFLINE');
+  assert.deepEqual(requests,['/api/voice/config']);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('a missing or disabled published voice config leaves Agent call offline',async()=>{
+  class UnusedStream {}
+  for(const published of [null,{enabled:false,mode:'database-procedure',origin:'https://maincloud.spacetimedb.com',database:'easygrid-demo'},{enabled:true,mode:'database-procedure',origin:'http://maincloud.spacetimedb.com',database:'easygrid-demo'}]){
+    const requests=[];
+    const app=boot({EventSourceClass:UnusedStream,fetcher:async url=>{
+      requests.push(url);
+      if(url==='/api/voice/config')return {ok:false,status:404,json:async()=>({})};
+      assert.equal(url,'/voice-config.json');
+      if(!published)return {ok:false,status:404,json:async()=>({})};
+      return {ok:true,status:200,json:async()=>published};
+    }});
+    await settlePromises();placePair(app);await app.flushTimers();await settlePromises();
+    assert.equal(app.elements.get('agent-call').disabled,true);
+    assert.equal(app.elements.get('handoff-status-badge').textContent,'OFFLINE');
+    assert.deepEqual(requests,['/api/voice/config','/voice-config.json']);
+    assert.deepEqual(app.errors,[]);
+  }
+});
+
+test('the published voice config and bundle contain no provider secrets',()=>{
+  const source=readFileSync(new URL('../voice-config.json',import.meta.url),'utf8');
+  const built=readFileSync(new URL('../dist/voice-config.json',import.meta.url),'utf8');
+  const config=JSON.parse(built);
+  assert.deepEqual(JSON.parse(source),config);
+  assert.deepEqual(config,{enabled:true,mode:'database-procedure',origin:'https://maincloud.spacetimedb.com',database:'easygrid-demo'});
+  const secret=/CARTESIA_API_KEY|ANTHROPIC_API_KEY|EASYGRID_VOICE_SECRET|SPACETIMEDB_TOKEN|sk-ant-|Bearer [A-Za-z0-9]/;
+  assert.doesNotMatch(source,secret);
+  assert.doesNotMatch(built,secret);
+  assert.doesNotMatch(html,secret);
 });
 
 test('saved live voice acceptance opens the exact participant contract without simulation, signing or payment',async()=>{

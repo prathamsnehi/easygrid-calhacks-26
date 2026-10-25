@@ -49,4 +49,5 @@ const route=routes.candidates.find(candidate=>candidate.id===routes.recommendedI
 const example=createHandoff({world,route,placements,analysis:analyzeRouteParcels(world,route,routes.assumptions),
   sessionId:'example-cal-23',routeVersion:1});
 await writeFile(join(root,'dist/demo-handoff-example.json'),JSON.stringify(example,null,2)+'\n');
+await writeFile(join(root,'dist/voice-config.json'),await readFile(join(root,'voice-config.json')));
 console.log(`Built standalone index.html (${Math.round(Buffer.byteLength(html)/1024)} KiB), ${world.parcels.length} fictional parcels and a redacted handoff example. No external requests required.`);

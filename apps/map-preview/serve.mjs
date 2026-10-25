@@ -27,6 +27,7 @@ const resources=new Map([
   ['/contracts.html', ['contracts.html','text/html; charset=utf-8']],
   ['/parcel-fixtures.json', ['parcel-fixtures.json','application/json; charset=utf-8']],
   ['/demo-handoff-example.json', ['demo-handoff-example.json','application/json; charset=utf-8']],
+  ['/voice-config.json', ['voice-config.json','application/json; charset=utf-8']],
 ]);
 const server=createServer(async (req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;

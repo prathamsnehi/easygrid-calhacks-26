@@ -93,6 +93,18 @@ to avoid the separate CAL-41 `negotiation_result` table. It retains one attempt
 per session. An uncertain submission still needs reconciliation; do not start a
 new demo merely to retry an unknown call.
 
+Firebase Hosting does not run this Node server. The map build copies
+`apps/map-preview/voice-config.json` to `dist/voice-config.json`. That file
+contains only `enabled`, `mode: "database-procedure"`, the Maincloud HTTPS
+origin, and `easygrid-demo`. The frontend requests `/api/voice/config` first. A
+200 response stays authoritative, including `enabled: false`. Only a 404, which
+is what Firebase returns, loads the published file and installs the same
+browser-to-`start_call` adapter. A missing file, a disabled file, or an origin
+that is not credential-free HTTPS leaves **Agent call** offline. Provider keys
+remain in the published module environment. Contract and payment routes stay
+unavailable on Firebase. A route with an unpriced corridor-only parcel still
+shows **REVIEW** and does not place a call.
+
 ### Configured server adapter
 
 1. Enter the roleplay participant details and consent, place both facilities, and
