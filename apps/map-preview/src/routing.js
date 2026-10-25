@@ -1,10 +1,17 @@
 import { DEMO_COST_MODEL, COST_KEYS, emptyRouteCosts, applyConstructionAllowances, terminalConstructionCosts } from './cost-model.js';
 import { normalizeRoutingConstraints, spanIntersectsExclusion, foundationIntersectsExclusion } from './routing-constraints.js';
 
+/** Fictional preference weights, not dollars or surveyed/legal setbacks. */
+export const HUMAN_IMPACT_POLICY = Object.freeze({
+  version:'human-activity-v1',unitsPerWeightedTile:1000,
+  weights:Object.freeze({farmCorridor:1,homeBuffer:4,workBuffer:2,roadCorridor:1,cropFoundation:8,activityFoundation:12}),
+  objective:'Minimize weighted human disturbance first, then terrain-adjusted modeled cost; exact ties use deterministic node order.',
+});
+
 /** Deterministic routing on a finite demo support-site graph, not an engineering design. */
 export const ROUTING_ASSUMPTIONS = Object.freeze({
-  version:'valley-routing-v2',coordinateSystem:'local-demo-grid',sourceMode:'fixture',costModel:DEMO_COST_MODEL,
-  gridStep:3,maxSpanTiles:15,foundationWidthTiles:2,corridorHalfWidthTiles:.8,
+  version:'valley-routing-v3',coordinateSystem:'local-demo-grid',sourceMode:'fixture',costModel:DEMO_COST_MODEL,
+  humanImpactPolicy:HUMAN_IMPACT_POLICY,gridStep:3,maxSpanTiles:15,foundationWidthTiles:2,corridorHalfWidthTiles:.8,
   supportHeightTiles:10,sagTiles:1.1,conductorRadiusTiles:.045,minClearanceTiles:2,rentHorizonMonths:12,
   rates:Object.freeze({linePerTileCents:DEMO_COST_MODEL.linePerTileCents,towerCents:DEMO_COST_MODEL.towerCents,terminalCents:DEMO_COST_MODEL.terminalCents,
     elevatedTerrainPerTileCents:18000,elevationChangePerTileCents:60000,
@@ -20,6 +27,8 @@ export const ROUTING_ASSUMPTIONS = Object.freeze({
     'Each tower needs a flat 2 × 2 foundation; water, roads, buildings, trees and rocks cannot hold towers.',
     'Overhead spans may cross farms, roads and water, subject to a conservative 0.8-tile corridor and clearance checks.',
     'Land costs use centerline length and tower-pad area at fixture parcel rates, plus 12 months of simulated rent.',
+    'Lower-impact routing first minimizes full-corridor exposure to crops, farmstead/worksite buffers, roads and tower-pad disturbance; monetary cost only breaks equal-impact choices.',
+    'Activity buffers come from the same fictional farmstead and work objects rendered on this map; they are demo preferences, not regulatory setbacks or real GIS.',
     'Crop clearing is modeled at agricultural tower pads; unknown owner consent remains pending.',
     'This is the least-cost path in this demo graph, not a global geographic or engineering optimum.',
   ]),
@@ -67,6 +76,40 @@ export function traceSpanCells(world,a,b){
   return cells;
 }
 
+// Merge intervals so adjacent/overlapping crop tiles do not double count a corridor.
+function intervalLength(intervals,length){
+  intervals.sort((a,b)=>a[0]-b[0]);let total=0,lo=0,hi=0;
+  for(const [from,to] of intervals){if(from>hi){total+=hi-lo;lo=from;hi=to;}else hi=Math.max(hi,to);}
+  return (total+hi-lo)*length;
+}
+function expandedActivity(area,pad=0){
+  const margin=area.bufferTiles+pad;
+  return {x0:area.x0-margin,x1:area.x1+margin,z0:area.z0-margin,z1:area.z1+margin};
+}
+function activityFoundationArea(world,foundation){
+  // At most four unit foundation cells, using their full area and avoiding overlapping buffers twice.
+  let area=0;
+  for(let z=Math.floor(foundation.z0);z<Math.ceil(foundation.z1);z++)for(let x=Math.floor(foundation.x0);x<Math.ceil(foundation.x1);x++){
+    const cell={x0:Math.max(x,foundation.x0),x1:Math.min(x+1,foundation.x1),z0:Math.max(z,foundation.z0),z1:Math.min(z+1,foundation.z1)};
+    if((world.activityAreas??[]).some(a=>rectOverlap(cell,expandedActivity(a))))area+=(cell.x1-cell.x0)*(cell.z1-cell.z0);
+  }
+  return area;
+}
+function spanHumanMetrics(world,a,b,pad,length,crops,roads){
+  const home=[],work=[];
+  for(const area of world.activityAreas??[]){
+    const interval=segmentRectInterval(a,b,expandedActivity(area,pad));
+    if(interval)(area.kind==='home-and-work'?home:work).push(interval);
+  }
+  const metrics={farmCorridorLengthTiles:intervalLength(crops,length),roadCorridorLengthTiles:intervalLength(roads,length),
+    homeBufferLengthTiles:intervalLength(home,length),workBufferLengthTiles:intervalLength(work,length)};
+  const w=HUMAN_IMPACT_POLICY.weights;
+  metrics.humanDisturbanceUnits=Math.round(HUMAN_IMPACT_POLICY.unitsPerWeightedTile*(
+    metrics.farmCorridorLengthTiles*w.farmCorridor+metrics.homeBufferLengthTiles*w.homeBuffer+
+    metrics.workBufferLengthTiles*w.workBuffer+metrics.roadCorridorLengthTiles*w.roadCorridor));
+  return metrics;
+}
+
 function minimumWireHeight(a,b,lo,hi,config){
   const start=a.groundY+config.supportHeightTiles,end=b.groundY+config.supportHeightTiles,dy=end-start,sag=config.sagTiles;
   const value=t=>start+dy*t-4*sag*t*(1-t);
@@ -91,13 +134,15 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
       if(segmentRectInterval(a,b,body))return null;
     }else if(segmentRectInterval(a,b,{x0:f.x0-pad,x1:f.x1+pad,z0:f.z0-pad,z1:f.z1+pad}))return null;
   }
-  const parcelIds=new Set(),touchedCells=[];
+  const parcelIds=new Set(),touchedCells=[],cropIntervals=[],roadIntervals=[];
   for(let z=Math.floor(Math.min(a.z,b.z)-pad);z<=Math.floor(Math.max(a.z,b.z)+pad);z++){
     for(let x=Math.floor(Math.min(a.x,b.x)-pad);x<=Math.floor(Math.max(a.x,b.x)+pad);x++){
       const interval=segmentRectInterval(a,b,{x0:x-pad,x1:x+1+pad,z0:z-pad,z1:z+1+pad});
       if(!interval)continue;
       const tile=world.tileAt(x+.5,z+.5);
       if(!tile||isRefused(world,tile,blocked)||tile.routingPolicy?.linePassage==='blocked'||tile.occupiedBy.some(value=>STRUCTURES.has(value)))return null;
+      if(tile.terrain==='field'||tile.occupiedBy.includes('agriculture')||tile.occupiedBy.includes('orchard-tree'))cropIntervals.push(interval);
+      if(tile.terrain==='road'||tile.occupiedBy.includes('road'))roadIntervals.push(interval);
       const water=tile.terrain==='river';
       const canopy=Math.max(tile.occupiedBy.some(v=>v==='tree'||v==='orchard-tree')?4.5:0,
         tile.terrain==='field'?1.3:0,tile.occupiedBy.includes('rock')?2:0,tile.occupiedBy.includes('grass')?.5:0);
@@ -106,7 +151,7 @@ export function evaluateTransmissionSpan(world,a,b,placements,config=ROUTING_ASS
       parcelIds.add(tile.parcelId);touchedCells.push({x:tile.x,z:tile.z,parcelId:tile.parcelId});
     }
   }
-  const costs=emptyCosts(),metrics={waterLengthTiles:0,agricultureLengthTiles:0,vegetationLengthTiles:0,roadLengthTiles:0,elevationChangeTiles:Math.abs(b.groundY-a.groundY)};
+  const costs=emptyCosts(),metrics={...spanHumanMetrics(world,a,b,pad,lengthTiles,cropIntervals,roadIntervals),waterLengthTiles:0,agricultureLengthTiles:0,vegetationLengthTiles:0,roadLengthTiles:0,elevationChangeTiles:Math.abs(b.groundY-a.groundY)};
   const rates=config.rates;
   costs.lineCents=Math.round(lengthTiles*rates.linePerTileCents);
   let terrain=metrics.elevationChangeTiles*rates.elevationChangePerTileCents,compensation=0,rent=0;
@@ -148,15 +193,17 @@ export function evaluateTowerSite(world,x,z,placements,config=ROUTING_ASSUMPTION
       costs.rentCents+=(prices?.monthlyPerTileCents??0)*config.rentHorizonMonths;
     }
   }
+  const activityFoundationAreaTiles=activityFoundationArea(world,foundation);
+  const humanDisturbanceUnits=Math.round(HUMAN_IMPACT_POLICY.unitsPerWeightedTile*(cropCells*HUMAN_IMPACT_POLICY.weights.cropFoundation+activityFoundationAreaTiles*HUMAN_IMPACT_POLICY.weights.activityFoundation));
   costs.towerCents=config.rates.towerCents;
   costs.agricultureCents=cropCells*config.rates.foundationClearingPerTileCents;
   applyConstructionAllowances(costs);
-  return {x,z,groundY,height:config.supportHeightTiles,kind:'tower',foundation,parcelIds:[...parcelIds].filter(Boolean).sort(),costs,cropCells};
+  return {x,z,groundY,height:config.supportHeightTiles,kind:'tower',foundation,parcelIds:[...parcelIds].filter(Boolean).sort(),costs,cropCells,activityFoundationAreaTiles,humanDisturbanceUnits};
 }
 
 class RouteHeap {
   constructor(){this.items=[];}
-  less(a,b){return a.cost<b.cost||(a.cost===b.cost&&a.node<b.node);}
+  less(a,b){return a.impact<b.impact||(a.impact===b.impact&&(a.cost<b.cost||(a.cost===b.cost&&a.node<b.node)));}
   push(value){let i=this.items.length;this.items.push(value);while(i){const p=(i-1)>>1;if(!this.less(value,this.items[p]))break;this.items[i]=this.items[p];i=p;}this.items[i]=value;}
   pop(){if(!this.items.length)return null;const first=this.items[0],last=this.items.pop();if(this.items.length){let i=0;while(i*2+1<this.items.length){let child=i*2+1;if(child+1<this.items.length&&this.less(this.items[child+1],this.items[child]))child++;if(!this.less(this.items[child],last))break;this.items[i]=this.items[child];i=child;}this.items[i]=last;}return first;}
 }
@@ -164,28 +211,34 @@ class RouteHeap {
 function edgeWeight(edge,destination,profile){
   if(profile==='shortest')return Math.round(edge.lengthTiles*1000000);
   const total=totalCosts(edge.costs)+totalCosts(destination.costs);
-  if(profile==='low-impact')return total+4*(edge.costs.waterCents+edge.costs.agricultureCents+edge.costs.vegetationCents+edge.costs.roadCents+destination.costs.agricultureCents);
+  if(profile==='low-impact')return total+4*(edge.costs.waterCents+edge.costs.vegetationCents+edge.costs.roadCents);
   return total;
 }
 
 /** Dijkstra with positive, integer edge costs; ties are deterministic. */
 export function shortestTransmissionPath(graph,profile='balanced'){
   const distances=new Float64Array(graph.nodes.length);distances.fill(Infinity);distances[graph.start]=0;
+  const impacts=new Float64Array(graph.nodes.length);impacts.fill(Infinity);impacts[graph.start]=0;
   const previous=new Int32Array(graph.nodes.length);previous.fill(-1);
-  const previousEdge=new Array(graph.nodes.length),queue=new RouteHeap();queue.push({node:graph.start,cost:0});
+  const previousEdge=new Array(graph.nodes.length),queue=new RouteHeap();queue.push({node:graph.start,cost:0,impact:0});
   while(queue.items.length){
-    const item=queue.pop();if(item.cost!==distances[item.node])continue;if(item.node===graph.goal)break;
+    const item=queue.pop();if(item.cost!==distances[item.node]||item.impact!==impacts[item.node])continue;if(item.node===graph.goal)break;
     for(const connection of graph.adjacency[item.node]){
       const weight=edgeWeight(connection.edge,graph.nodes[connection.to],profile);
       if(!Number.isSafeInteger(weight)||weight<0)throw new Error('Routing requires nonnegative safe-integer edge costs.');
-      const next=item.cost+weight;
-      if(next<distances[connection.to]){distances[connection.to]=next;previous[connection.to]=item.node;previousEdge[connection.to]=connection.edge;queue.push({node:connection.to,cost:next});}
+      const disturbance=profile==='low-impact'?(connection.edge.metrics?.humanDisturbanceUnits??0)+(graph.nodes[connection.to].humanDisturbanceUnits??0):0;
+      const next=item.cost+weight,nextImpact=item.impact+disturbance;
+      if(!Number.isSafeInteger(next)||!Number.isSafeInteger(nextImpact)||disturbance<0)throw new Error('Routing objectives must stay within safe nonnegative integers.');
+      if(nextImpact<impacts[connection.to]||(nextImpact===impacts[connection.to]&&next<distances[connection.to])){
+        distances[connection.to]=next;impacts[connection.to]=nextImpact;previous[connection.to]=item.node;
+        previousEdge[connection.to]=connection.edge;queue.push({node:connection.to,cost:next,impact:nextImpact});
+      }
     }
   }
   if(!Number.isFinite(distances[graph.goal]))return null;
   const indices=[],edges=[];let at=graph.goal;
   while(at!==-1){indices.push(at);if(previousEdge[at])edges.push(previousEdge[at]);at=previous[at];}
-  return {indices:indices.reverse(),edges:edges.reverse(),objectiveCost:distances[graph.goal]};
+  return {indices:indices.reverse(),edges:edges.reverse(),objectiveCost:distances[graph.goal],objectiveDisturbanceUnits:impacts[graph.goal]};
 }
 
 export function buildTransmissionGraph(world,placements,options={}){
@@ -233,17 +286,17 @@ export function buildTransmissionGraph(world,placements,options={}){
 
 function routeFromPath(graph,path,profile,world){
   const costBreakdown=emptyCosts(),parcelIds=new Set();
-  const metrics={towerCount:0,terminalCount:2,spanCount:path.edges.length,waterSpans:0,roadSpans:0,waterLengthTiles:0,agricultureLengthTiles:0,vegetationLengthTiles:0,roadLengthTiles:0,elevationChangeTiles:0,cropClearingTiles:0};
+  const metrics={towerCount:0,terminalCount:2,spanCount:path.edges.length,waterSpans:0,roadSpans:0,waterLengthTiles:0,agricultureLengthTiles:0,vegetationLengthTiles:0,roadLengthTiles:0,elevationChangeTiles:0,cropClearingTiles:0,farmCorridorLengthTiles:0,homeBufferLengthTiles:0,workBufferLengthTiles:0,roadCorridorLengthTiles:0,activityFoundationAreaTiles:0,humanDisturbanceUnits:0};
   const nodes=path.indices.map(index=>{
     const node=graph.nodes[index];sumCosts(costBreakdown,node.costs);node.parcelIds.forEach(id=>parcelIds.add(id));
-    if(node.kind==='tower'){metrics.towerCount++;metrics.cropClearingTiles+=node.cropCells;}
+    if(node.kind==='tower'){metrics.towerCount++;metrics.cropClearingTiles+=node.cropCells;metrics.activityFoundationAreaTiles+=node.activityFoundationAreaTiles;metrics.humanDisturbanceUnits+=node.humanDisturbanceUnits;}
     return {id:node.id,x:node.x,z:node.z,groundY:node.groundY,height:node.height,kind:node.kind,
       ...(node.foundation?{foundation:{...node.foundation}}:{}),...(node.facilityKind?{facilityKind:node.facilityKind}:{}),parcelIds:[...node.parcelIds]};
   });
   let lengthTiles=0;
   const spans=path.edges.map((edge,index)=>{
     sumCosts(costBreakdown,edge.costs);edge.parcelIds.forEach(id=>parcelIds.add(id));lengthTiles+=edge.lengthTiles;
-    for(const key of ['waterLengthTiles','agricultureLengthTiles','vegetationLengthTiles','roadLengthTiles','elevationChangeTiles'])metrics[key]+=edge.metrics[key];
+    for(const key of ['waterLengthTiles','agricultureLengthTiles','vegetationLengthTiles','roadLengthTiles','elevationChangeTiles','farmCorridorLengthTiles','homeBufferLengthTiles','workBufferLengthTiles','roadCorridorLengthTiles','humanDisturbanceUnits'])metrics[key]+=edge.metrics[key];
     if(edge.metrics.waterLengthTiles>EPS)metrics.waterSpans++;
     if(edge.metrics.roadLengthTiles>EPS)metrics.roadSpans++;
     return {from:nodes[index].id,to:nodes[index+1].id,lengthTiles:edge.lengthTiles,sag:graph.config.sagTiles,parcelIds:[...edge.parcelIds]};
@@ -259,7 +312,9 @@ function routeFromPath(graph,path,profile,world){
   return {id:profile,label,profile,nodes,spans,parcelIds:ids,pendingConsentParcelIds,lengthTiles,costBreakdown,
     costModel,
     totalCostCents:totalCosts(costBreakdown),metrics,sourceMode:'fixture',coordinateSystem:'local-demo-grid',readyToApprove:false,
+    humanImpactPolicy:HUMAN_IMPACT_POLICY,objectiveDisturbanceUnits:metrics.humanDisturbanceUnits,
     objectiveCost:path.objectiveCost,reasons:[
+      ...(profile==='low-impact'?['Prioritizes lower modeled disturbance around homes, work areas and crops, then cost; some exposure may be unavoidable.']:[]),
       `${metrics.towerCount} towers and ${metrics.terminalCount} facility terminals connect ${lengthTiles.toFixed(1)} grid units.`,
       `${metrics.waterSpans} water span${metrics.waterSpans===1?'':'s'}; no tower foundations in water or roads.`,
       `${ids.length} distinct parcels affected; ${pendingConsentParcelIds.length} still require owner consent.`,

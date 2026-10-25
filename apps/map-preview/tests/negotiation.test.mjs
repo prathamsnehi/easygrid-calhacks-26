@@ -242,3 +242,19 @@ test('approval demo cannot replace an in-progress result and old approval eviden
   assert.equal(h.controller.getState().phase,'approved');assert.equal(h.requests.length,0);
   h.reset();assert.throws(()=>h.controller.runApprovalDemo());assert.equal(h.controller.getState().phase,'idle');
 });
+
+test('saved live outcomes reuse approval and refusal behavior with live provenance and no second call',()=>{
+  const accepted=harness(),p=initial.ownerHandoff.parcels.find(p=>p.parcelId===original);
+  const event={kind:'easygrid-voice-result',saved:true,mode:'live',attemptId:'voice-attempt',eventId:'voice-accepted',
+    mapBinding:accepted.controller.getBinding(),localParcelId:original,outcome:'accepted',acceptedCompensationCents:p.offerPolicy.recommendedOfferCents,monthlyRentCents:0,termsVersion:p.terms.termsVersion};
+  accepted.controller.applySavedVoiceResult(event);
+  assert.equal(accepted.controller.getState().phase,'approved');assert.equal(accepted.controller.getState().simulated,false);
+  assert.equal(accepted.controller.getState().outcomes[0].sourceMode,'live');assert.equal(accepted.requests.length,0);
+  assert.equal(accepted.controller.applySavedVoiceResult(event).status,'duplicate');assert.equal(accepted.invalidations,1);
+  const refused=harness();refused.controller.applySavedVoiceResult({...event,eventId:'voice-refused',mapBinding:refused.controller.getBinding(),outcome:'refused'});
+  assert.deepEqual(refused.requests[0].blockedParcelIds,[original]);assert.equal(refused.locks,1);
+  refused.setHandoff(bypassPacket());refused.flush();assert.equal(refused.controller.getState().phase,'confirmed');
+  assert.equal(refused.controller.getState().simulated,true,'remaining fictional owner responses stay labeled simulated');
+  const review=harness();review.controller.applySavedVoiceResult({...event,eventId:'voice-review',mapBinding:review.controller.getBinding(),outcome:'review_required'});
+  assert.equal(review.requests.length,0);assert.equal(review.controller.getState().phase,'review_required');assert.equal(review.controller.getAgreement(),null);
+});

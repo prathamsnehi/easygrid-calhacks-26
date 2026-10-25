@@ -55,7 +55,16 @@ test('an unassigned session receives one in-route user role without changing fix
     assert.equal(packet.userRole.participantContactRef,`${input.sessionId}:user`);
     assert.equal(packet.parcelAnalysis.filter(row=>row.userRole).length,1);
     assert.equal(packet.userRole.participantReady,false);
-    assert.equal(packet.callPreparation.status,'participant-required');
+    // Role assignment is independent of valuation readiness: an alternative may
+    // graze another parcel with its corridor while the priced centerline misses it.
+    const unpriced=nextAnalysis.parcels.filter(row=>row.lineLengthTiles<=1e-7&&row.towerCount===0);
+    assert.equal(packet.callPreparation.status,unpriced.length?'review-required':'participant-required');
+    assert.equal(packet.snapshot.routes[0].eligible,unpriced.length===0);
+    assert.equal(packet.ownerHandoff.simulationChecksPassed,unpriced.length===0);
+    if(unpriced.length){
+      assert(unpriced.every(row=>row.upfrontCents===0&&row.recommendationStatus==='review-required'));
+      assert(packet.snapshot.routes[0].reasons.includes('A corridor-only parcel needs compensation review before negotiation.'));
+    }
     assert.equal(packet.callPreparation.canStartCall,false);
     assert.equal(packet.snapshot.routes[0].readyToApprove,false);
     assert(packet.snapshot.parcels.every(parcel=>parcel.accessConsent==='unknown'));
@@ -64,6 +73,22 @@ test('an unassigned session receives one in-route user role without changing fix
   }
   assert.equal(JSON.stringify({owners:world.owners,parcels:world.parcels}),before);
   assert.throws(()=>createHandoff({...input,userParcelId:'not-on-route'}),/existing fictional parcel/);
+});
+
+test('a fully priced lower-impact alternative remains eligible for a consented participant handoff',()=>{
+  const substation=createPlacement(world,'substation',-43,35);
+  const placements={substation,datacenter:createPlacement(world,'datacenter',43,35,{substation})};
+  const routes=computeTransmissionRoutes(world,placements);
+  const route=routes.candidates.find(candidate=>candidate.id==='low-impact');
+  assert(route);
+  const analysis=analyzeRouteParcels(world,route,routes.assumptions);
+  assert(analysis.parcels.every(row=>row.lineLengthTiles>1e-7||row.towerCount>0));
+  const participant=validateDemoParticipant({alias:'Fictional participant',phone:'+14155550134',consent:true}).participant;
+  const packet=createHandoff({...input,placements,route,analysis,participant});
+  assert.equal(packet.snapshot.routes[0].eligible,true);
+  assert.equal(packet.ownerHandoff.simulationChecksPassed,true);
+  assert.equal(packet.callPreparation.status,'ready-for-host-adapter');
+  assert.equal(packet.callPreparation.canStartCall,false,'private registration and a connected host are still required');
 });
 
 test('shared packet redacts real participant alias and number while exposing exact route and proposal costs',()=>{

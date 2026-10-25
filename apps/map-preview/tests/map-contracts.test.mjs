@@ -15,6 +15,7 @@ import {createContractDraft, contractDocument, contractSourceKey} from '../src/c
 import {createContractAPI} from '../server/contract-api.mjs';
 import {createMapContractService, reconstructMapProposal} from '../server/map-contracts.mjs';
 import {createDemoBank} from '../server/contract-workflow.mjs';
+import {createNegotiatedStateFixture} from './helpers/negotiated-state.mjs';
 
 const world = createWorld();
 const substation = createPlacement(world,'substation',-43,-17);
@@ -42,6 +43,50 @@ async function withAPI(action) {
   try {await action(await createContractAPI(options),options,directory);}
   finally {assert(resolve(directory).startsWith(resolve(prefix)));await rm(directory,{recursive:true,force:true});}
 }
+
+test('coordinator approval and HTTP share the async verified proposal resolver, terms and ledger', async () => withAPI(async (_default,options,directory) => {
+  const verifiedRoute={...route,id:'verified-local-relocation'};
+  const handoff=createHandoff({world,route:verifiedRoute,placements,analysis:{...analysis,routeId:verifiedRoute.id},
+    sessionId:'coordinator-proposal',routeVersion:2});
+  const context=mapContractRequest(handoff,placements);
+  assert.throws(()=>reconstructMapProposal(context,world),/Select a current route/,'the verified route is not a default graph candidate');
+  const negotiation=createNegotiatedStateFixture({ownerHandoff:handoff.ownerHandoff,mapBinding:context.mapBinding});
+  let available=true,envelope=true,currentHandoff=handoff;const requests=[];
+  const api=await createContractAPI({...options,
+    resolveProposal:async value=>{
+      await Promise.resolve();requests.push(clone(value));
+      if(!available)throw new Error('Private host details must not escape.');
+      return envelope?{handoff:clone(currentHandoff),route:verifiedRoute}:clone(currentHandoff);
+    },
+    resolveNegotiation:async ()=>clone(negotiation.trusted),
+  });
+  const approvalOptions={demoScope:'single-owner',demoTarget:'participant',negotiationRef:negotiation.negotiationRef};
+  await assert.rejects(api.approveMap({...context,participant:{phone:'private-contact'}},approvalOptions),/public map context/);
+  assert.equal(requests.length,0,'private extra fields must not reach an injected resolver or durable context');
+  const approved=await api.approveMap(context,approvalOptions);
+  assert.equal(approved.simulated,false);assert.equal(approved.bankMode,'simulation');assert.equal(approved.input.sourceMode,'fixture');
+  assert.equal(approved.input.route.id,verifiedRoute.id);assert.equal(approved.approvalMode,'negotiated');
+  assert.equal(approved.input.parcels.find(p=>p.parcelId===context.userParcelId).compensationCents,negotiation.agreedCents);
+  const http=await call(api,'approve-map',{context,...approvalOptions});
+  assert.equal(http.status,200,http.body.error);assert.deepEqual(http.body,approved);
+  const draft=createContractDraft(approved.input,context.userParcelId,{id:'coordinator-verified-draft'});
+  const command={packageId:approved.packageId,draft,demoScope:approved.demoScope,demoParcelId:approved.demoParcelId};
+  assert.equal((await call(api,'state',command)).status,200);assert.equal(requests.length,3);
+  const path=join(directory,'map-contracts.json'),before=await readFile(path,'utf8');
+  available=false;
+  const unavailable=await call(api,'sign/utility',command);
+  assert.equal(unavailable.status,409);assert.match(unavailable.body.error,/authoritative map proposal/);
+  assert(!unavailable.body.error.includes('Private host'));
+  assert.equal(await readFile(path,'utf8'),before,'failed revalidation must not record a signature');
+  available=true;envelope=false;
+  assert.equal((await call(api,'sign/utility',command)).status,200,'direct handoff return is supported too');
+  currentHandoff=proposal(3,'coordinator-proposal');
+  const changed=await call(api,'sign/landowner',command);
+  assert.equal(changed.status,409);assert.match(changed.body.error,/no longer matches/);
+  const saved=JSON.parse(await readFile(path,'utf8')).packages[approved.packageId].ledger;
+  assert(saved.documents[draft.id].signatures.utility);assert.equal(saved.documents[draft.id].signatures.landowner,undefined);
+  assert.deepEqual(saved.obligations,{});
+}));
 
 test('map contract inputs preserve the selected session, route, all original owners and exact compensation without contact', () => {
   const handoff = proposal(), context = mapContractRequest(handoff,placements);

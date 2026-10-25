@@ -48,7 +48,7 @@ jobs:
       - name: Typecheck SpacetimeDB
         run: npm run typecheck --prefix services/spacetimedb
 
-      - name: Test negotiation client commit and subscription gates
+      - name: Test negotiation and voice commit and subscription gates
         run: npm test --prefix services/spacetimedb
 
       - name: Build SpacetimeDB

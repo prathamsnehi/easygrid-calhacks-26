@@ -142,3 +142,54 @@ Verified provider contracts: [configuration](https://docs.cartesia.ai/agents/con
 [dynamic variables](https://docs.cartesia.ai/agents/dynamic-variables),
 [webhook authentication](https://docs.cartesia.ai/agents/webhook-tools), and
 [cancellation](https://docs.cartesia.ai/api-reference/agents/calls/cancel-call).
+
+## Integrated full-compensation voice runtime
+
+`createEasyGridVoiceRuntime` adds the current single-compensation flow without
+changing the older CAL-34 component interface. Supply the existing Cartesia
+service, a reviewer, agent ID and
+originating-number ID. Its `start` makes one provider request; `inspect` reads
+that same provider call and reviews a completed transcript. Persistence,
+authorization, scheduling, duplicate-action protection and geometry verification
+belong to the host. An `unknown` result never authorizes another dial.
+
+For the two-provider demo, the reviewer can load its saved, authenticated
+Cartesia response and return `reviewEasyGridToolResponse(response, input)`.
+This matches the full quote to actual provider transcript turns and corroborates
+the spoken approved offer without a second model account. The runtime validates
+the result again. `createEasyGridClaudeReviewer` is an optional alternative
+extractor; it is not required to use Cartesia and SpacetimeDB together.
+
+Use `EASYGRID_VOICE_PROMPT` when provisioning the agent. The current prompt
+states only the approved full compensation and does not add monthly rent.
+`start` receives the destination, exact opening/maximum cents and a private
+attempt-scoped credential. The credential is passed as a dynamic header value,
+never interpolated into speech. Keep the entire provider call record and its
+dynamic variables server-private; public projections must omit them.
+
+`easyGridVoiceToolDefinitions(publicHttpsOrigin)` creates pure definitions for
+`evaluate_counteroffer` and `record_owner_response`. `provisionEasyGridVoiceTools`
+is an explicit setup operation with a required durable `onCreated` checkpoint.
+Resume with saved IDs; an uncertain creation must be reconciled before any retry.
+Tools call `/api/voice/tools/counteroffer` and `/api/voice/tools/response`, using
+an attempt-scoped `Authorization` value and Cartesia's own call ID in the
+`X-EasyGrid-Call` header. The host must check both against its persisted attempt.
+Tool/model arguments are candidate evidence, never authorization or acceptance.
+
+`normalizeCartesiaTranscript` consumes the documented GET-call transcript array,
+excludes summaries/tool arguments, and generates stable opaque evidence IDs.
+The documented timestamp unit is unspecified, so it preserves provider ordering
+without inventing millisecond timings. Unknown speaking roles, redacted records
+and missing transcripts remain for review.
+
+The runtime independently validates the extractor's complete owner/offer quotes,
+speaker order, exact cents, final response and approved offer history. A simple
+explicit yes-if agreement to place towers at one cardinal edge of the original parcel can return
+`conditional`. This does not establish geometric feasibility: the host must
+verify the requested edge is actually reached within the original parcel before
+acceptance. This scope does not prove an entire line corridor lies along that edge;
+whole-line/route requests and generic "it" remain for review. Location requests without agreement, extra demands and ambiguous
+conditions remain for review. No second phone call is scheduled automatically.
+
+These paths are covered by synthetic provider/transcript tests. No live call,
+public webhook deployment or account configuration is implied by their presence.

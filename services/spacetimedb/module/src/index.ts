@@ -6,6 +6,7 @@ import {
   startSession,
 } from './logic.ts';
 import { spacetimedb } from './tables.ts';
+import { reserveVoiceAttempt, claimVoiceAttempt, markVoiceAttempt, saveVoiceCandidate, saveVoiceOutcome, recordVoiceTool, voiceWorkerAttempts, voiceResults } from './voice-state.ts';
 import {
   bindNegotiation, executeNegotiation, claimNegotiationReview, commitNegotiationReview,
   closeNegotiation, recordNegotiationTranscript, negotiationResults, negotiationWorkerState, negotiationReviewState, negotiationAgreements,
@@ -212,5 +213,18 @@ export const negotiation_agreements = spacetimedb.view(
   t.array(t.object('NegotiationAgreementRow', { revision: t.u32(), packetJson: t.string() })),
   (ctx, { sessionId }) => negotiationAgreements(ctx, sessionId),
 );
+
+export const reserve_voice_attempt = spacetimedb.reducer({ inputJson: t.string() }, (ctx, input) => reserveVoiceAttempt(ctx, input));
+export const claim_voice_attempt = spacetimedb.reducer({ id: t.string(), claimId: t.string() }, (ctx, input) => claimVoiceAttempt(ctx, input));
+export const mark_voice_attempt = spacetimedb.reducer({ id: t.string(), claimId: t.string(), status: t.string(), providerCallId: t.string(), evidenceJson: t.string() }, (ctx, input) => markVoiceAttempt(ctx, input));
+export const save_voice_candidate = spacetimedb.reducer({ id: t.string(), claimId: t.string(), candidateJson: t.string() }, (ctx, input) => saveVoiceCandidate(ctx, input));
+export const save_voice_outcome = spacetimedb.reducer({ id: t.string(), claimId: t.string(), outcomeJson: t.string() }, (ctx, input) => saveVoiceOutcome(ctx, input));
+export const record_voice_tool = spacetimedb.reducer({ id: t.string(), claimId: t.string(), requestId: t.string(), kind: t.string(), payloadJson: t.string() }, (ctx, input) => recordVoiceTool(ctx, input));
+export const voice_worker_attempts = spacetimedb.view({ name: 'voice_worker_attempts', public: true }, t.array(t.object('VoiceWorkerAttemptRow', {
+  id: t.string(), sessionId: t.string(), revision: t.u32(), status: t.string(), attemptJson: t.string(),
+})), ctx => voiceWorkerAttempts(ctx));
+export const voice_results = spacetimedb.view({ name: 'voice_results', public: true }, t.array(t.object('VoiceResultRow', {
+  id: t.string(), sessionId: t.string(), revision: t.u32(), status: t.string(), resultJson: t.string(),
+})), ctx => voiceResults(ctx));
 
 export default spacetimedb;

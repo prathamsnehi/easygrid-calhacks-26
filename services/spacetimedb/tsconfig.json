@@ -1,15 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    "exactOptionalPropertyTypes": false,
     "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["*.ts"],
-  "exclude": ["*.test.ts"]
+  "include": ["*.ts", "voice-bindings/**/*.ts"],
+  "exclude": ["*.test.ts", "tests/**/*.ts"]
 }

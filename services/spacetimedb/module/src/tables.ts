@@ -130,6 +130,26 @@ export const negotiationReview = table(
   },
 );
 
+/** One live voice attempt per session. Only its application-worker identity can read it. */
+export const voiceAttempt = table(
+  { name: 'voice_attempt', indexes: [{ accessor: 'byWorker', algorithm: 'btree', columns: ['workerIdentity'] }] },
+  {
+    id: t.string().primaryKey(),
+    sessionId: t.string().unique(),
+    workerIdentity: t.string(),
+    revision: t.u32(),
+    status: t.string(),
+    fingerprint: t.string(),
+    attemptJson: t.string(),
+  },
+);
+
+/** Provider IDs cannot be rebound to another saved attempt. */
+export const voiceProviderCall = table(
+  { name: 'voice_provider_call' },
+  { providerCallId: t.string().primaryKey(), attemptId: t.string() },
+);
+
 export const spacetimedb = schema({
   session,
   contact,
@@ -141,4 +161,6 @@ export const spacetimedb = schema({
   negotiationSession,
   negotiationResult,
   negotiationReview,
+  voiceAttempt,
+  voiceProviderCall,
 });

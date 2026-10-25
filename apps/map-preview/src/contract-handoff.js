@@ -5,6 +5,12 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const requireState = (condition, message) => {if (!condition) throw new Error(message);};
 const sameBinding = (a, b) => Boolean(a && b) && ['sessionId','routeId','routeVersion','proposalKey'].every(key => a[key] === b[key]);
 
+/** Controlled clause from verified same-parcel geometry, never arbitrary model prose. */
+export function voiceConditionAccessTerms(direction) {
+  requireState(['north','south','east','west'].includes(direction),'Unsupported approved voice location condition.');
+  return `Use the approved corridor and tower sites along the ${direction} edge of this fictional parcel. Coordinate access and restore the land. This location condition uses synthetic geometry, not a surveyed boundary.`;
+}
+
 /** Public fixture correlation only. Never includes the entered participant or contact. */
 export function mapContractRequest(handoff, placements, routingConstraints = null) {
   const binding = settlementBinding(handoff);
@@ -19,11 +25,14 @@ export function mapContractRequest(handoff, placements, routingConstraints = nul
     ...(routingConstraints ? {routingConstraints:copy(routingConstraints)} : {})};
 }
 
-/** Consume THEO's ready-for-agreements owner packet; selection or call consent is insufficient. */
+/** Consume explicit negotiated acceptance; a scoped approval does not approve the other route parcels. */
 export function contractSourceFromAgreement(agreement, handoff) {
-  const binding = settlementBinding(handoff), packet = agreement?.ownerHandoff;
+  const binding = settlementBinding(handoff), packet = agreement?.ownerHandoff, scope = agreement?.approvalScope;
   requireState(sameBinding(binding, agreement?.mapBinding) && handoff.snapshot.routes[0].eligible === true, 'The approved negotiation does not match the displayed route.');
-  requireState(packet?.kind === 'easygrid-owner-handoff' && packet.sourceMode === 'fixture' && packet.routeStatus === 'ready_for_agreements' && packet.referenceBinding === 'local-fixture', 'A complete approved development agreement packet is required.');
+  requireState(scope === undefined || (scope?.kind === 'single-owner' && typeof scope.parcelId === 'string' && scope.parcelId.length > 0), 'The approval scope must identify one current parcel.');
+  requireState(packet?.kind === 'easygrid-owner-handoff' && packet.sourceMode === 'fixture' &&
+    (packet.routeStatus === 'ready_for_agreements' || (scope && packet.routeStatus === 'selected_for_negotiation')) &&
+    packet.referenceBinding === 'local-fixture', 'A complete approved development agreement packet is required.');
   // Local agreement metadata preserves the exact source of previously signed drafts.
   const contractTermsVersion = agreement.contractTermsVersion === undefined ? 1 : agreement.contractTermsVersion;
   requireState(contractTermsVersion === 1 || contractTermsVersion === 2, 'Unsupported development contract terms version.');
@@ -31,29 +40,49 @@ export function contractSourceFromAgreement(agreement, handoff) {
     ? 'Use the approved corridor and tower sites. Coordinate access and restore the land.'
     : 'Use only the selected fictional corridor and tower foundations. Coordinate access with the fictional landowner and restore disturbed ground.';
   const proposal = handoff.ownerHandoff;
-  requireState(['sessionId','projectId','routeId','routeVersion'].every(key => packet[key] === proposal[key]) && packet.parcels.length === proposal.parcels.length && new Set(packet.parcels.map(p => p.parcelId)).size === proposal.parcels.length, 'The agreement must cover exactly the current route parcels.');
+  requireState(['sessionId','projectId','routeId','routeVersion'].every(key => packet[key] === proposal[key]) &&
+    Array.isArray(packet.parcels) && packet.parcels.length === proposal.parcels.length && new Set(packet.parcels.map(p => p.parcelId)).size === proposal.parcels.length,
+    'The agreement must cover exactly the current route parcels.');
+  requireState(Array.isArray(packet.owners) && packet.owners.length === proposal.owners.length &&
+    new Set(packet.owners.map(owner => owner.ownerId)).size === proposal.owners.length,
+    'The agreement must preserve every current fictional owner.');
+  requireState(scope === undefined || packet.parcels.some(parcel => parcel.parcelId === scope.parcelId), 'The approved parcel must be on the current route.');
+  const approvedAccessTerms=agreement.approvedAccessTerms;
+  requireState(approvedAccessTerms === undefined || (scope && approvedAccessTerms && typeof approvedAccessTerms === 'object' &&
+    Object.keys(approvedAccessTerms).length === 1 && Object.hasOwn(approvedAccessTerms,scope.parcelId) &&
+    ['north','south','east','west'].some(direction => approvedAccessTerms[scope.parcelId] === voiceConditionAccessTerms(direction))),
+    'The approved voice location clause must preserve its verified participant scope.');
   const source = {sourceMode:'fixture', sessionId:packet.sessionId, paymentSchedule:'full-after-signatures',
     project:{name:'Valley transmission project',developerName:'EasyGrid',signerName:'Ethan Cole'},
     route:{id:packet.routeId,version:packet.routeVersion,name:`Selected corridor / ${packet.routeId}`},
     negotiation:{id:agreement.negotiationId,version:agreement.negotiationVersion,status:'approved',approvedAt:agreement.approvedAt},
+    ...(scope ? {approvalScope:{kind:'single-owner',parcelId:scope.parcelId}} : {}),
     parcels:packet.parcels.map(parcel => {
       const original = proposal.parcels.find(p => p.parcelId === parcel.parcelId);
       const owner = packet.owners.find(o => o.ownerId === parcel.ownerId);
       const originalOwner = proposal.owners.find(o => o.ownerId === parcel.ownerId);
-      requireState(original && owner?.synthetic === true && original.ownerId === parcel.ownerId && owner.alias === originalOwner?.alias &&
+      requireState(original && originalOwner && owner?.synthetic === true && original.ownerId === parcel.ownerId && owner.alias === originalOwner.alias &&
         owner.banking?.ownerId === owner.ownerId && owner.banking.mode === 'simulated' &&
         owner.banking.paymentRecipientRef === originalOwner.banking.paymentRecipientRef &&
-        owner.banking.accountDisplay === originalOwner.banking.accountDisplay,
+        owner.banking.accountDisplay === originalOwner.banking.accountDisplay &&
+        owner.banking.accountHolderAlias === originalOwner.banking.accountHolderAlias && owner.banking.bankDisplay === originalOwner.banking.bankDisplay,
         'The approved parcel must preserve its original fictional owner and mock recipient.');
-      requireState(parcel.terms?.outcome === 'accepted' && parcel.terms.accessConsent === 'allowed' && parcel.terms.explicitConfirmation === true &&
+      const terms = parcel.terms;
+      requireState(terms && ['pending','accepted','refused','counteroffer','review_required'].includes(terms.outcome) &&
+        ['unknown','allowed','refused'].includes(terms.accessConsent) && typeof terms.explicitConfirmation === 'boolean' &&
+        (terms.confirmationRef === null || (typeof terms.confirmationRef === 'string' && terms.confirmationRef.length > 0)) &&
+        Number.isSafeInteger(terms.compensationCents) && terms.compensationCents >= 0 && terms.compensationCents <= original.offerCapCents &&
+        Number.isSafeInteger(terms.termsVersion) && terms.termsVersion >= original.terms.termsVersion,
+        'Every current-route parcel requires valid versioned terms within the approved offer limit.');
+      const accepted = terms.outcome === 'accepted' && terms.accessConsent === 'allowed' && terms.explicitConfirmation === true &&
         typeof parcel.terms.confirmationRef === 'string' && parcel.terms.confirmationRef.length > 0 &&
-        Number.isSafeInteger(parcel.terms.compensationCents) && parcel.terms.compensationCents >= 0 && parcel.terms.compensationCents <= original.offerCapCents &&
-        Number.isSafeInteger(parcel.terms.termsVersion) && parcel.terms.termsVersion >= original.terms.termsVersion,
-        'Every final-route owner requires explicit accepted terms within the approved offer limit.');
-      return {parcelId:parcel.parcelId,ownerId:parcel.ownerId,ownerName:owner.alias,accepted:true,termsVersion:parcel.terms.termsVersion,
+        !terms.hasUnresolvedConditions;
+      requireState(terms.outcome !== 'accepted' || accepted, 'An accepted parcel requires explicit confirmed access terms.');
+      requireState(accepted || (scope && scope.parcelId !== parcel.parcelId), 'Every parcel in the approval scope requires explicit accepted terms within the approved offer limit.');
+      return {parcelId:parcel.parcelId,ownerId:parcel.ownerId,ownerName:owner.alias,accepted,termsVersion:parcel.terms.termsVersion,
         compensationCents:parcel.terms.compensationCents,
         landDescription:`Fictional ${original.landUse.replaceAll('-', ' ')} parcel ${parcel.parcelId}. The selected route uses ${original.impact.towerCount} tower foundations and ${original.impact.wireLengthMeters.toFixed(1)} m of overhead corridor.`,
-        accessTerms};
+        accessTerms:approvedAccessTerms?.[parcel.parcelId] ?? accessTerms};
     })};
   return normalizeContractSource(source);
 }

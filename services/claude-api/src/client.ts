@@ -1,4 +1,5 @@
 import { NegotiationCandidate, NegotiationTurn, type NegotiationAttempt, type NegotiationCommand } from '@easygrid/contracts';
+export { createEasyGridClaudeReviewer } from './easygrid-reviewer.ts';
 
 export type ReviewInput = { offers: NegotiationAttempt['offers']; turns: NegotiationTurn[] };
 export type ReviewResult =

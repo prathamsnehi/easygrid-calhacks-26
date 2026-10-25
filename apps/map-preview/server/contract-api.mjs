@@ -4,7 +4,7 @@ import {createContractWorkflow, createWorkflowState, createDemoBank, paymentMayH
 import {createNessieSandboxBank} from './nessie-sandbox.mjs';
 import {createMapContractService} from './map-contracts.mjs';
 
-export async function createContractAPI({environment = process.env, stateURL = new URL('../.local/full-contract-ledger.json', import.meta.url), fetcher = fetch} = {}) {
+export async function createContractAPI({environment = process.env, stateURL = new URL('../.local/full-contract-ledger.json', import.meta.url), fetcher = fetch, resolveNegotiation, resolveProposal} = {}) {
   const port = Number(environment.EASYGRID_PREVIEW_PORT ?? 4177);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid local preview port.');
   const provider = environment.EASYGRID_PAYMENT_PROVIDER ?? 'simulation';
@@ -47,11 +47,12 @@ export async function createContractAPI({environment = process.env, stateURL = n
     await rename(temporary, target);
   }});
   const mapService = await createMapContractService({
+    resolveNegotiation,resolveProposal,
     stateURL:new URL(provider === 'nessie' ? 'nessie-map-contracts.json' : 'map-contracts.json',stateURL),
     ...(provider === 'nessie' ? {bank} : {}),
   });
   const reply = (res, status, data) => res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}).end(JSON.stringify(data));
-  return async (req, res, pathname) => {
+  const handler = async (req, res, pathname) => {
     if (!pathname.startsWith('/api/contracts/')) return false;
     if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) { reply(res,403,{error:'Local development host required.'}); return true; }
     if (req.method === 'GET' && pathname === '/api/contracts/example') {
@@ -70,7 +71,8 @@ export async function createContractAPI({environment = process.env, stateURL = n
     } catch { reply(res,400,{error:'Invalid contract request.'}); return true; }
     try {
       if (pathname === '/api/contracts/approve-map') {
-        const approved = await mapService.approve(input.context,{demoScope:input.demoScope,demoTarget:input.demoTarget}); reply(res,200,approved); return true;
+        if (Object.keys(input).some(key => !['context','demoScope','demoTarget','negotiationRef'].includes(key))) throw new Error('Contract approval accepts route context and a saved reference, never browser-approved money.');
+        const approved = await handler.approveMap(input.context,{demoScope:input.demoScope,demoTarget:input.demoTarget,negotiationRef:input.negotiationRef}); reply(res,200,approved); return true;
       }
       const dispatch = async workflow => {
         let result;
@@ -89,7 +91,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
       };
       if (input.packageId !== undefined && (typeof input.packageId !== 'string' || !/^map-contract-[a-f0-9]{40}$/.test(input.packageId))) throw new Error('Invalid approved map package.');
       if (!input.packageId && (input.demoScope != null || input.demoParcelId != null)) throw new Error('A single-owner demo requires its approved map package.');
-      const result = input.packageId ? await mapService.execute(input.packageId,dispatch,{demoScope:input.demoScope ?? null,demoParcelId:input.demoParcelId ?? null}) : await dispatch(workflow);
+      const result = input.packageId ? await mapService.execute(input.packageId,dispatch,{demoScope:input.demoScope ?? null,demoParcelId:input.demoParcelId ?? null,reconciliation:pathname === '/api/contracts/reconcile'}) : await dispatch(workflow);
       reply(res,200,{...result,paymentsEnabled:bank.canTransfer !== false});
     } catch (error) {
       // Only our own validation messages are returned; upstream keys, URLs and raw payloads never cross this boundary.
@@ -97,4 +99,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
     }
     return true;
   };
+  // In-process coordinators use exactly the HTTP approval service and ledger queue.
+  handler.approveMap = (context, options) => mapService.approve(context,options);
+  return handler;
 }

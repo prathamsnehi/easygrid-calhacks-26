@@ -90,7 +90,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       write('route-no-results',result?.reasons?.join(' ')??'The route could not be calculated. Try another site or recalculate.');
     }
   }
-  function showCandidate(id){
+  function showCandidate(id,{verifiedVersion}={}){
     if(!canRoute())return;
     const route=result?.candidates.find(candidate=>candidate.id===id);if(!route)return;
     clearGeometry();
@@ -123,7 +123,8 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       canvas.dataset.routeId=route.id;canvas.dataset.routeTowerCount=String(route.metrics.towerCount);
       canvas.dataset.routeParcelIds=route.parcelIds.join(',');canvas.dataset.routeTotalCents=String(route.totalCostCents);
       canvas.dataset.routeMinClearance=String(diagnostics.minClearance);
-      renderState();onRouteChange({route,assumptions:result.assumptions,routeVersion:++routeVersion});onDraw();return diagnostics;
+      routeVersion=verifiedVersion??routeVersion+1;
+      renderState();onRouteChange({route,assumptions:result.assumptions,routeVersion});onDraw();return diagnostics;
     }catch(error){
       clearGeometry();selectedId=null;state='error';result={candidates:[],reasons:['The computed connection did not pass its geometry checks. Move a site or recalculate.']};
       onRouteChange(null);onNoRoute();console.error(error);renderState();onDraw();return null;
@@ -188,5 +189,18 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
     pendingRouteId=routeId;routeVersion=version-1;
   }
   renderState();
-  return {invalidate:schedule,updateVisibility,initialize:schedule,adoptRegisteredRoute,replan:()=>{rememberPrevious();schedule({keepPrevious:true});}};
+  function installVerifiedRoute(snapshot,expectedVersion){
+    const current=result?.candidates.find(candidate=>candidate.id===selectedId);
+    if(!hasEndpoints()||state!=='ok'||expectedVersion!==routeVersion||snapshot?.routeVersion!==routeVersion+1||
+      snapshot.route?.id!==current?.id||!snapshot.assumptions||!Array.isArray(snapshot.route.parcelIds)||
+      [...snapshot.route.parcelIds].sort().join('|')!==[...current.parcelIds].sort().join('|'))throw new Error('The verified relocation does not match the current route.');
+    generation++;if(timer!==null)clearTimeout(timer);timer=null;rememberPrevious();
+    result={status:'ok',candidates:[snapshot.route],recommendedId:snapshot.route.id,assumptions:snapshot.assumptions};
+    const diagnostics=showCandidate(snapshot.route.id,{verifiedVersion:snapshot.routeVersion});
+    if(!diagnostics)throw new Error('The verified relocation could not be rendered.');
+    write('route-title','Owner condition applied');write('route-badge','CONDITION MET');
+    write('route-status-note','Tower locations verified within the original parcel.');write('route-name-0','Verified owner condition');
+    onFitRoute(snapshot.route,diagnostics);return true;
+  }
+  return {invalidate:schedule,updateVisibility,initialize:schedule,adoptRegisteredRoute,installVerifiedRoute,replan:()=>{rememberPrevious();schedule({keepPrevious:true});}};
 }
