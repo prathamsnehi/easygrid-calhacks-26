@@ -7,6 +7,10 @@ export async function createConfiguredVoiceService({environment=process.env, dep
   const port=Number(environment.EASYGRID_PREVIEW_PORT ?? 4177);
   const disabled=reason=>({api:createVoiceAPI({port,reason}),coordinator:null,enabled:false,reason});
   if(environment.EASYGRID_VOICE_ENABLED!=='yes')return disabled('Live voice is disabled. Configure the Cartesia and SpacetimeDB services to enable it.');
+  const databaseName=environment.SPACETIMEDB_DATABASE?.trim();
+  const expectedDatabase=environment.SPACETIMEDB_EXPECTED_DATABASE?.trim();
+  if(expectedDatabase&&databaseName!==expectedDatabase)
+    return disabled('Live voice is blocked because the configured database does not match this deployment’s isolated database.');
   const required=['SPACETIMEDB_DATABASE','SPACETIMEDB_TOKEN','CARTESIA_API_KEY','CARTESIA_AGENT_ID','CARTESIA_FROM_NUMBER_ID','EASYGRID_VOICE_SECRET','EASYGRID_VOICE_PUBLIC_URL'];
   if(required.some(key=>!environment[key]?.trim()) || environment.EASYGRID_VOICE_SECRET.length<32)
     return disabled('Live voice configuration is incomplete. Check the server environment.');
@@ -20,7 +24,7 @@ export async function createConfiguredVoiceService({environment=process.env, dep
     const [stateModule,providerModule,coordinatorModule]=modules;
     await verifyProvider({environment,mode:'check',provider:providerModule});
     store=await stateModule.createVoiceStore({uri:environment.SPACETIMEDB_URI || 'https://maincloud.spacetimedb.com',
-      databaseName:environment.SPACETIMEDB_DATABASE,token:environment.SPACETIMEDB_TOKEN});
+      databaseName,token:environment.SPACETIMEDB_TOKEN});
     const service=providerModule.createCartesiaService({apiKey:environment.CARTESIA_API_KEY});
     const runtimeFactory=attempt=>providerModule.createEasyGridVoiceRuntime({service,
       agentId:environment.CARTESIA_AGENT_ID,fromNumberId:environment.CARTESIA_FROM_NUMBER_ID,

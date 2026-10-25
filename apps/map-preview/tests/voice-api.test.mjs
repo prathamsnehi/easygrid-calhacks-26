@@ -81,3 +81,27 @@ test('startup fails closed with missing configuration without opening providers'
   const result=await createConfiguredVoiceService({environment:{EASYGRID_VOICE_ENABLED:'yes'}});
   assert.equal(result.enabled,false);assert.equal(result.coordinator,null);result.api.close();
 });
+
+test('an isolated deployment rejects another database before opening either provider',async t=>{
+  const opened=[],environment={EASYGRID_VOICE_ENABLED:'yes',
+    SPACETIMEDB_DATABASE:'collaborator-database',SPACETIMEDB_EXPECTED_DATABASE:'isolated-test-database',
+    SPACETIMEDB_TOKEN:'test-worker-token',CARTESIA_API_KEY:'test-provider-key',
+    CARTESIA_AGENT_ID:'test-agent',CARTESIA_FROM_NUMBER_ID:'test-number',
+    EASYGRID_VOICE_SECRET:'test-private-secret-at-least-32-characters',
+    EASYGRID_VOICE_PUBLIC_URL:'https://voice.example.com'};
+  const dependencies=[
+    {createVoiceStore:async config=>{opened.push({database:config.databaseName});return{close(){}};}},
+    {createCartesiaService:()=>{opened.push({provider:true});return{};}},
+    {createVoiceCoordinator:()=>coordinator()},
+  ];
+  const verifyProvider=async()=>{opened.push({verification:true});};
+  const blocked=await createConfiguredVoiceService({environment,dependencies,verifyProvider});
+  t.after(()=>blocked.api.close());
+  assert.equal(blocked.enabled,false);assert.match(blocked.reason,/isolated database/);
+  assert.deepEqual(opened,[],'no database connection or Cartesia request is allowed on a target mismatch');
+  const ready=await createConfiguredVoiceService({environment:{...environment,
+    SPACETIMEDB_DATABASE:' isolated-test-database '},dependencies,verifyProvider});
+  t.after(()=>ready.api.close());
+  assert.equal(ready.enabled,true);
+  assert.deepEqual(opened,[{verification:true},{database:'isolated-test-database'},{provider:true}]);
+});
