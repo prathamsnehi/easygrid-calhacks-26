@@ -1,10 +1,12 @@
 import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
+import {Buffer} from 'node:buffer';
 import {createContractExample} from '../src/contract-fixtures.js';
 import {createContractWorkflow, createWorkflowState, createDemoBank, paymentMayHaveBeenAttempted, DEMO_ACTORS} from './contract-workflow.mjs';
 import {createNessieSandboxBank} from './nessie-sandbox.mjs';
 import {createMapContractService} from './map-contracts.mjs';
 
-export async function createContractAPI({environment = process.env, stateURL = new URL('../.local/full-contract-ledger.json', import.meta.url), fetcher = fetch, resolveNegotiation, resolveProposal} = {}) {
+export async function createContractAPI({environment = process.env, stateURL = new URL('../.local/full-contract-ledger.json', import.meta.url), fetcher = fetch, resolveNegotiation, resolveProposal, stateStore} = {}) {
+  const readState = url => stateStore ? stateStore.read(url) : readFile(url,'utf8').then(JSON.parse);
   const port = Number(environment.EASYGRID_PREVIEW_PORT ?? 4177);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid local preview port.');
   const provider = environment.EASYGRID_PAYMENT_PROVIDER ?? 'simulation';
@@ -21,7 +23,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
     // The full-payment fixture has a new session ID. Changing its filename must
     // never conceal an earlier external side effect for these same demo owners.
     let legacy;
-    try { legacy = JSON.parse(await readFile(new URL('nessie-contract-ledger.json',stateURL),'utf8')); }
+    try { legacy = await readState(new URL('nessie-contract-ledger.json',stateURL)); }
     catch (error) { if (error.code !== 'ENOENT') throw new Error('The legacy Nessie ledger could not be loaded. Preserve it for review before using full payments.'); }
     if (legacy !== undefined) {
       if (!legacy || legacy.schemaVersion !== 1 || !legacy.obligations || typeof legacy.obligations !== 'object' || Array.isArray(legacy.obligations) || !Array.isArray(legacy.journal)) throw new Error('The legacy Nessie ledger is invalid. Preserve it for review before using full payments.');
@@ -31,7 +33,7 @@ export async function createContractAPI({environment = process.env, stateURL = n
     }
   }
   let initialState;
-  try { initialState = JSON.parse(await readFile(target, 'utf8')); }
+  try { initialState = await readState(target); }
   catch (error) { if (error.code !== 'ENOENT') throw new Error('The local development ledger could not be loaded. Preserve it for review.'); initialState = createWorkflowState(); }
   if (initialState.bankMode && initialState.bankMode !== bank.mode) throw new Error('The contract ledger belongs to a different payment provider.');
   if (!initialState.bankMode && bank.mode !== 'simulation' && (Object.keys(initialState.documents ?? {}).length || Object.keys(initialState.obligations ?? {}).length)) throw new Error('An untagged contract ledger cannot establish Nessie payment evidence.');
@@ -41,12 +43,14 @@ export async function createContractAPI({environment = process.env, stateURL = n
   initialState.bankMode = bank.mode;
   initialState.bankIdentity = bankIdentity;
   const workflow = createContractWorkflow({source:createContractExample(), bank, initialState, persist:async state => {
+    if (stateStore) return stateStore.write(target,state);
     await mkdir(new URL('./', target), {recursive:true});
     const temporary = new URL(`${target.pathname.split('/').at(-1)}.tmp`, target);
     await writeFile(temporary, JSON.stringify(state, null, 2) + '\n', {mode:0o600});
     await rename(temporary, target);
   }});
   const mapService = await createMapContractService({
+    stateStore,
     resolveNegotiation,resolveProposal,
     stateURL:new URL(provider === 'nessie' ? 'nessie-map-contracts.json' : 'map-contracts.json',stateURL),
     ...(provider === 'nessie' ? {bank} : {}),

@@ -48,13 +48,13 @@ export function reconstructMapProposal(context, world = createWorld()) {
 }
 
 /** Local fixture registry. Production replaces this boundary with Pratham's atomic shared store. */
-export async function createMapContractService({stateURL, bank:configuredBank, resolveNegotiation, resolveProposal, now = () => new Date().toISOString()}) {
+export async function createMapContractService({stateURL, bank:configuredBank, resolveNegotiation, resolveProposal, now = () => new Date().toISOString(), stateStore}) {
   const bankMode = configuredBank?.mode ?? 'simulation';
   const bankIdentity = configuredBank?.storageNamespace ?? null;
   requireState(['simulation','nessie-sandbox'].includes(bankMode), 'Unsupported map payment provider.');
   requireState(resolveProposal == null || typeof resolveProposal === 'function','The proposal resolver must be a trusted server function.');
   let state;
-  try {state = JSON.parse(await readFile(stateURL,'utf8'));}
+  try {state = stateStore ? await stateStore.read(stateURL) : JSON.parse(await readFile(stateURL,'utf8'));}
   catch (error) {if (error.code !== 'ENOENT') throw new Error('Preserve the unreadable map contract ledger for review.');state = {schemaVersion:2,bankMode,bankIdentity,packages:{},current:{}};}
   // Untagged registries predate provider integration and contain local simulation only.
   if (state.schemaVersion === 1 && !state.bankMode && bankMode === 'simulation') {
@@ -67,6 +67,7 @@ export async function createMapContractService({stateURL, bank:configuredBank, r
   const world = createWorld(), workers = new Map(); let queue = Promise.resolve();
   const serial = action => {const result = queue.then(action);queue = result.catch(() => {});return result;};
   const save = async () => {
+    if (stateStore) return stateStore.write(stateURL,state);
     await mkdir(new URL('./',stateURL),{recursive:true});
     const temporary = new URL(`${stateURL.pathname.split('/').at(-1)}.tmp`,stateURL);
     await writeFile(temporary,JSON.stringify(state) + '\n',{mode:0o600});
