@@ -14,9 +14,12 @@ Other developers keep their own configuration and database unchanged.
 ## Runtime status
 
 The operator has published the matching application module to a fresh private
-database. Its dashboard reports 12 tables and 16 reducers. The application-worker
-connection and Cartesia configuration still require verification. Dashboard
-publication alone does not establish a working voice connection.
+database. Its dashboard reports 12 tables and 16 reducers. The preparation run
+has saved a separate application identity and reached provider provisioning.
+Both scoped Cartesia tools and the agent were subsequently created, and the
+agent response matched the intended prompt, model, voice and tool IDs.
+The production host is still simulation-only; this setup is not an end-to-end
+phone-call verification.
 
 Run `npm run voice:prepare --prefix apps/map-preview` from the repository root
 after filling the private `.env.voice`. This builds the services, obtains or
@@ -38,6 +41,12 @@ environment alone does not enable hosted live calls or migrate the ledger.
 Database isolation itself leaves Cloudflare and payment-provider settings alone.
 The separate explicit preparation command may create Cartesia tools and an agent;
 it checkpoints those resources and never places a call.
+
+Cartesia tool schemas use optional integer fields for amounts rather than
+`nullable` properties. A refusal omits accepted compensation; approval still
+requires an exact transcript-supported amount. A definitive validation or
+authentication rejection clears the failed tool intent. A lost response or
+server failure remains pending and must be reconciled before another creation.
 
 ## Publish only to the dedicated database
 
