@@ -116,4 +116,5 @@ The user-approved offline demo places `Simulate refusal` directly below `Agent c
 
 The prior network remains at 20% opacity. Comparison overlays follow the sampled center conductor: muted brown previous path, opaque green new path. Reroute results and the continuation action appear above detailed costs, including on the overview after parcel analysis closes. Confirmed totals use exact agreed monthly terms.
 
-The product display name is QuickGrid. Repository names, package namespaces and public integration identifiers remain compatible. Actual call callbacks and database persistence/subscriptions are still integration work.
+The product and utility display name is EasyGrid. Repository names, package namespaces and public integration identifiers remain compatible. Actual call callbacks and database persistence/subscriptions are still integration work.
+

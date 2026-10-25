@@ -67,6 +67,19 @@ test('confirmed refusal reroutes, preserves exclusion, then simulates every othe
   assert.deepEqual(h.controller.getRoutingOptions().blockedParcelIds,[original]);
 });
 
+test('refusal is allowed before pricing review but replacement agreement still requires eligibility',()=>{
+  const h=harness(),unpriced=structuredClone(initial);
+  unpriced.snapshot.routes[0].eligible=false;
+  h.setHandoff(unpriced);
+  assert.equal(h.controller.runRefusalDemo().rerouteNeeded,true);
+  assert.deepEqual(h.requests[0].blockedParcelIds,[original]);
+  const unpricedReplacement=bypassPacket();
+  unpricedReplacement.snapshot.routes[0].eligible=false;
+  h.setHandoff(unpricedReplacement);h.flush();
+  assert.equal(h.controller.getState().phase,'review_required');
+  assert.equal(h.controller.getAgreement(),null);
+});
+
 test('unverified refusal, stale route, wrong parcel and raw transcript are rejected without side effects',()=>{
   for(const modify of [e=>({...e,explicitConfirmation:false}),e=>({...e,evidenceRefs:[]}),
     e=>({...e,mapBinding:{...e.mapBinding,routeVersion:9}}),e=>({...e,parcelId:'not-on-route'}),
@@ -113,7 +126,7 @@ test('host subscription binds current proposal, aborts old delivery, and reports
   const h=harness(),streams=[];let cleaned=0;
   h.controller.setSource(stream=>{streams.push(stream);stream.onReady();return ()=>cleaned++;});
   await Promise.resolve();assert.equal(h.controller.getState().connected,true);
-  assert.throws(()=>h.controller.runRefusalDemo(),/eligible demo/,'no mock injection while live source connected');
+  assert.throws(()=>h.controller.runRefusalDemo(),/current demo route/,'no mock injection while live source connected');
   const old=streams[0],event=h.update();h.setHandoff(bypassPacket());await Promise.resolve();
   assert.equal(old.signal.aborted,true);assert.equal(cleaned,1);
   assert.deepEqual(old.onUpdate(event),{status:'ignored'});assert.equal(h.requests.length,0);

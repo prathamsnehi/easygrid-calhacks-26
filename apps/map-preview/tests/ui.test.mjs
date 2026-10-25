@@ -8,6 +8,8 @@ import * as THREE from '../vendor/three.cjs';
 import { createWorld } from '../src/world.js';
 import { PLAN_STORAGE_KEY, createPlacement } from '../src/placement.js';
 import { computeTransmissionRoutes } from '../src/routing.js';
+import { reconstructMapProposal } from '../server/map-contracts.mjs';
+import { contractSourceFromAgreement, simulatedMapAgreement } from '../src/contract-handoff.js';
 
 const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
 const markup=html.slice(0,html.indexOf('<script>'));
@@ -23,7 +25,7 @@ const compiled=new vm.Script(embedded
 const expectedWorld=createWorld();
 const privateUser={alias:'Test User',phone:'+12025550123'};
 
-function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,panelRects={},rect={left:37,top:100,width:1100,height:700}}={}) {
+function boot({fetcher=undefined,saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,panelRects={},rect={left:37,top:100,width:1100,height:700}}={}) {
   const errors=[],elements=new Map();
   let currentScene,currentCamera,clock=1000;
   let timerSequence=0;
@@ -122,7 +124,7 @@ function boot({saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=
   }
   class ClockDate extends Date {static now(){return clock;}}
   const context=vm.createContext({
-    document,window,TestRenderer,prepareWorld,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
+    document,window,TestRenderer,prepareWorld,fetch:fetcher,AbortController,AbortSignal,Date:ClockDate,performance:{now:()=>clock},
     matchMedia:()=>({matches:true,addEventListener(){}}),
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},
     setTimeout:(callback,delay=0,...args)=>{const id=++timerSequence;timers.set(id,{callback,args,at:clock+delay});return id;},
@@ -599,7 +601,7 @@ test('settlement stays locked until host approval, then lights up and is revoked
   assert(app.elements.get('settle-payment').classList.contains('settlement-ready'));
   app.click('settle-payment');await settlePromises();
   assert.equal(app.elements.get('settle-payment').textContent,'Request sent');
-  assert.equal(request.stage,'contract_tranche');assert(!('participant' in request));
+  assert.equal(request.stage,'full');assert.equal(request.paymentSchedule,'full-after-signatures');assert(!('participant' in request));
   assert(!JSON.stringify(request).includes(privateUser.phone));assert(!JSON.stringify(request).includes(privateUser.alias));
   assert.equal(handoffOf(app).snapshot.project.status,packet.snapshot.project.status,'button never manufactures project approval');
   assert(handoffOf(app).ownerHandoff.parcels.every(p=>p.terms.outcome==='pending'));
@@ -677,7 +679,13 @@ test('route changes invalidate prior handoffs, preserve the original user role a
 });
 
 test('refusal demo bypasses the original owner, simulates all new-route agreements and enables demo contract continuation',async()=>{
-  const app=boot();placePair(app);await app.flushTimers();
+  const requests=[];
+  const app=boot({fetcher:async(url,options)=>{
+    assert.equal(url,'/api/contracts/approve-map');requests.push(JSON.parse(options.body));
+    const handoff=reconstructMapProposal(requests.at(-1).context);
+    const agreement=simulatedMapAgreement(handoff,{negotiationId:'ui-approved',approvedAt:'2026-10-24T20:00:00Z'});
+    return {ok:true,json:async()=>({packageId:`map-contract-${'a'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input:contractSourceFromAgreement(agreement,handoff)})};
+  }});placePair(app);await app.flushTimers();
   const api=app.window.easygridDemo,before=handoffOf(app),original=before.userRole.parcelId;
   let calls=0;api.setHandoffHandler(async()=>{calls++;});
   api.setSettlementHandler(async()=>{throw new Error('No payment should be requested.');});
@@ -713,20 +721,33 @@ test('refusal demo bypasses the original owner, simulates all new-route agreemen
   assert.equal(app.elements.get('settle-payment').disabled,false,'demo agreement enables contract continuation');
   assert(app.elements.get('settle-payment').classList.contains('settlement-ready'));
   app.click('settle-payment');
-  assert.equal(app.elements.get('demo-settlement-summary').hidden,false);
-  assert.equal(app.elements.get('demo-settlement-compensation').textContent,new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(agreed.totals.compensationCents/100));
+  assert.equal(app.elements.get('settle-payment').disabled,true,'preparing contracts blocks duplicate clicks');
+  app.click('settle-payment');await settlePromises();await settlePromises();
+  assert.equal(requests.length,1);
+  assert.equal(app.elements.get('contract-workspace').hidden,false);
+  assert.equal(app.elements.get('cg-owner-count').textContent,String(after.ownerHandoff.parcels.length));
+  assert.equal(app.elements.get('cg-total').textContent,usd(agreed.totals.compensationCents));
+  assert.deepEqual(requests[0].context.routingConstraints.blockedParcelIds,[original]);
+  for(const secret of Object.values(privateUser))assert(!JSON.stringify(requests).includes(secret));
+  app.click('cg-close');
   const ghost=app.scene().getObjectByName('Previous route').children[0];
   ghost.traverse(object=>{if(object.material)assert.equal(object.material.opacity,object.name==='Route comparison line'?.4:.2);});
   assert(app.scene().getObjectByName('Updated route highlight').children.length>0);
   app.click('close-analysis');
   assert.equal(app.elements.get('overview-settlement').disabled,false);
   app.click('overview-settlement');
-  assert.equal(app.elements.get('analysis-panel').hidden,false);
-  assert.equal(app.elements.get('demo-settlement-summary').hidden,false);
+  await settlePromises();
+  assert.equal(app.elements.get('analysis-panel').hidden,true);
+  assert.equal(app.elements.get('contract-workspace').hidden,false);
+  assert.equal(requests.length,1,'reopening reuses the current package');
+  app.click('cg-close');
   assert.equal(app.elements.get('cost-total').textContent,app.elements.get('negotiation-new-cost').textContent);
   assert.equal(app.elements.get('simulate-refusal').disabled,true);
   assert(after.ownerHandoff.parcels.every(p=>p.terms.outcome==='pending'),'original map estimate stays separate from simulated agreements');
   for(const secret of Object.values(privateUser))assert(!JSON.stringify(agreed).includes(secret));
+  api.setNegotiationSource(null);
+  assert.equal(app.elements.get('cg-proceed').disabled,true,'changing negotiation sources revokes contract readiness');
+  assert.equal(app.elements.get('cg-stale').hidden,false);
   app.click('close-analysis');app.click('recalculate-route');
   assert.equal(api.getNegotiatedHandoff(),null,'old-route agreement is revoked immediately');
   assert.equal(app.elements.get('overview-settlement').disabled,true);
@@ -740,6 +761,28 @@ test('refusal demo bypasses the original owner, simulates all new-route agreemen
   app.click('reset-plan');
   assert.equal(api.getNegotiationState().blockedParcelIds.length,0);
   assert.equal(app.scene().getObjectByName('Previous route').children.length,0);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('an unpriced corridor parcel does not disable refusal on a current route',async()=>{
+  const app=boot();
+  assert.equal(app.elements.get('simulate-refusal').disabled,true,'a route is still required');
+  app.click('next-site');app.click('confirm-placement');
+  app.click('next-site');app.click('next-site');app.click('confirm-placement');
+  await app.flushTimers();
+  const before=handoffOf(app),api=app.window.easygridDemo;
+  assert.equal(before.snapshot.routes[0].eligible,false);
+  assert(before.parcelAnalysis.some(p=>p.corridorOnly),'exercise a real unpriced corridor contact');
+  assert.equal(app.elements.get('simulate-refusal').disabled,false);
+  assert.equal(app.elements.get('settle-payment').disabled,true);
+  app.click('simulate-refusal');
+  assert.equal(api.getNegotiationState().phase,'rerouting');
+  assert.equal(app.canvas.dataset.previousRouteVisible,'true');
+  assert.equal(app.elements.get('simulate-refusal').disabled,true,'do not start a duplicate refusal');
+  await app.flushTimers();
+  assert.equal(api.getNegotiationState().phase,'no_route','this placement has no priced replacement within the constraints');
+  assert.equal(api.getNegotiatedHandoff(),null);
+  assert.equal(app.elements.get('overview-settlement').disabled,true,'missing replacement cannot approve contracts');
   assert.deepEqual(app.errors,[]);
 });
 
@@ -1062,6 +1105,10 @@ test('inspection clicks lock parcel selection and frame it without hover-driven 
 
 test('CAL-34 saved results show precise reasons, block repeat calls and do not reroute',async()=>{
   const app=boot();placePair(app);await app.flushTimers();
+  const before=app.window.easygridDemo.getHandoff();
+  const agreement=simulatedMapAgreement(before,{negotiationId:'prior-contracts',approvedAt:'2026-10-24T20:00:00Z'});
+  app.window.easygridDemo.setContractAgreement({agreement,mapBinding:agreement.mapBinding,packageId:'prior-package',simulated:true});
+  app.window.easygridDemo.openContracts();app.window.easygridDemo.closeContracts();
   let callbacks;
   app.window.easygridDemo.setNegotiationResultSource(args=>{callbacks=args;args.onReady();});
   const binding=app.window.easygridDemo.getNegotiationBinding();
@@ -1077,6 +1124,15 @@ test('CAL-34 saved results show precise reasons, block repeat calls and do not r
   assert.equal(app.elements.get('handoff-result').textContent,explanation);
   assert(app.elements.get('agent-call').disabled);assert.equal(app.canvas.dataset.routeId,routeBefore);
   assert(app.elements.get('simulate-refusal').hidden);
+  assert(app.elements.get('overview-settlement').disabled);
+  assert.throws(()=>app.window.easygridDemo.openContracts(),/Approve the current route/);
+  assert.throws(()=>app.window.easygridDemo.runRefusalDemo(),/new demo/);
+  assert.throws(()=>app.window.easygridDemo.setNegotiationSource(()=>{}),/new demo/);
+  assert.equal(app.elements.get('contract-workspace').hidden,true);
+  assert.equal(app.elements.get('handoff-result').textContent,explanation);
+  app.window.easygridDemo.setNegotiationResultSource(null);
+  assert.throws(()=>app.window.easygridDemo.runRefusalDemo(),/new demo/,'disconnecting a source cannot erase a live failure');
+  assert.deepEqual(app.errors,[]);
 });
 
 test('CAL-34 outage preserves the last saved reason with an offline note',async()=>{
@@ -1092,4 +1148,22 @@ test('CAL-34 outage preserves the last saved reason with an offline note',async(
   assert(app.elements.get('handoff-result').textContent.includes('Not interested.'));
   assert(app.elements.get('handoff-result').textContent.includes('last saved result'));
   assert(app.elements.get('agent-call').disabled);
+});
+
+test('a late contract preparation response cannot reopen a changed route',async()=>{
+  let finish;
+  const app=boot({fetcher:async(_url,options)=>{
+    const handoff=reconstructMapProposal(JSON.parse(options.body).context);
+    const agreement=simulatedMapAgreement(handoff,{negotiationId:'ui-delayed',approvedAt:'2026-10-24T20:00:00Z'});
+    return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({packageId:`map-contract-${'b'.repeat(40)}`,simulated:true,agreement,mapBinding:agreement.mapBinding,input:contractSourceFromAgreement(agreement,handoff)})});});
+  }});
+  placePair(app);await app.flushTimers();app.click('simulate-refusal');await app.flushTimers();
+  app.click('overview-settlement');
+  assert.equal(typeof finish,'function');
+  assert.equal(app.elements.get('overview-settlement').disabled,true);
+  app.click('close-analysis');app.click('recalculate-route');finish();
+  await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('contract-workspace').hidden,true);
+  assert.equal(app.elements.get('overview-settlement').disabled,true);
+  assert.deepEqual(app.errors,[]);
 });

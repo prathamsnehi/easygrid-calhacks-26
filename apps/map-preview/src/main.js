@@ -4,6 +4,7 @@ import { createPlanner } from './planner.js';
 import { createRouteController } from './route-controller.js';
 import { createAnalysisController } from './analysis-controller.js';
 import { createNegotiationController } from './negotiation-controller.js';
+import { createContractEntry } from './contract-entry.js';
 
 const canvas = document.querySelector('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -69,6 +70,8 @@ let planner = null;
 let routing = null;
 let analysis = null;
 let negotiation = null;
+let contracts = null;
+let scopedNegotiationSource=false;
 let demoReady = false;
 const pointers = new Map();
 let pinchDistance = 0;
@@ -182,6 +185,7 @@ planner=createPlanner({THREE,scene,camera,canvas,world:landscape.world,
   onPlanChange:()=>{rebuildViewBounds();routing?.invalidate();},
 });
 analysis=createAnalysisController({world:landscape.world,canvas,
+  onContextChange:()=>contracts?.invalidate(),
   getPlacements:()=>planner.getPlacements(),
   onDemoReadyChange:ready=>{
     demoReady=ready;pointers.clear();pinchDistance=0;canvas.classList.remove('dragging');
@@ -192,15 +196,17 @@ analysis=createAnalysisController({world:landscape.world,canvas,
   },
   onUserRoleChange:()=>planner.refreshParcelRoles(),
 });
+function canSimulateNegotiation(){return !scopedNegotiationSource&&!analysis.negotiationResults.getState().view;}
+contracts=createContractEntry({getHandoff:()=>analysis.getHandoff(),getPlacements:()=>planner.getPlacements(),
+  getRoutingOptions:()=>negotiation?.getRoutingOptions()??{},canSimulate:canSimulateNegotiation,onOpen:()=>analysis.close({restoreFocus:false})});
 const negotiationMoney=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
 let refusalDemoActive=false;
-let scopedNegotiationSource=false;
 function renderNegotiation(state){
-  const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=scopedNegotiationSource||(negotiation?.hasSource()??false);
+  const h=analysis.getHandoff(),active=state.phase!=='idle',connectedSource=!canSimulateNegotiation()||(negotiation?.hasSource()??false);
   const get=id=>document.querySelector(`#${id}`),write=(id,value)=>{get(id).textContent=value;};
   get('negotiation-progress').hidden=!active;
   get('simulate-refusal').hidden=connectedSource;
-  get('simulate-refusal').disabled=connectedSource||active||!h?.snapshot.routes[0].eligible||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
+  get('simulate-refusal').disabled=connectedSource||active||!h?.userRole.roleOnRoute||h?.userRole.liveCallLocked;
   get('negotiation-result').hidden=!active;
   write('negotiation-mode',connectedSource?'Owner responses':'Demo scenario');
   const labels={idle:connectedSource?(state.connected?'Listening':'Connecting'):'Ready',rerouting:'Rerouting',negotiating:'Simulating',confirmed:'Confirmed · simulated',review_required:'Review needed',no_route:'No route',awaiting_owners:'Pending owners'};
@@ -230,13 +236,7 @@ function renderNegotiation(state){
     const rows=state.outcomes.filter(outcome=>h.snapshot.routes[0].parcelIds.includes(outcome.parcelId));
     analysis.setNegotiationDisplay({routeVersion:h.routeVersion,outcomes:rows});
   }else analysis.setNegotiationDisplay(null);
-  analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,packet=>{
-    get('demo-settlement-summary').hidden=false;
-    write('demo-settlement-compensation',money(packet.totals.compensationCents));
-    write('demo-settlement-rent',money(packet.totals.rentTotalCents));
-    write('settlement-feedback','');
-    get('demo-settlement-summary').scrollIntoView?.({block:'nearest'});
-  });
+  analysis.settlement.setDemoAgreement(refusalDemoActive&&confirmed?agreement:null,()=>contracts.prepareAndOpen());
   if(confirmed){
     write('route-title','Updated connection');write('route-badge','DEMO AGREED');
     write('route-status-note',`${state.outcomes.length} owners accepted · simulated`);
@@ -244,31 +244,35 @@ function renderNegotiation(state){
   }
 }
 negotiation=createNegotiationController({world:landscape.world,getHandoff:()=>analysis.getHandoff(),getSessionId:()=>analysis.getSessionId(),
-  invalidateApproval:()=>analysis.settlement.invalidate(),lockLiveCall:()=>analysis.setLiveCallLockout(true),
+  invalidateApproval:()=>{analysis.settlement.invalidate();contracts.invalidate();},lockLiveCall:()=>analysis.setLiveCallLockout(true),
   onReroute:()=>{analysis.close({restoreFocus:false});planner.showOverview();routing.replan();},onChange:renderNegotiation});
 document.querySelector('#overview-settlement').addEventListener('click',()=>{
   if(document.querySelector('#overview-settlement').disabled)return;
   analysis.open();document.querySelector('#settle-payment').click();
 });
 document.querySelector('#simulate-refusal').addEventListener('click',()=>{
-  try{refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose an eligible route before starting this scenario.';}
+  try{if(!canSimulateNegotiation())throw new Error('Call result is active.');refusalDemoActive=true;negotiation.runRefusalDemo();}catch{document.querySelector('#negotiation-reason').textContent='Choose a current route with the demo participant before starting this scenario.';}
 });
 document.querySelector('#reset-plan').addEventListener('click',()=>{refusalDemoActive=false;negotiation.reset();});
 window.addEventListener('pagehide',()=>{refusalDemoActive=false;negotiation.reset();});
 // Host integrations opt in explicitly. Public snapshots never contain entered contacts.
 window.easygridDemo=Object.freeze({getHandoff:()=>analysis.getHandoff(),setHandoffHandler:handler=>analysis.setHandoffHandler(handler),
+  getContractBinding:()=>contracts.getBinding(),setContractNegotiation:value=>contracts.setNegotiation(value),
+  setContractAgreement:value=>contracts.setAgreement(value),openContracts:()=>contracts.open(),
+  setConstructionHandler:handler=>contracts.setConstructionHandler(handler),
+  reportConstructionComplete:value=>contracts.reportConstructionComplete(value),closeContracts:()=>contracts.close(),
   getSettlementBinding:()=>analysis.settlement.getBinding(),
   setSettlementApproval:approval=>analysis.settlement.setApproval(approval),
   setSettlementHandler:handler=>analysis.settlement.setHandler(handler),
   resolveSettlementAttempt:result=>analysis.settlement.resolveAttempt(result),
   setNegotiationResultSource:source=>{
-    scopedNegotiationSource=source!==null;refusalDemoActive=false;analysis.settlement.invalidate();
+    scopedNegotiationSource=source!==null;refusalDemoActive=false;analysis.settlement.invalidate();contracts.invalidate();
     if(scopedNegotiationSource)negotiation.setSource(null);
     analysis.negotiationResults.setSource(source);renderNegotiation(negotiation.getState());
   },getNegotiationResult:()=>analysis.negotiationResults.getState(),
   getNegotiationBinding:()=>negotiation.getBinding(),applyNegotiationUpdate:update=>negotiation.applyUpdate(update),
-  setNegotiationSource:source=>{if(source!==null&&scopedNegotiationSource)throw new Error('Disconnect the CAL-34 result source before enabling rerouting.');refusalDemoActive=false;analysis.settlement.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
-  getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{refusalDemoActive=true;return negotiation.runRefusalDemo();}});
+  setNegotiationSource:source=>{if(source!==null&&!canSimulateNegotiation())throw new Error('Start a new demo before enabling rerouting.');refusalDemoActive=false;analysis.settlement.invalidate();contracts.invalidate();negotiation.setSource(source);},getNegotiationState:()=>negotiation.getState(),
+  getNegotiatedHandoff:()=>negotiation.getAgreement(),runRefusalDemo:()=>{if(!canSimulateNegotiation())throw new Error('Start a new demo before simulating refusal.');refusalDemoActive=true;return negotiation.runRefusalDemo();}});
 routing=createRouteController({THREE,scene,world:landscape.world,landscape,canvas,
   canRoute:()=>demoReady,
   getPlacements:()=>planner.getPlacements(),onOverview:()=>planner.showOverview(),onDraw:()=>draw(performance.now()),

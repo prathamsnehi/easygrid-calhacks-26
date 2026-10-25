@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialOwnerHandoff, createOwnerHandoffCurrent } from '../src/owner-handoff-fixtures.ts';
 import { applyNegotiationCommand, permittedNegotiationMaximum, negotiationAgreementPacket, negotiationExplanation,
-  NegotiationSummary, type NegotiationState, type NegotiationCommand, type NegotiationTurn, type NegotiationReason } from '../src/negotiation.ts';
+  NegotiationSummary, NegotiationCandidate, type NegotiationState, type NegotiationCommand, type NegotiationTurn, type NegotiationReason } from '../src/negotiation.ts';
 import { createNegotiationTools, NEGOTIATION_VOICE_PROMPT } from '../src/negotiation-tools.ts';
 
 function fixture(): NegotiationState {
@@ -253,4 +253,42 @@ test('all affected parcels must agree before the shared agreement packet unlocks
   b.run({kind:'response',response:'agree',turnId:'owner-turn'},transcript);
   b.run({kind:'finalize',candidate:{...accepted(800000),monthlyRentCents:20000}},transcript);
   assert.equal(negotiationAgreementPacket(b.state).routeStatus,'ready_for_agreements');
+});
+
+
+test('a later refusal tool candidate cannot reuse an earlier agreement event', () => {
+  const s=setup();s.run({kind:'response',response:'agree',turnId:null});
+  s.run({kind:'refusal',reason:'DO_NOT_CALL',turnId:null});
+  s.run({kind:'finalize',candidate:accepted()},turns());
+  assert.equal(s.attempt.summary!.disposition,'needs_review');
+  assert.equal(s.state.workflow,'stopped');assert(s.state.liveCallLocked);
+});
+
+test('a price objection alone cannot corroborate categorical access refusal', () => {
+  const s=setup();const transcript=turns(1_000_000,"I don't want that price. I'd need more.");
+  s.run({kind:'finalize',candidate:{...accepted(),reason:'ACCESS_REFUSED'}},transcript);
+  assert.equal(s.attempt.summary!.reason,'CONFLICTING_EVIDENCE');
+  assert.equal(s.attempt.summary!.accessConsent,'unknown');
+});
+
+for(const text of ["We cannot offer $10000 plus $300 per month. Does that work for you?",
+  'We can offer $10000 plus $300 per month if the budget changes. Does that work for you?']) {
+  test(`a yes to unavailable or conditional spoken terms cannot establish agreement: ${text}`,()=>{
+    const s=setup(),transcript=turns();transcript[0]!.text=text;
+    s.run({kind:'response',response:'agree',turnId:'owner-turn'},transcript);
+    s.run({kind:'finalize',candidate:accepted()},transcript);
+    assert.equal(s.attempt.summary!.disposition,'needs_review');
+  });
+}
+
+test('a friendly no-problem reply is not evidence of a price refusal', () => {
+  const s=setup();s.run({kind:'finalize',candidate:{...accepted(),reason:'PRICE_REJECTED'}},turns(1_000_000,'No problem, that works.'));
+  assert.equal(s.attempt.summary!.reason,'CONFLICTING_EVIDENCE');
+});
+
+
+test('model extraction cannot invent provider failure facts', () => {
+  for(const reason of ['BUSY','NO_ANSWER','DISCONNECTED','TIME_LIMIT','MODEL_TIMEOUT']) {
+    assert.equal(NegotiationCandidate.safeParse({...accepted(),reason}).success,false);
+  }
 });

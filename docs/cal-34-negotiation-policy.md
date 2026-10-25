@@ -19,7 +19,9 @@ Approved demo scope, October 24, 2026. Supersedes the broader preparation note.
 
 Implementation and verification details are in [CAL-34 integration](CAL34_INTEGRATION.md).
 [Linear issue](https://linear.app/easygrid-calhacks-2026/issue/CAL-34) ·
-[Draft PR #11](https://github.com/prathamsnehi/easygrid-calhacks-26/pull/11).
+[PR #11](https://github.com/prathamsnehi/easygrid-calhacks-26/pull/11).
 
-Live calling, authenticated endpoint deployment and actual Maincloud persistence
-must be verified through CAL-33/CAL-29 before the issue can be marked Done.
+Closeout scope confirmed by Pratham: CAL-34 is complete as the reviewed negotiation
+component. Live calling, authenticated endpoint deployment, atomic persistence
+wiring and actual saved-result restoration remain open under CAL-33/CAL-41.
+This closeout does not claim those integrated checks passed.

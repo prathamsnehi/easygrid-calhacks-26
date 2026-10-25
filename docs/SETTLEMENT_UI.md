@@ -1,6 +1,6 @@
 # Approval-gated settlement button
 
-CAL-37 / CAL-41. **Continue to contract & settlement** is available in the map's parcel panel and, after a reroute, in the overview. In host-connected mode it stays disabled until the host supplies matching approval and a settlement handler. A matching approval enables the green button. The explicit manual **Simulate refusal** demo instead enables local contract preparation after the other fictional owners' scripted acceptances; clicking only opens a summary and never calls the payment handler. Connecting a negotiation source removes this shortcut. No signatures, manager approval, bank transfers or paid receipts are created by the demo.
+CAL-37 / CAL-41. **Continue to contract & settlement** is available in EasyGrid's parcel panel and, after a reroute, in the overview. The manual **Simulate refusal** demo enables agreement preparation after the other fictional owners' scripted acceptances. Continuing opens the review journey; it does not itself sign or pay. Both simulated roles must sign every final-route agreement before an explicit payment can send each owner's full compensation once. In host-connected mode, matching approval and a settlement handler remain necessary. Connecting a negotiation source removes the manual approval shortcut.
 
 ## Host integration
 
@@ -9,10 +9,10 @@ Use the existing `window.easygridDemo` interface. After the user approves the cu
 ```js
 const map = window.easygridDemo;
 
-map.setSettlementHandler(async ({handoff, approval, stage, requestKey, signal}) => {
+map.setSettlementHandler(async ({handoff, approval, stage, paymentSchedule, requestKey, signal}) => {
   // Implement this host adapter against the shared authoritative service.
   const result = await host.requestSimulatedSettlement({
-    handoff, approval, stage, requestKey, signal,
+    handoff, approval, stage, paymentSchedule, requestKey, signal,
   });
   return {
     status: 'submitted',
@@ -35,15 +35,15 @@ map.setSettlementApproval(null);
 map.setSettlementHandler(null);
 ```
 
-`host.requestSimulatedSettlement` is an integration placeholder, not a supplied service. The callback receives no private participant name or number. `stage` is always `contract_tranche`: this button requests the first 20% simulated settlement, not completion balances or future monthly fees.
+`host.requestSimulatedSettlement` is an integration placeholder, not a supplied service. The callback receives no private participant name or number. `stage` is always `full` and `paymentSchedule` is `full-after-signatures`. The host must derive 100% of each owner's approved compensation and enforce all current signatures before submitting the single payment. There is no deposit, completion balance or construction payment gate.
 
 `mapBinding` contains the map session, route ID/version and an exact serialized `proposalKey` covering the public snapshot, owner terms/banking references, coordinate transform and cost model. Treat it as an opaque equality key, not a cryptographic signature or authorization. The host must verify that the displayed proposal corresponds to the signed approved package before projecting approval. Do not copy an approval from another route or fabricate accepted terms in the map handoff, which remains a proposed-terms snapshot.
 
 ## Authoritative approval and execution
 
-Seohyun's CAL-37 implementation provides `approveCal37Authoritatively` and `settleCal37Authoritatively` behind an injected authoritative store. It must still check all accepted terms, simulated signatures, current contracts, owner-linked recipients, approval, amounts and stable business obligations. The browser button is only a presentation gate.
+The current local contract workflow provides the full-payment API behind `createContractWorkspace({api})`. It checks all accepted terms, simulated signatures, current contracts, owner-linked recipients, approval, amounts and stable business obligations. The browser button is only a presentation gate.
 
-The current CAL-37 settlement command does not accept an expected approval ID/package hash directly. The integrating host must compare the requested approval ID/hash with its authoritative record inside the transactional load/compare-and-swap path. It must not silently settle a newer package than the user saw. Canonical session/route/revision mappings are host-owned; local map IDs are not server authority.
+The shared CAL-37 `approveCal37Authoritatively` / `settleCal37Authoritatively` APIs retain their legacy schema for compatibility. They must not receive the new callback as an unchanged legacy tranche request. A future host adapter must implement the full-payment schedule, compare requested approval ID/hash with the authoritative record inside its transaction and preserve stable business obligations. It must not silently settle a newer package than the user saw. Canonical session/route/revision mappings are host-owned; local map IDs are not server authority.
 
 The map clears approval and aborts pending UI work after route changes, participant edits/reset/page departure or approval revocation. It rejects mismatched approvals and ignores late callbacks. Repeated identical approval notifications are harmless. Handler changes abort in-flight requests without revoking an otherwise matching approval. An abort does not establish whether the server committed a request.
 
@@ -64,4 +64,5 @@ map.resolveSettlementAttempt({
 
 `not-submitted` permits an explicit retry using the same request key. Never infer it from a timeout. Route changes require a new approval, and old callbacks cannot enable the new route's button.
 
-The standalone page has no connected approval/settlement backend and correctly starts disabled. Actual SpacetimeDB persistence, authenticated approver/operator roles and simulated execution remain CAL-29/CAL-37/CAL-41 integration work. This UI does not establish that only one named teammate can operate it.
+The local development server supplies fictional agreement approval, signatures and simulated full payments. The standalone HTML cannot perform these server actions by itself. Actual SpacetimeDB persistence, authenticated approver/operator roles and a future Capital One provider connection remain separate integration work. This UI does not establish that only one named teammate can operate it.
+

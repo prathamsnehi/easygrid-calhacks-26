@@ -5,7 +5,7 @@ import { createNegotiationResultController } from './negotiation-result-controll
 import { createSettlementController } from './settlement-controller.js';
 
 /** Local analysis and an explicit call-request boundary. No direct network or contact storage. */
-export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{}}) {
+export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{},onContextChange=()=>{}}) {
   const ids=['open-analysis','analysis-entry-status','analysis-panel','close-analysis','analysis-route-note','analysis-count','analysis-upfront-label','analysis-upfront',
     'analysis-rent-label','analysis-rent','analysis-consent-note','analysis-parcel-list','analysis-parcel-detail',
     'analysis-parcel-title','analysis-parcel-badge','focus-analysis-parcel','analysis-parcel-copy','analysis-owner',
@@ -31,12 +31,12 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   const settlement=createSettlementController({getHandoff});
   const negotiationResults=createNegotiationResultController({getHandoff,onChange:state=>{
     if(state.view?.phase!=='finished'||state.view.summary?.disposition!=='successful')settlement.invalidate();
-    renderHandoff();
+    onContextChange();renderHandoff();
   }});
   el['demo-workspace'].dataset.analysisOpen='false';
 
   function feedback(id,message,kind='') {write(id,message);el[id].className=`analysis-feedback${kind?` ${kind}`:''}`;}
-  function invalidateHandoff() {revision++;activeHandoff?.abort();activeHandoff=null;pending=null;callRequested=false;settlement.invalidate();}
+  function invalidateHandoff() {revision++;activeHandoff?.abort();activeHandoff=null;pending=null;callRequested=false;settlement.invalidate();onContextChange();}
   function isDemoReady() {return Boolean(participant);}
   function syncDemoGate() {
     const ready=isDemoReady();

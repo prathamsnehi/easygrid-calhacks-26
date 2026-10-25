@@ -20,3 +20,7 @@ coverage/
 # Repo-local tools and credentials; keep the CLI wrapper versioned.
 **/.tools/*
 !/.tools/spacetime-cli
+
+
+# Private local contract ledgers and sandbox setup checkpoints
+.local/

@@ -31,13 +31,19 @@ from `createMapNegotiationUpdate` and does not invoke that rerouting adapter.
 
 ## Required CAL-29 atomic reducer integration
 
-The main branch currently has a connection/configuration scaffold, not a
-published negotiation state API. During this task, the separate CAL-29 checkout
-started adding a session module with `start_session`, `publish_route` and
-`record_outcome`. That uncommitted parallel work was inspected read-only and
-left untouched. Its initial rows do not yet supply the full-route construction/
-rent-horizon accounting, offer-attempt reservations and review claims required
-below; do not treat `record_outcome` alone as this atomic negotiation API. No production in-memory store is supplied.
+CAL-29 is merged in main via PR #12 (`6ef469f`). Its state module provides
+`start_session`, `register_worker`, `publish_route`, `record_outcome` and views.
+Its README records the published `easygrid-demo` database; this review did not
+query or redeploy it. The merged module is not yet the CAL-34 negotiation API.
+It lacks full-route construction/rent-horizon accounting, per-attempt offer
+reservations, trusted evidence and durable review claims required below.
+
+Do not connect CAL-34 by forwarding to `record_outcome` alone. The current module
+simulates acceptance for other tower owners, excludes refusals and permits a new
+live-owner role on a subsequent route. CAL-34 instead stops on failure, preserves
+the original participant role and requires every affected parcel's current terms
+to be accepted. CAL-41 must reconcile those policies at the actual state boundary.
+No production in-memory store is supplied.
 `NegotiationState` is the reducer's snapshot/return shape; it is not persistence.
 
 The authorized reducer must:
@@ -182,6 +188,9 @@ blocks actions; the last saved explanation remains visible with an offline note.
 The old CAL-35 refusal/rerouting fixture remains available when no CAL-34 source
 is installed. Installing CAL-34 hides that demonstration and disconnects the
 legacy source; do not route CAL-34 failures through the old result adapter.
+The separate contract approval simulation is disabled while a CAL-34 source or
+saved result exists. Result updates revoke previously prepared contract packages;
+one parcel's success does not approve every other parcel.
 
 ## Checks and remaining completion evidence
 
@@ -203,23 +212,26 @@ no call, and writes a screenshot to `/private/tmp/cal34-browser-result.png` by
 default. `BROWSER_SCREENSHOT` overrides that path. This is browser/WebGL evidence,
 not live data integration.
 
-Still required before CAL-34 is Done:
+Pratham approved closing CAL-34 as component complete after review. The following
+integration acceptance items remain unchecked under CAL-33/CAL-41; they are not
+satisfied by the component closeout:
 
-- [ ] CAL-29: deployed atomic reducers, durable receipts/claims, authenticated views
-  and real saved-result restoration after refresh/reconnect.
+- [ ] CAL-41: adapt the merged CAL-29 module to these atomic transitions, durable
+  receipts/claims and authorized views; verify saved-result restoration after
+  refresh/reconnect through the actual service.
 - [ ] CAL-33: provisioned/authenticated tools, real consented call, provider transcript
   normalization and scheduled deadline/cancellation lifecycle.
-- [ ] Live 30–45-second successful negotiation, saved result after refresh, measured
+- [ ] CAL-33/CAL-41: live 30–45-second successful negotiation, saved result after refresh, measured
   connected/review latency, and sanitized tested-commit evidence in Linear.
 
 No deployment, live call or real transcript request was made by this change.
 
 ### Local implementation evidence
 
-- [x] 135 shared contract tests; typecheck, six generated-artifact consistency
+- [x] 141 shared contract tests; typecheck, six generated-artifact consistency
   checks and build pass. Includes bounded money decisions, transcript evidence,
   detailed failure reasons, replay/stale rejection and all-owner agreement gating.
-- [x] 125 map tests pass, including saved-result display, duplicate/stale delivery,
+- [x] 210 map tests pass, including saved-result display, duplicate/stale delivery,
   simulation isolation, New Demo and offline preservation of the last saved reason.
 - [x] 16 mocked Cartesia tests plus typecheck/build pass.
 - [x] 9 Claude/synthetic integration tests plus typecheck/build pass; real timeout
@@ -227,3 +239,13 @@ No deployment, live call or real transcript request was made by this change.
 - [x] Actual headless Chrome/WebGL check passes with a synthetic subscription:
   visible detailed explanation, disabled call button, no route change and no
   uncaught page errors. This verifies UI rendering, not persistence or live calling.
+
+### Review against current main
+
+The review incorporates CAL-29 plus the newer contract/payment workflow from
+`29f3da1`. It preserves both build entries and all contract UI checks. Added
+regressions cover an agreement candidate followed by a refusal, negated or
+conditional spoken offers, price objections versus access refusal, friendly
+"no problem" replies, and model-invented technical failure codes. The current
+map regression also checks that contract simulation cannot replace a call result.
+CAL-29 module tests and typecheck pass locally; no module changes were made.

@@ -27,8 +27,10 @@ export const NegotiationTurn = z.strictObject({
   startMs: z.number().int().nonnegative(), endMs: z.number().int().nonnegative(),
 }).refine(t => t.endMs >= t.startMs, 'Turn end precedes start');
 export type NegotiationTurn = z.infer<typeof NegotiationTurn>;
+// Technical call/review failures come from the host, never from model extraction.
 export const NegotiationCandidate = z.strictObject({
-  reason: NegotiationReason, offerTurnId: Id.nullable(), ownerTurnId: Id.nullable(),
+  reason: z.enum(['AGREED', 'PRICE_REJECTED', 'ACCESS_REFUSED', 'DO_NOT_CALL',
+    'UNCLEAR_RESPONSE', 'ADDITIONAL_CONDITIONS', 'CONFLICTING_EVIDENCE']), offerTurnId: Id.nullable(), ownerTurnId: Id.nullable(),
   compensationCents: Cents.nullable(), monthlyRentCents: Cents.nullable(),
 });
 export type NegotiationCandidate = z.infer<typeof NegotiationCandidate>;
@@ -178,7 +180,8 @@ function moneyMentions(text: string): bigint[] {
 }
 export function turnStatesOffer(text: string, offer: Pick<NegotiationOffer, 'compensationCents' | 'monthlyRentCents'>): boolean {
   const amounts = moneyMentions(text);
-  return amounts.length === 2 && amounts[0] === BigInt(offer.compensationCents) && amounts[1] === BigInt(offer.monthlyRentCents) && /month/i.test(text);
+  return !/(?:\b(?:cannot|can't|won't|unable to|not able to)\s+(?:\w+\s+){0,3}(?:offer|pay|agree|provide)|\bnot\s+(?:offering|paying|proposing)|\b(?:if|unless|provided that|conditional on)\b)/i.test(text) &&
+    amounts.length === 2 && amounts[0] === BigInt(offer.compensationCents) && amounts[1] === BigInt(offer.monthlyRentCents) && /month/i.test(text);
 }
 function finish(state: NegotiationState, a: NegotiationAttempt, reason: NegotiationReason, refs: string[] = [], detail?: string) {
   const success = reason === 'AGREED', unsuccessful = ['PRICE_REJECTED', 'ACCESS_REFUSED', 'DO_NOT_CALL'].includes(reason);
@@ -206,8 +209,8 @@ function finish(state: NegotiationState, a: NegotiationAttempt, reason: Negotiat
 }
 function corroboratesRefusal(reason: string, text: string) {
   return (reason === 'DO_NOT_CALL' ? /(?:stop calling|do not call|don.t call)/i : reason === 'ACCESS_REFUSED' ?
-    /(?:not interested|no (?:transmission|land access)|don.t want|do not want|refuse)/i :
-    /(?:\bno\b|decline|reject|too low|not enough|can.t accept|cannot accept)/i).test(text);
+    /(?:not interested|no (?:transmission|land access)|(?:don.t want|do not want|refuse)[^.!?]{0,50}\b(?:transmission|land access|access|power lines?|towers?|on my (?:land|property))\b)/i :
+    /(?:\bno\b(?!\s+(?:problem|worries|objection)\b)|decline|reject|too low|not enough|can.t accept|cannot accept)/i).test(text);
 }
 function validateCandidate(state: NegotiationState, a: NegotiationAttempt, candidate: NegotiationCandidate) {
   const offer = a.offers.at(-1)!;
@@ -340,7 +343,7 @@ export function applyNegotiationCommand(input: NegotiationState, raw: unknown, p
       const ownerTurn = attempt.turns.find(t => t.id === command.turnId && t.role === 'owner');
       if (command.turnId === null) {
         // Lock immediately on a refusal candidate; never treat a tool claim as proof.
-        attempt.phase = 'confirming'; state.workflow = 'stopped';
+        attempt.phase = 'confirming'; attempt.response = null; state.workflow = 'stopped';
         if (attempt.mode === 'live') state.liveCallLocked = true;
       } else {
         requireValue(ownerTurn && corroboratesRefusal(command.reason, ownerTurn.text), 'Clear refusal evidence is required');

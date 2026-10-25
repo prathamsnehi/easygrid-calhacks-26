@@ -1,6 +1,6 @@
-# QuickGrid
+# EasyGrid
 
-Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → simulated compensation and rent reconciliation.
+Transmission AI Agent for Cal Hacks 2026: routing → landowner negotiation → easement → one full compensation payment per landowner.
 
 The repository contains the [shared contract and TypeScript client](packages/contracts/README.md), the [owner handoff and development samples](docs/OWNER_HANDOFF.md) (CAL-27), and the [interactive map planner](apps/map-preview/README.md) (CAL-26). The planner supports A/B placement, transmission route comparison, affected-parcel analysis and a consented user roleplay handoff for Pratham's voice integration.
 
@@ -18,7 +18,9 @@ npm test --prefix apps/map-preview
 npm run dev --prefix apps/map-preview
 ```
 
-The map is a standalone HTML/CSS/JavaScript frontend using vendored Three.js and a deterministic route solver. The generated `apps/map-preview/dist/index.html` works offline; the development server serves it at `http://127.0.0.1:4177`. Contract dependencies are needed for integration validation tests, not by the generated preview.
+The map is a standalone HTML/CSS/JavaScript frontend using vendored Three.js and a deterministic route solver. The generated `apps/map-preview/dist/index.html` supports offline map planning; the development server serves it at `http://127.0.0.1:4177` and is required for contract approval, signatures and payment actions. Contract dependencies are needed for integration validation tests, not for offline map rendering.
+
+After the final route is approved, sign both simulated roles on every agreement and explicitly request each owner's full compensation once. The contract and payment request use a single 100% payment after signatures, with no deposit, completion balance or construction payment gate. The default is a local simulation; the existing Capital One Nessie adapter is retained for a later provider connection. Shared legacy deposit/rent schemas remain available for existing adapters but do not define this contract journey.
 
 Begin on **Start demo** by entering the participant's name and phone number and confirming explicit consent to an AI roleplay demo call. US 10-digit numbers receive `+1` automatically; explicit international country codes are preserved. Valid registration unlocks A/B placement and routing. Place A and B, select a route, then choose **Analyze affected parcels**. The analysis shows affected owners, line and pylon impacts, and route-specific compensation and rent. **Agent call** sends the selected route and private user contact to a registered calling-agent handler; it is disabled in the standalone preview until that agent is connected. The interface has no JSON download action. Exactly one affected parcel always carries the registered participant's fictional owner role; the participant does not enter their details again in the analysis screen.
 
@@ -41,3 +43,4 @@ All product UI text is English. Fixtures use synthetic parties, illustrative par
 Use the latest `main` as the shared starting point. Before starting a feature, fetch the repository updates and create a branch named for its Linear issue. Existing feature branches should integrate the latest `main`, preserve both sides of any conflict, and rerun their relevant checks before opening or updating a PR.
 
 Pratham's voice integration and Seohyun's agreement/settlement work can build on the map, shared contracts and owner-handoff samples here. Keep integration and end-to-end verification tasks open until their actual runtime behavior is demonstrated. Do not treat the standalone preview as a connected call or payment service.
+
