@@ -55,15 +55,15 @@ test('an unassigned session receives one in-route user role without changing fix
     assert.equal(packet.userRole.participantContactRef,`${input.sessionId}:user`);
     assert.equal(packet.parcelAnalysis.filter(row=>row.userRole).length,1);
     assert.equal(packet.userRole.participantReady,false);
-    // Role assignment is independent of valuation readiness: an alternative may
-    // graze another parcel with its corridor while the priced centerline misses it.
-    const unpriced=nextAnalysis.parcels.filter(row=>row.lineLengthTiles<=1e-7&&row.towerCount===0);
-    assert.equal(packet.callPreparation.status,unpriced.length?'review-required':'participant-required');
-    assert.equal(packet.snapshot.routes[0].eligible,unpriced.length===0);
-    assert.equal(packet.ownerHandoff.simulationChecksPassed,unpriced.length===0);
-    if(unpriced.length){
-      assert(unpriced.every(row=>row.upfrontCents===0&&row.recommendationStatus==='review-required'));
-      assert(packet.snapshot.routes[0].reasons.includes('A corridor-only parcel needs compensation review before negotiation.'));
+    const overlaps=nextAnalysis.parcels.filter(row=>row.lineLengthTiles<=1e-7&&row.towerCount===0);
+    assert.equal(packet.callPreparation.status,'participant-required');
+    assert.equal(packet.snapshot.routes[0].eligible,true);
+    assert.equal(packet.ownerHandoff.simulationChecksPassed,true);
+    for(const row of overlaps){
+      assert.equal(row.recommendationStatus,'excluded-corridor-overlap');
+      assert(!packet.snapshot.routes[0].parcelIds.includes(row.parcelId));
+      assert(!packet.ownerHandoff.parcels.some(p=>p.parcelId===row.parcelId));
+      assert(packet.parcelAnalysis.some(p=>p.parcelId===row.parcelId),'keep overlap visible on the map');
     }
     assert.equal(packet.callPreparation.canStartCall,false);
     assert.equal(packet.snapshot.routes[0].readyToApprove,false);
@@ -181,7 +181,7 @@ test('route-specific caps and fictional budget are validated without fabricating
   assert.equal(packet.snapshot.routes[0].readyToApprove,false);
 });
 
-test('corridor-only impact blocks readiness and cannot be relabeled as a completed valuation',()=>{
+test('corridor-only impact is excluded from approval scope without fabricated acceptance',()=>{
   const corridorPlacements={substation,datacenter:createPlacement(world,'datacenter',43,35,{substation})};
   const corridorResult=computeTransmissionRoutes(world,corridorPlacements);
   assert.equal(corridorResult.status,'ok');
@@ -191,12 +191,21 @@ test('corridor-only impact blocks readiness and cannot be relabeled as a complet
   const parcel=corridorAnalysis.parcels.find(row=>row.parcelId==='L008');
   assert(parcel);
   assert.equal(parcel.lineLengthTiles,0);assert.equal(parcel.towerCount,0);
-  assert.equal(parcel.corridorOnly,true);assert.equal(parcel.recommendationStatus,'review-required');
+  assert.equal(parcel.corridorOnly,true);assert.equal(parcel.recommendationStatus,'excluded-corridor-overlap');
   const corridorInput={...input,placements:corridorPlacements,route:corridorRoute,analysis:corridorAnalysis};
   const packet=createHandoff(corridorInput);
-  assert.equal(packet.snapshot.routes[0].eligible,false);
-  assert.equal(packet.ownerHandoff.simulationChecksPassed,false);
-  assert.equal(packet.callPreparation.status,'review-required');
+  assert.equal(packet.snapshot.routes[0].eligible,true);
+  assert.equal(packet.ownerHandoff.simulationChecksPassed,true);
+  assert.equal(packet.callPreparation.status,'participant-required');
+  assert(!packet.ownerHandoff.parcels.some(p=>p.parcelId===parcel.parcelId));
+  const boundOverlap=createHandoff({...corridorInput,userParcelId:parcel.parcelId});
+  assert.equal(boundOverlap.userRole.parcelId,parcel.parcelId,'preserve a historical role');
+  assert.equal(boundOverlap.userRole.roleOnRoute,false);
+  assert.equal(boundOverlap.callPreparation.status,'role-not-on-route');
+  assert.equal(boundOverlap.callPreparation.proposedTerms,null);
+  const lowBudget=createHandoff({...corridorInput,budgetCents:1});
+  assert.equal(lowBudget.snapshot.routes[0].eligible,false);
+  assert.equal(lowBudget.callPreparation.status,'review-required','budget review is not a corridor exclusion');
   for(const changes of [
     {corridorOnly:false},
     {recommendationStatus:'estimated'},

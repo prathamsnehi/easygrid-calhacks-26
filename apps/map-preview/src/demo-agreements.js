@@ -1,5 +1,6 @@
 import { settlementBinding } from './settlement-controller.js';
 import { createOfferPolicy, negotiationLimitCents } from './offer-policy.js';
+import { isCorridorOverlapOnly } from './parcel-analysis.js';
 
 const copy=value=>JSON.parse(JSON.stringify(value));
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -49,9 +50,12 @@ export function createSimulatedAgreement(handoff,{blockedParcelIds=[]}={}){
     'The refused original participant must remain off the new route.');
   requireState(Array.isArray(original.parcels)&&original.parcels.length>0&&Array.isArray(original.owners)&&Array.isArray(handoff.parcelAnalysis)&&
     sameIds(route.parcelIds,original.parcels.map(parcel=>parcel.parcelId))&&
-    sameIds(route.parcelIds,handoff.parcelAnalysis.map(parcel=>parcel.parcelId))&&
+    sameIds(route.parcelIds,handoff.parcelAnalysis.filter(parcel=>!isCorridorOverlapOnly(parcel)).map(parcel=>parcel.parcelId))&&
     sameIds(route.parcelIds,handoff.snapshot.parcels.map(parcel=>parcel.id)),
     'Every final-route parcel must have matching proposal and impact data.');
+  requireState(handoff.parcelAnalysis.filter(isCorridorOverlapOnly).every(row=>row.corridorOnly===true&&
+    row.recommendationStatus==='excluded-corridor-overlap'&&row.upfrontCents===0&&row.rentTotalCents===0&&row.offerCapCents===0),
+    'Corridor exclusions must preserve their unpriced, unapproved status.');
   requireState(original.owners.some(owner=>owner.ownerId===role.ownerId)&&
     new Set(original.owners.map(owner=>owner.ownerId)).size===original.owners.length&&
     new Set(original.owners.map(owner=>owner.banking?.paymentRecipientRef)).size===original.owners.length,

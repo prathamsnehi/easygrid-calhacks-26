@@ -1,4 +1,4 @@
-import { chooseUserParcel } from './parcel-analysis.js';
+import { chooseUserParcel, isCorridorOverlapOnly } from './parcel-analysis.js';
 import { DEMO_METERS_PER_TILE, DEMO_BUDGET_CENTS, COST_KEYS, DEMO_COST_MODEL } from './cost-model.js';
 import { negotiationLimitCents, createOfferPolicy } from './offer-policy.js';
 
@@ -84,7 +84,9 @@ export function createHandoff({world,route,analysis,placements,participant=null,
   const originalOwner=originalParcel&&world.ownerById.get(originalParcel.ownerId);
   if(!originalParcel?.synthetic||!originalOwner?.synthetic)throw new Error('The user role must reference an existing fictional parcel and owner.');
   if(typeof liveCallLocked!=='boolean')throw new Error('The live-call lock must be a boolean.');
-  const roleOnRoute=route.parcelIds.includes(selectedUserParcel);
+  const compensationParcels=analysis.parcels.filter(row=>!isCorridorOverlapOnly(row));
+  const compensationParcelIds=compensationParcels.map(row=>row.parcelId);
+  const roleOnRoute=compensationParcelIds.includes(selectedUserParcel);
   const validation=validateDemoParticipant({alias:participant?.alias??'',phone:participant?.phoneE164??participant?.phone??'',consent:participant?.consent??false});
   const projectId=`demo-${sessionId}`,contactRef=`${sessionId}:user`;
   const meta={schemaVersion:1,sourceMode:'fixture',evidenceRefs:[`fixture:${world.parcelFixtureVersion}`,`fixture:${DEMO_COORDINATE_TRANSFORM.id}`]};
@@ -97,9 +99,11 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     const breakdown=row.compensationBreakdown;
     if(!breakdown||integer(breakdown.lineCents,'Line compensation')+integer(breakdown.foundationCents,'Foundation compensation')!==row.recommendedOfferCents)throw new Error('Parcel recommendation breakdown does not reconcile.');
     const towerCount=integer(row.towerCount,'Parcel tower count');
-    // Match the parcel analysis tolerance and derive review status from priced impact.
-    const corridorOnly=finite(row.lineLengthTiles,'Parcel crossed length')<=1e-7&&towerCount===0;
-    if(row.corridorOnly!==corridorOnly||row.recommendationStatus!==(corridorOnly?'review-required':'estimated'))throw new Error('Parcel recommendation status is inconsistent.');
+    finite(row.lineLengthTiles,'Parcel crossed length');
+    integer(row.foundationAreaTiles,'Parcel foundation area');
+    const corridorOnly=isCorridorOverlapOnly(row);
+    if(row.corridorOnly!==corridorOnly||row.recommendationStatus!==(corridorOnly?'excluded-corridor-overlap':'estimated'))throw new Error('Parcel recommendation status is inconsistent.');
+    if(corridorOnly&&[row.upfrontCents,row.rentTotalCents,row.monthlyRentCents].some(amount=>amount!==0))throw new Error('A corridor-only exclusion cannot discard priced compensation.');
     if(row.accessConsent!==parcel.accessConsent||row.negotiationStatus!==parcel.negotiationStatus)throw new Error('Parcel consent analysis is stale.');
     const area=finite(parcel.areaTiles,'Parcel area',Number.MIN_VALUE);
     if(parcel.geometry?.coordinateSystem!=='local-demo-grid'||parcel.geometry?.type!=='Polygon'||!Array.isArray(parcel.geometry.rings))throw new Error('Parcel geometry must use the local demo grid.');
@@ -111,24 +115,26 @@ export function createHandoff({world,route,analysis,placements,participant=null,
     return {...meta,id:parcel.id,projectId,geometry:{type:'Polygon',coordinates},ownerId:owner.id,ownerAlias:owner.alias,
       synthetic:true,landUse:parcel.landUse,areaSqM:area*DEMO_COORDINATE_TRANSFORM.metersPerTile**2,
       offerCapCents:cap,accessConsent:row.accessConsent,negotiationStatus:row.negotiationStatus};
-  });
-  const recommendationsComplete=analysis.parcels.every(row=>row.recommendationStatus==='estimated');
+  }).filter(parcel=>compensationParcelIds.includes(parcel.id));
+  for(const ownerId of owners.keys())if(!parcels.some(parcel=>parcel.ownerId===ownerId))owners.delete(ownerId);
+  const recommendationsComplete=compensationParcels.length>0&&compensationParcels.every(row=>row.recommendationStatus==='estimated');
   const eligible=recommendationsComplete&&analysis.parcels.every(row=>row.withinOfferCap&&row.accessConsent!=='refused'&&row.negotiationStatus!=='refused')&&modeledTotal<=budgetCents;
   const reasons=['Synthetic geometry and pricing; owner consent and regulatory checks are not complete.'];
   if(analysis.parcels.some(row=>!row.withinOfferCap))reasons.push('An affected parcel exceeds its fictional upfront offer cap.');
   if(analysis.parcels.some(row=>row.accessConsent==='refused'||row.negotiationStatus==='refused'))reasons.push('An affected parcel has refused access.');
   if(modeledTotal>budgetCents)reasons.push('The selected route exceeds the fictional handoff budget.');
-  if(!recommendationsComplete)reasons.push('A corridor-only parcel needs compensation review before negotiation.');
+  if(!recommendationsComplete)reasons.push('A directly affected parcel needs compensation review before negotiation.');
+  if(compensationParcels.length<analysis.parcels.length)reasons.push('Partial corridor overlaps without centerline or tower impact are excluded from demo compensation and approval scope.');
   const candidate={...meta,id:route.id,projectId,version:routeVersion,
     geometry:{type:'LineString',coordinates:route.nodes.map(node=>localPointToGeoJSON(node.x,node.z).coordinates)},
-    parcelIds:[...route.parcelIds],lengthMeters:route.lengthTiles*DEMO_COORDINATE_TRANSFORM.metersPerTile,
+    parcelIds:compensationParcelIds,lengthMeters:route.lengthTiles*DEMO_COORDINATE_TRANSFORM.metersPerTile,
     constructionCents:modeledTotal-costs.compensationCents-costs.rentCents,
     upfrontCompensationCents:costs.compensationCents,recurringRentTotalCents:costs.rentCents,
     separateDepositTotalCents:0,totalCostCents:modeledTotal,eligible,readyToApprove:false,reasons,regulatoryChecks:[]};
   const project={...meta,id:projectId,revision:0,
     endpointA:localPointToGeoJSON(first.x,first.z),endpointB:localPointToGeoJSON(last.x,last.z),
     budgetCents,rentHorizonMonths,selectedRouteId:route.id,approvedRouteVersion:null,status:'draft'};
-  const userRow=analysis.parcels.find(row=>row.parcelId===selectedUserParcel);
+  const userRow=compensationParcels.find(row=>row.parcelId===selectedUserParcel);
   const parcelAnalysis=analysis.parcels.map(row=>({
     parcelId:row.parcelId,name:row.name,ownerId:row.ownerId,ownerAlias:row.ownerAlias,
     displayOwnerAlias:row.parcelId===selectedUserParcel?'User participant':row.ownerAlias,
@@ -172,7 +178,7 @@ export function createHandoff({world,route,analysis,placements,participant=null,
           mode:'simulated',accountHolderAlias:banking.accountHolderAlias,
           bankDisplay:banking.bankDisplay,accountDisplay:banking.accountDisplay}};
     }),
-    parcels:analysis.parcels.map(row=>{
+    parcels:compensationParcels.map(row=>{
       const parcel=parcels.find(item=>item.id===row.parcelId);
       return {parcelId:row.parcelId,ownerId:row.ownerId,landUse:row.landUse,
         geometry:{type:'Polygon',coordinates:parcel.geometry.coordinates.map(ring=>ring.map(point=>[...point]))},areaSqM:parcel.areaSqM,
