@@ -187,6 +187,7 @@ export function registerWorker(ctx: Db, input: RegisterWorkerInput): void {
 
 export function publishRoute(ctx: Db, input: PublishRouteInput): void {
   const sessionId = text(input.sessionId, 'Session id', 128);
+  if (ctx.db.negotiationSession.sessionId.find(sessionId)) fail('BLOCKED_STATE', 'This session uses the CAL-41 negotiation workflow.');
   const parcels = input.parcels.map(normalizeParcel);
   const body = { sessionId, expectedRevision: input.expectedRevision, requestKey: text(input.requestKey, 'Request key', 128), parcels };
   if (beginCommand(ctx, sessionId, input.requestKey, body).replay) return;
@@ -283,6 +284,7 @@ function normalizeParcel(parcel: RouteParcelInput): RouteParcelInput {
 }
 
 export function recordOutcome(ctx: Db, input: RecordOutcomeInput): void {
+  if (ctx.db.negotiationSession.sessionId.find(input.sessionId)) fail('BLOCKED_STATE', 'This session uses the CAL-41 negotiation workflow.');
   const sessionId = text(input.sessionId, 'Session id', 128);
   const parcelId = text(input.parcelId, 'Parcel id', 128);
   const outcome = text(input.outcome, 'Outcome', 32);

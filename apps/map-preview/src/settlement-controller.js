@@ -34,9 +34,9 @@ export function createSettlementController({getHandoff}){
     const ready=Boolean((contractNavigation||demoAgreement)&&!demoBusy||valid&&handler&&!active&&!sent&&!uncertain);
     button.disabled=!ready;
     button.classList.toggle('settlement-ready',ready);
-    button.textContent=demoBusy?'Preparing contracts…':active?'Sending…':sent?'Request sent':contractNavigation?'Open approved contract':'Continue to contract & settlement';
+    button.textContent=demoBusy?'Preparing contracts…':active?'Sending…':sent?'Request sent':contractNavigation?.negotiated?'Review agreed contract':contractNavigation?'Open approved contract':'Continue to contract & settlement';
     if(overviewButton){overviewButton.disabled=button.disabled;overviewButton.classList.toggle('settlement-ready',ready);overviewButton.textContent=button.textContent;}
-    status.textContent=contractNavigation?'Owner approved · demo':demoAgreement?'Approved · demo':active?'Sending':sent?'Requested':uncertain?'Check status':valid?'Approved':'Awaiting approval';
+    status.textContent=contractNavigation?.negotiated?'Agreed terms · saved':contractNavigation?'Owner approved · demo':demoAgreement?'Approved · demo':active?'Sending':sent?'Requested':uncertain?'Check status':valid?'Approved':'Awaiting approval';
     status.className=`role-badge${valid||demoAgreement||contractNavigation?' ready':''}`;
     if(!active&&!sent&&!uncertain&&!feedback.textContent&&valid&&!handler)feedback.textContent='Settlement not connected.';
   }
@@ -106,7 +106,7 @@ export function createSettlementController({getHandoff}){
   return {getBinding,setApproval,setHandler,resolveAttempt,invalidate,
     setContractNavigation(value,onProceed=()=>{}){
       const handoff=current();
-      contractNavigation=value&&eligible(handoff)&&sameBinding(value.mapBinding,getBinding())&&value.parcelId===handoff.userRole.parcelId&&handoff.snapshot.routes[0].parcelIds.includes(value.parcelId)?copy({mapBinding:value.mapBinding,parcelId:value.parcelId}):null;
+      contractNavigation=value&&eligible(handoff)&&sameBinding(value.mapBinding,getBinding())&&value.parcelId===handoff.userRole.parcelId&&handoff.snapshot.routes[0].parcelIds.includes(value.parcelId)?copy({mapBinding:value.mapBinding,parcelId:value.parcelId,negotiated:value.negotiated===true}):null;
       onContractProceed=onProceed;render();
     },
     setDemoAgreement(value,onProceed=()=>{}){

@@ -46,3 +46,68 @@ test('unsupported contract terms versions are rejected instead of silently chang
     assert.throws(() => contractSourceFromAgreement({...agreement(),contractTermsVersion},handoff),/Unsupported development contract terms version/);
   }
 });
+
+const scopedAgreement=() => {
+  const current=agreement(), selected=handoff.userRole.parcelId;
+  const accepted=clone(current.ownerHandoff.parcels.find(parcel => parcel.parcelId===selected).terms);
+  current.ownerHandoff=clone(handoff.ownerHandoff);
+  current.approvalScope={kind:'single-owner',parcelId:selected};
+  current.ownerHandoff.parcels.find(parcel => parcel.parcelId===selected).terms=accepted;
+  return current;
+};
+
+test('single-owner negotiated approval keeps all current parcels and their actual acceptance states', () => {
+  const current=scopedAgreement(), selected=current.approvalScope.parcelId;
+  const terms=current.ownerHandoff.parcels.find(parcel => parcel.parcelId===selected).terms;
+  terms.compensationCents-=1;terms.termsVersion+=2;
+  const before=JSON.stringify(current), source=contractSourceFromAgreement(current,handoff);
+  assert.equal(current.ownerHandoff.routeStatus,'selected_for_negotiation');
+  assert.equal(JSON.stringify(current),before);
+  assert.deepEqual(source.approvalScope,{kind:'single-owner',parcelId:selected});
+  assert.deepEqual(source.parcels.map(p => p.parcelId).sort(),handoff.ownerHandoff.parcels.map(p => p.parcelId).sort());
+  for (const parcel of source.parcels) {
+    const packetParcel=current.ownerHandoff.parcels.find(p => p.parcelId===parcel.parcelId);
+    assert.equal(parcel.accepted,parcel.parcelId===selected);
+    assert.equal(parcel.compensationCents,packetParcel.terms.compensationCents);
+    assert.equal(parcel.termsVersion,packetParcel.terms.termsVersion);
+    assert.equal(parcel.ownerId,packetParcel.ownerId);
+    if (parcel.parcelId!==selected) assert.throws(() => createContractDraft(source,parcel.parcelId),/approval scope/);
+  }
+  assert.equal(validateContractDraft(createContractDraft(source,selected),source).valid,true);
+  const allAccepted=agreement();allAccepted.approvalScope=current.approvalScope;
+  const acceptedSource=contractSourceFromAgreement(allAccepted,handoff);
+  assert(acceptedSource.parcels.every(parcel => parcel.accepted),'other genuine acceptances are retained, not manufactured or erased');
+  assert.throws(() => createContractDraft(acceptedSource,acceptedSource.parcels.find(p => p.parcelId!==selected).parcelId),/approval scope/);
+});
+
+test('single-owner scope never substitutes route selection or call consent for selected owner acceptance', () => {
+  const valid=scopedAgreement();
+  for (const mutate of [a => a.approvalScope=null,a => a.approvalScope.kind='all',a => a.approvalScope.parcelId='missing',
+    a => a.ownerHandoff.routeStatus='negotiating',a => a.ownerHandoff.referenceBinding='canonical',
+    a => a.ownerHandoff.parcels.find(p => p.parcelId===a.approvalScope.parcelId).terms.outcome='pending',
+    a => a.ownerHandoff.parcels.find(p => p.parcelId===a.approvalScope.parcelId).terms.explicitConfirmation=false,
+    a => a.ownerHandoff.parcels.find(p => p.parcelId===a.approvalScope.parcelId).terms.accessConsent='unknown',
+    a => a.ownerHandoff.parcels.find(p => p.parcelId===a.approvalScope.parcelId).terms.confirmationRef=null]) {
+    const invalid=clone(valid);mutate(invalid);assert.throws(() => contractSourceFromAgreement(invalid,handoff));
+  }
+  const withoutScope=clone(valid);delete withoutScope.approvalScope;
+  assert.throws(() => contractSourceFromAgreement(withoutScope,handoff),/complete approved/);
+  withoutScope.ownerHandoff.routeStatus='ready_for_agreements';
+  assert.throws(() => contractSourceFromAgreement(withoutScope,handoff),/explicit accepted terms/);
+});
+
+test('pending owners in a scoped packet retain strict terms, current identities and mock recipient checks', () => {
+  const pending=a => a.ownerHandoff.parcels.find(p => p.parcelId!==a.approvalScope.parcelId);
+  const owner=a => a.ownerHandoff.owners.find(o => o.ownerId===pending(a).ownerId);
+  for (const mutate of [a => pending(a).terms.compensationCents=-1,a => pending(a).terms.compensationCents=0.5,
+    a => pending(a).terms.compensationCents=Number.MAX_SAFE_INTEGER+1,a => pending(a).terms.compensationCents=pending(a).offerCapCents+1,
+    a => pending(a).terms.termsVersion=0,a => pending(a).terms.termsVersion='1',a => pending(a).terms.outcome='invalid',
+    a => pending(a).terms.explicitConfirmation='false',a => pending(a).terms.accessConsent='invalid',
+    a => pending(a).terms.confirmationRef='',a => pending(a).terms.outcome='accepted',
+    a => pending(a).ownerId='unknown-owner',a => owner(a).alias='Changed owner',
+    a => owner(a).banking.paymentRecipientRef='changed-recipient',a => owner(a).banking.accountDisplay='changed account',
+    a => owner(a).banking.accountHolderAlias='changed holder',a => owner(a).banking.bankDisplay='changed bank',
+    a => a.ownerHandoff.owners.push(clone(a.ownerHandoff.owners[0])),a => a.ownerHandoff.parcels.pop()]) {
+    const invalid=scopedAgreement();mutate(invalid);assert.throws(() => contractSourceFromAgreement(invalid,handoff));
+  }
+});

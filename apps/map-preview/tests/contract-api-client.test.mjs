@@ -40,3 +40,16 @@ test('participant approval explicitly targets the current call parcel and reject
     await assert.rejects(approveMapContracts(context,{demoTarget:'participant',fetcher:async()=>({ok:true,json:async()=>bad})}),/did not approve the current call target/);
   }
 });
+
+test('negotiated approval sends only a committed reference and rejects a simulated fallback',async()=>{
+  const context={userParcelId:'P-004'},negotiationRef={attemptId:'attempt-1',eventId:'event-4',revision:4};let body;
+  const verified={...approval,demoTarget:'participant',demoParcelId:'P-004',approvalMode:'negotiated',negotiationRef,
+    input:{...approval.input,approvalScope:{kind:'single-owner',parcelId:'P-004'}}};
+  await approveMapContracts(context,{demoTarget:'participant',negotiationRef:{...negotiationRef,agreedCents:12345},fetcher:async(_url,options)=>{
+    body=JSON.parse(options.body);return {ok:true,json:async()=>verified};
+  }});
+  assert.deepEqual(body.negotiationRef,negotiationRef);assert(!JSON.stringify(body).includes('agreedCents'));
+  for(const bad of [{...verified,approvalMode:undefined},{...verified,negotiationRef:{...negotiationRef,revision:3}},{...verified,input:approval.input}]){
+    await assert.rejects(approveMapContracts(context,{demoTarget:'participant',negotiationRef,fetcher:async()=>({ok:true,json:async()=>bad})}),/did not verify/);
+  }
+});

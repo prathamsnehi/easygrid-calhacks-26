@@ -25,15 +25,20 @@ export function validateContractSource(input) {
   if (input.project?.signerName !== undefined && !text(input.project.signerName, 160)) errors.push('The developer representative needs a valid name.');
   if (input.negotiation?.status !== 'approved') errors.push('Negotiation must be approved before starting a contract.');
   if (!validId(input.negotiation?.id) || !version(input.negotiation?.version) || !timestamp(input.negotiation?.approvedAt)) errors.push('The approved negotiation needs an ID, version and approval time.');
+  const scope = input.approvalScope;
+  if (scope !== undefined && (!scope || scope.kind !== 'single-owner' || !validId(scope.parcelId))) errors.push('The approval scope must identify one current parcel.');
   if (!Array.isArray(input.parcels) || input.parcels.length === 0 || input.parcels.length > 100) errors.push('The final route must include between 1 and 100 parcels.');
   else {
+    if (scope !== undefined && !input.parcels.some(parcel => parcel?.parcelId === scope?.parcelId)) errors.push('The approved parcel must be on the current route.');
     const ids = new Set();
     for (const parcel of input.parcels) {
       if (!parcel || !validId(parcel.parcelId) || ids.has(parcel.parcelId)) errors.push('Each parcel needs a unique parcel ID.');
       ids.add(parcel?.parcelId);
       if (!validId(parcel?.ownerId) || !text(parcel?.ownerName, 160) || !text(parcel?.landDescription, 1000)) errors.push('Each parcel needs a fictional owner and land description.');
       if (parcel?.signerName !== undefined && !text(parcel.signerName, 160)) errors.push('The landowner representative needs a valid name.');
-      if (parcel?.accepted !== true) errors.push('Every parcel on the final route must have accepted terms.');
+      if (typeof parcel?.accepted !== 'boolean') errors.push('Each parcel must retain its explicit acceptance status.');
+      if (scope === undefined && parcel?.accepted !== true) errors.push('Every parcel on the final route must have accepted terms.');
+      if (scope?.parcelId === parcel?.parcelId && parcel?.accepted !== true) errors.push('The selected parcel must have explicitly accepted terms.');
       if (!version(parcel?.termsVersion) || !text(parcel?.accessTerms)) errors.push('Each parcel needs versioned access terms.');
       if (!cents(parcel?.compensationCents)) errors.push('Approved compensation must be non-negative integer cents.');
     }
@@ -52,9 +57,10 @@ export function normalizeContractSource(input) {
       ...(input.project.signerName !== undefined ? {signerName: input.project.signerName.trim()} : {})},
     route: {id: input.route.id, version: input.route.version, name: input.route.name.trim()},
     negotiation: {id: input.negotiation.id, version: input.negotiation.version, status: 'approved', approvedAt: input.negotiation.approvedAt},
+    ...(input.approvalScope !== undefined ? {approvalScope:{kind:'single-owner',parcelId:input.approvalScope.parcelId}} : {}),
     parcels: input.parcels.map(p => ({parcelId: p.parcelId, ownerId: p.ownerId, ownerName: p.ownerName.trim(),
       ...(p.signerName !== undefined ? {signerName: p.signerName.trim()} : {}),
-      landDescription: p.landDescription.trim(), accepted: true, termsVersion: p.termsVersion,
+      landDescription: p.landDescription.trim(), accepted: p.accepted, termsVersion: p.termsVersion,
       compensationCents: p.compensationCents, accessTerms: p.accessTerms.trim()}))
       .sort((a, b) => a.parcelId.localeCompare(b.parcelId)),
   };
@@ -70,6 +76,7 @@ export function compensationPayment(totalCents) {
 export function createContractDraft(input, parcelId, {now = new Date().toISOString(), id = `draft-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`}`} = {}) {
   const source = normalizeContractSource(input), parcel = source.parcels.find(p => p.parcelId === parcelId);
   if (!parcel) throw new Error('The parcel is not on the approved final route.');
+  if (!parcel.accepted || (source.approvalScope && source.approvalScope.parcelId !== parcelId)) throw new Error('Only an accepted parcel within the current approval scope can have a contract.');
   if (!timestamp(now) || !validId(id)) throw new Error('A valid draft ID and creation time are required.');
   return {schemaVersion: 1, id, status: 'draft', version: 1, parcelId, sourceKey: contractSourceKey(source),
     createdAt: now, updatedAt: now,
@@ -82,6 +89,8 @@ export function validateContractDraft(draft, input) {
   const errors = [];
   if (!draft || draft.schemaVersion !== 1 || !validId(draft.id) || draft.status !== 'draft' || !version(draft.version) || !timestamp(draft.createdAt) || !timestamp(draft.updatedAt)) errors.push('This saved draft is invalid.');
   if (draft?.sourceKey !== sourceKey || !input.parcels.some(p => p.parcelId === draft?.parcelId)) errors.push('The negotiation or route changed. Start a new draft from the current approval.');
+  if (!input.parcels.some(p => p.parcelId === draft?.parcelId && p.accepted === true) ||
+    (input.approvalScope && input.approvalScope.parcelId !== draft?.parcelId)) errors.push('Only an accepted parcel within the current approval scope can have a contract.');
   if (!text(draft?.fields?.developerName, 160)) errors.push('Developer name is required (maximum 160 characters).');
   if (!dateOnly(draft?.fields?.agreementDate)) errors.push('Enter a valid agreement date.');
   if (!text(draft?.fields?.accessTerms)) errors.push('Access description is required (maximum 4,000 characters).');
@@ -111,6 +120,7 @@ export function contractDocument(draft, input) {
     routeName: source.route.name, routeId: source.route.id, routeVersion: source.route.version,
     termsVersion: parcel.termsVersion, negotiationId: source.negotiation.id,
     negotiationVersion: source.negotiation.version, approvedAt: source.negotiation.approvedAt,
+    ...(source.approvalScope ? {approvalScope:{...source.approvalScope}} : {}),
     ...payment,
     agreedAccessTerms: parcel.accessTerms, accessDescription: draft.fields.accessTerms,
     specialConditions: draft.fields.specialConditions, draftVersion: draft.version,
@@ -124,7 +134,7 @@ export function escapeContractHTML(value) {
 export function renderContractDocument(draft, input, execution = {}) {
   const d = contractDocument(draft, input), e = escapeContractHTML;
   const date = value => new Date(`${value.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric', timeZone:'UTC'});
-  const singleDemo = execution.demoScope === 'single-owner' && execution.demoParcelId === d.parcelId;
+  const singleDemo = d.approvalScope?.parcelId === d.parcelId || (execution.demoScope === 'single-owner' && execution.demoParcelId === d.parcelId);
   const changedDescription = d.accessDescription.trim() !== d.agreedAccessTerms.trim();
   return `<article class="cg-paper" aria-label="Contract draft preview">
     <div class="cg-paper-top"><span>EASYGRID / LAND AGREEMENTS</span><span>${singleDemo ? 'SINGLE-LANDOWNER DEMO' : 'FICTIONAL SAMPLE'} · DRAFT ${d.draftVersion}</span></div>

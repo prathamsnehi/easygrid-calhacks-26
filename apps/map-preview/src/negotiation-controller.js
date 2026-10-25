@@ -59,7 +59,7 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
   function getState(){return copy({phase,reason,connected,sessionId,previous,next,
     costDeltaCents:previous&&next?next.totalCostCents-previous.totalCostCents:null,
     blockedParcelIds:constraints.blockedParcelIds,outcomes:[...outcomes.values()],
-    simulated:agreement!==null||phase==='negotiating'||phase==='approved',agreementReady:Boolean(agreement)});}
+    simulated:agreement!==null||phase==='negotiating'||(phase==='approved'&&[...outcomes.values()].every(row=>row.sourceMode!=='live')),agreementReady:Boolean(agreement)});}
   function emit(){onChange(getState());}
   function stopTask(){if(task!==null)cancelTask(task);task=null;agreement=null;}
   function disconnect(){sourceGeneration++;sourceAbort?.abort();sourceAbort=null;const cleanup=sourceCleanup;sourceCleanup=null;connected=false;try{cleanup?.();}catch{/* Cleanup cannot prevent session invalidation. */}}
@@ -160,7 +160,23 @@ export function createNegotiationController({world,getHandoff,getSessionId,onRer
       evidenceRefs:[`mock:refusal-${p.parcelId}`],termsVersion:p.terms.termsVersion,hasUnresolvedConditions:false,
       terms:{upfrontCents:p.terms.compensationCents,depositCents:0,depositCreditPolicy:'credited_to_upfront',monthlyRentCents:p.terms.monthlyRentCents,termMonths:h.ownerHandoff.rentHorizonMonths}});
   }
-  return {getBinding,getState,applyUpdate,setSource,routeChanged,noRoute,reset,runRefusalDemo,runApprovalDemo,
+  function applySavedVoiceResult(result){
+    const h=current(),parcel=h?.ownerHandoff.parcels.find(p=>p.parcelId===result.localParcelId);
+    if(result?.saved!==true||result.mode!=='live'||result.kind!=='easygrid-voice-result'||!id(result.attemptId)||!id(result.eventId)||
+      !same(result.mapBinding,getBinding())||!parcel||parcel.parcelId!==h.userRole.parcelId||
+      !['accepted','refused','review_required'].includes(result.outcome))throw new Error('A current saved voice result is required.');
+    const accepted=result.outcome==='accepted',refused=result.outcome==='refused';
+    if(accepted&&result.monthlyRentCents!==0)throw new Error('Voice acceptance cannot create a monthly obligation.');
+    const applied=applyUpdate({schemaVersion:1,kind:'easygrid-map-negotiation',eventId:result.eventId,mapBinding:result.mapBinding,
+      parcelId:parcel.parcelId,sourceMode:'live',outcome:result.outcome,accessConsent:accepted?'allowed':refused?'refused':'unknown',
+      explicitConfirmation:accepted||refused,evidenceRefs:[`saved-voice:${result.attemptId}:${result.eventId}`],
+      termsVersion:result.termsVersion??result.contractApproval?.input?.parcels?.find(p=>p.parcelId===parcel.parcelId)?.termsVersion??parcel.terms.termsVersion,
+      hasUnresolvedConditions:!accepted&&!refused,terms:{upfrontCents:accepted?result.acceptedCompensationCents:parcel.terms.compensationCents,
+        depositCents:0,depositCreditPolicy:'credited_to_upfront',monthlyRentCents:accepted?0:parcel.terms.monthlyRentCents,termMonths:h.ownerHandoff.rentHorizonMonths}});
+    if(accepted&&applied.status==='applied'){phase='approved';reason='Current landowner approved · live call';emit();}
+    return applied;
+  }
+  return {getBinding,getState,applyUpdate,applySavedVoiceResult,setSource,routeChanged,noRoute,reset,runRefusalDemo,runApprovalDemo,
     getRoutingOptions:()=>{synchronizeSession();return copy(constraints);},
     getAgreement:()=>agreement&&same(agreement.mapBinding,getBinding())?copy(agreement):null,
     hasSource:()=>source!==null};
