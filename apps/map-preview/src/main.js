@@ -215,7 +215,7 @@ function syncContractNavigation(){
   if(!analysis||!contracts)return;
   const accepted=analysis.negotiationResults.getAcceptedTerms(),h=analysis.getHandoff();
   if(accepted?.available&&accepted.parcelId===h?.userRole.parcelId){
-    analysis.settlement.setContractNavigation({mapBinding:analysis.settlement.getBinding(),parcelId:accepted.parcelId,negotiated:true},()=>contracts.prepareAcceptedAndOpen());return;
+    analysis.settlement.setContractNavigation({mapBinding:analysis.settlement.getBinding(),parcelId:accepted.parcelId,negotiated:true},()=>contracts.openAgreedContract());return;
   }
   const ready=approvalDemoOpened&&!approvalDemoBusy&&canSimulateNegotiation()&&!negotiation?.hasSource()&&negotiation?.getState().phase==='approved'&&approvalDemoBinding===approvalBindingKey();
   analysis.settlement.setContractNavigation(ready?{mapBinding:negotiation.getBinding(),parcelId:h.userRole.parcelId}:null,()=>contracts.prepareAndOpen({review:true,demoTarget:'participant'}));

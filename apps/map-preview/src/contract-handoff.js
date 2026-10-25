@@ -92,6 +92,26 @@ export function contractSourceFromAgreement(agreement, handoff) {
 
 export function matchesContractBinding(a, b) {return sameBinding(a, b);}
 
+/** One saved call target. Other route owners stay unaccepted until they agree. */
+export function participantAgreementFromAcceptance(handoff, accepted) {
+  const packet = copy(handoff?.ownerHandoff);
+  const reference = accepted?.negotiationRef;
+  requireState(packet?.referenceBinding === 'local-fixture' && packet.routeStatus === 'selected_for_negotiation', 'A current local route is required before opening the saved agreement.');
+  requireState(reference && ['attemptId','eventId'].every(key => typeof reference[key] === 'string' && reference[key].length > 0) && Number.isSafeInteger(reference.revision) && reference.revision >= 0, 'The saved agreement reference is incomplete.');
+  const parcel = packet.parcels.find(item => item.parcelId === accepted.parcelId);
+  requireState(parcel && parcel.parcelId === handoff.userRole?.parcelId && handoff.snapshot.routes[0].parcelIds.includes(parcel.parcelId), 'The saved agreement must be the current call target.');
+  requireState(Number.isSafeInteger(accepted.agreedCents) && accepted.agreedCents >= 0 && accepted.agreedCents <= parcel.offerCapCents, 'The saved compensation is outside the current offer limit.');
+  requireState(Number.isSafeInteger(accepted.termsVersion) && accepted.termsVersion >= parcel.terms.termsVersion, 'The saved terms are stale.');
+  requireState(Number.isSafeInteger(accepted.monthlyRentCents) && accepted.monthlyRentCents >= 0, 'The saved monthly amount is invalid.');
+  parcel.terms = {...parcel.terms, outcome:'accepted', accessConsent:'allowed', explicitConfirmation:true,
+    confirmationRef:`saved:${reference.attemptId}:${reference.eventId}`, compensationCents:accepted.agreedCents,
+    termsVersion:accepted.termsVersion, monthlyRentCents:accepted.monthlyRentCents, monthlyRentIsApproximate:false,
+    comparisonRentTotalCents:accepted.monthlyRentCents * packet.rentHorizonMonths};
+  return {kind:'easygrid-negotiated-agreement', schemaVersion:1, sourceMode:'mock', contractTermsVersion:2,
+    approvalScope:{kind:'single-owner', parcelId:parcel.parcelId}, mapBinding:settlementBinding(handoff), ownerHandoff:packet,
+    negotiationId:reference.attemptId, negotiationVersion:reference.revision + 1, approvedAt:'2026-10-25T12:00:00.000Z'};
+}
+
 /** Explicit operator-approved fixture scenario, separate from registration and calls. */
 export function simulatedMapAgreement(handoff, {negotiationId, approvedAt}) {
   const packet = copy(handoff.ownerHandoff);

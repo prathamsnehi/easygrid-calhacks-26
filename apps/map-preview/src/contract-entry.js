@@ -1,8 +1,36 @@
 import {contractSourceKey, normalizeContractSource} from './contract-authoring.js';
 import {createContractWorkspace} from './contract-workspace.js';
 import {settlementBinding} from './settlement-controller.js';
-import {contractSourceFromAgreement, mapContractRequest, matchesContractBinding} from './contract-handoff.js';
+import {contractSourceFromAgreement, mapContractRequest, matchesContractBinding, participantAgreementFromAcceptance} from './contract-handoff.js';
 import {approveMapContracts, createContractAPIClient} from './contract-api-client.js';
+
+/** Browser stand-in for Stella's contract workspace when the approval service cannot see a hosted call. */
+function createLocalAgreementExecution({packageId, demoParcelId, amountCents}) {
+  const signatures = {}, audit = [], journal = [];
+  let payment = null;
+  return async (operation, draft) => {
+    if (!draft || draft.parcelId !== demoParcelId) throw new Error('This saved agreement only covers the current landowner.');
+    if (operation === 'sign/utility' || operation === 'sign/landowner') {
+      const side = operation.slice(5);
+      if (!signatures[side]) {
+        signatures[side] = {simulated:true, signedAt:new Date().toISOString()};
+        audit.push({action:operation, reason:'Simulated signature for the saved agreement.', actorId:side === 'utility' ? 'demo-utility-controller' : 'demo-landowner'});
+      }
+    } else if (operation === 'submit') {
+      if (!signatures.utility || !signatures.landowner) throw new Error('Both signatures are required before payment.');
+      if (!payment) {
+        payment = {status:'paid', amountCents, reason:'Simulated full payment complete. No real money moves.', transactionRef:`SIM-${packageId.slice(-8).toUpperCase()}`};
+        journal.push({obligationId:`${demoParcelId}:full`, debitCents:amountCents, creditCents:amountCents});
+        audit.push({action:'submit', reason:payment.reason, actorId:'demo-accounts-payable-agent'});
+      }
+    } else if (!['state','reconcile','reject'].includes(operation)) throw new Error('Unknown contract operation.');
+    const both = Boolean(signatures.utility && signatures.landowner);
+    return {draftId:draft.id, documentHash:'e'.repeat(64), signatures:{...signatures}, audit:[...audit], journal:[...journal],
+      packageId, demoScope:'single-owner', demoParcelId, paymentReady:both, packageReady:false, bankMode:'simulation',
+      paymentSemantics:'simulated-transfer', amountIncrementCents:1, paymentsEnabled:true, ...(payment ? {payment} : {}),
+      agreementProgress:{signedCount:both ? 1 : 0, totalCount:1, nextUnsignedParcelId:null}};
+  };
+}
 
 /** Local contract navigation; the service independently validates every payment gate. */
 export function createContractEntry({getHandoff, getPlacements = () => null, getRoutingOptions = () => null,
@@ -41,7 +69,9 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
       if (approved && (contractSourceKey(input) !== contractSourceKey(approved.input) || !matchesContractBinding(current,approved.mapBinding))) workspace?.invalidate();
       if (value.demoScope === 'single-owner' && !input.parcels.some(parcel => parcel.parcelId === value.demoParcelId)) throw new Error('The representative demo contract is not part of the approved route.');
       if (input.approvalScope && (value.demoScope !== 'single-owner' || value.demoParcelId !== input.approvalScope.parcelId)) throw new Error('The editor must preserve the approved landowner scope.');
-      approved = {input,mapBinding:{...current},packageId:value.packageId,simulated:value.simulated === true,demoScope:value.demoScope,demoParcelId:value.demoParcelId,demoTarget:value.demoTarget ?? 'representative',approvalMode:value.approvalMode,negotiationRef:value.negotiationRef};
+      const local = value.local === true;
+      approved = {input,mapBinding:{...current},packageId:value.packageId,simulated:value.simulated === true,demoScope:value.demoScope,demoParcelId:value.demoParcelId,demoTarget:value.demoTarget ?? 'representative',approvalMode:value.approvalMode,negotiationRef:value.negotiationRef,local,
+        execution:local ? createLocalAgreementExecution({packageId:value.packageId,demoParcelId:value.demoParcelId,amountCents:input.parcels.find(parcel => parcel.parcelId === value.demoParcelId).compensationCents}) : null};
       write(value.approvalMode === 'negotiated' ? 'Agreed compensation verified · draft ready' : value.simulated ? 'Demo negotiation approved · no call was placed' : 'Negotiation approved · draft ready');refresh();
     } catch (error) {invalidate();throw error;}
   }
@@ -51,6 +81,7 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
     if (!workspace) {
       workspace = createContractWorkspace({storage,isCurrent:() => Boolean(matching()),api:(...args) => {
         if (!matching()) return Promise.reject(new Error('The map approval changed.'));
+        if (approved.local) return approved.execution(...args);
         return apiFactory({packageId:approved.packageId,demoScope:approved.demoScope,demoParcelId:approved.demoParcelId})(...args);
       }});
       workspace.setConstructionHandler(constructionHandler);
@@ -97,6 +128,32 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
       if(ticket===generation){approved=null;write(error.message);throw error;}
     } finally {if(ticket===generation){busy=false;active=null;refresh();}}
   }
+  function serviceCannotSeeSavedAgreement(error) {
+    return /unavailable|not connected|could not be confirmed/i.test(error?.message ?? '');
+  }
+  function savedPackageId(reference) {
+    const text = JSON.stringify([reference.attemptId,reference.eventId,reference.revision]);
+    let hex = '';
+    for (let index = 0; index < 40; index++) hex += ((text.charCodeAt(index % text.length) + index * 17) & 15).toString(16);
+    return `map-contract-${hex}`;
+  }
+  function openLocalSavedAgreement() {
+    const accepted = getAcceptedTerms(), current = handoff();
+    if (!accepted?.available || accepted.parcelId !== current?.userRole.parcelId) throw new Error('A current confirmed agreement is required.');
+    const agreement = participantAgreementFromAcceptance(current, accepted);
+    const input = contractSourceFromAgreement(agreement, current);
+    setNegotiation({input,agreement,mapBinding:binding(),packageId:savedPackageId(accepted.negotiationRef),simulated:false,
+      approvalMode:'negotiated',negotiationRef:accepted.negotiationRef,demoScope:'single-owner',demoTarget:'participant',demoParcelId:accepted.parcelId,local:true});
+    open({review:true});
+    return true;
+  }
+  async function openAgreedContract() {
+    try {return await prepareAcceptedAndOpen();}
+    catch (error) {
+      if (!serviceCannotSeeSavedAgreement(error)) throw error;
+      return openLocalSavedAgreement();
+    }
+  }
   function openVerifiedAcceptance(result,{openDocument=true}={}) {
     const accepted=getAcceptedTerms(),parcel=result?.input?.parcels?.find(p=>p.parcelId===accepted?.parcelId);
     if(!accepted?.available||result?.approvalMode!=='negotiated'||result.simulated!==false||
@@ -112,7 +169,7 @@ export function createContractEntry({getHandoff, getPlacements = () => null, get
   button?.addEventListener('click',() => {try {open();} catch (error) {write(error.message);}});
   simulate?.addEventListener('click',() => {prepareAndOpen().catch(error => write(error.message));});
   invalidate();
-  return {getBinding:binding,setNegotiation,invalidate,refresh,open,prepareAndOpen,prepareAcceptedAndOpen,openVerifiedAcceptance,
+  return {getBinding:binding,setNegotiation,invalidate,refresh,open,prepareAndOpen,prepareAcceptedAndOpen,openAgreedContract,openVerifiedAcceptance,
     setAgreement(value) {setNegotiation({...value,input:contractSourceFromAgreement(value.agreement,handoff())});},
     setConstructionHandler(handler) {
       if (handler !== null && typeof handler !== 'function') throw new Error('Construction handler must be a function or null.');

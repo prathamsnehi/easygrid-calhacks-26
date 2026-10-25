@@ -5,7 +5,7 @@ import {createPlacement} from '../src/placement.js';
 import {computeTransmissionRoutes} from '../src/routing.js';
 import {analyzeRouteParcels} from '../src/parcel-analysis.js';
 import {createHandoff} from '../src/handoff.js';
-import {contractSourceFromAgreement,simulatedMapAgreement} from '../src/contract-handoff.js';
+import {contractSourceFromAgreement,participantAgreementFromAcceptance,simulatedMapAgreement} from '../src/contract-handoff.js';
 import {createContractDraft,contractSourceKey,validateContractDraft} from '../src/contract-authoring.js';
 
 const world = createWorld();
@@ -32,6 +32,21 @@ test('unversioned and v1 saved agreements preserve the old exact source and draf
   }
   const newSource = contractSourceFromAgreement(current,handoff);
   assert.equal(validateContractDraft(draft,newSource).valid,false,'new terms must not reuse a previously signed draft');
+});
+
+test('a saved call acceptance opens one landowner contract and leaves the other owners pending', () => {
+  const parcel = handoff.ownerHandoff.parcels.find(item => item.parcelId === handoff.userRole.parcelId);
+  const amount = parcel.offerPolicy.recommendedOfferCents;
+  const before = JSON.stringify(handoff.ownerHandoff);
+  const accepted = {parcelId:parcel.parcelId,agreedCents:amount,monthlyRentCents:parcel.terms.monthlyRentCents,termsVersion:parcel.terms.termsVersion,
+    negotiationRef:{attemptId:'attempt1',eventId:'attempt1-r2',revision:2}};
+  const source = contractSourceFromAgreement(participantAgreementFromAcceptance(handoff,accepted),handoff);
+  const selected = source.parcels.find(item => item.parcelId === parcel.parcelId);
+  assert.equal(selected.accepted,true);
+  assert.equal(selected.compensationCents,amount);
+  assert.equal(source.approvalScope.parcelId,parcel.parcelId);
+  assert.equal(source.parcels.filter(item => item.accepted).length,1);
+  assert.equal(JSON.stringify(handoff.ownerHandoff),before);
 });
 
 test('new simulated agreements select concise v2 terms without changing the shared owner packet', () => {

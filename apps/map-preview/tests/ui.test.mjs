@@ -1295,6 +1295,22 @@ test('a hosted agreement shows the saved amount and enables contract continuatio
   assert.equal(app.elements.get('settle-payment').disabled,false);
   assert.equal(app.elements.get('settle-payment').textContent,'Review agreed contract');
   assert.equal(app.elements.get('settlement-status').textContent,'Agreed terms · saved');
+  app.click('settle-payment');await settlePromises();await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('contract-workspace').hidden,false);
+  assert.equal(app.elements.get('cg-editor').hidden,false);
+  assert.equal(app.elements.get('cg-gate').hidden,true);
+  assert.equal(app.elements.get('cg-parcel-total').textContent,usd(amount));
+  assert.equal(app.elements.get('cg-continue-payment').disabled,true);
+  app.click('cg-sign-utility');await settlePromises();await settlePromises();
+  app.click('cg-sign-landowner');await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('cg-continue-payment').disabled,false);
+  app.click('cg-continue-payment');
+  assert.equal(app.elements.get('cg-payment-view').hidden,false);
+  assert.equal(app.elements.get('cg-payment-amount').textContent,usd(amount));
+  assert.equal(app.elements.get('cg-submit').disabled,false);
+  app.click('cg-submit');await settlePromises();await settlePromises();
+  assert.match(app.elements.get('cg-submit').textContent,/Paid in full/);
+  assert.match(app.elements.get('cg-payout-help').textContent,/No real money moves/);
   assert.deepEqual(app.errors,[]);
 });
 

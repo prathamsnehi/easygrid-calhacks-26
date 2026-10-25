@@ -41,6 +41,10 @@ test('participant approval explicitly targets the current call parcel and reject
   }
 });
 
+test('a non-JSON approval response is treated as a missing approval service',async()=>{
+  await assert.rejects(approveMapContracts({sessionId:'fixture'},{fetcher:async()=>({ok:false,json:async()=>{throw new Error('Unexpected token');}})}),/approval service is unavailable/);
+});
+
 test('negotiated approval sends only a committed reference and rejects a simulated fallback',async()=>{
   const context={userParcelId:'P-004'},negotiationRef={attemptId:'attempt-1',eventId:'event-4',revision:4};let body;
   const verified={...approval,demoTarget:'participant',demoParcelId:'P-004',approvalMode:'negotiated',negotiationRef,
