@@ -16,15 +16,19 @@ export function createContractAPIClient({fetcher = globalThis.fetch, packageId =
   };
 }
 
-export async function approveMapContracts(context, {fetcher = globalThis.fetch, signal, demoTarget = 'representative'} = {}) {
+export async function approveMapContracts(context, {fetcher = globalThis.fetch, signal, demoTarget = 'representative', negotiationRef = null} = {}) {
   if (!['representative','participant'].includes(demoTarget)) throw new Error('Unknown demo approval target.');
+  const validId=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
+  if (negotiationRef && (demoTarget !== 'participant' || !validId(negotiationRef.attemptId) || !validId(negotiationRef.eventId) || !Number.isSafeInteger(negotiationRef.revision) || negotiationRef.revision < 0)) throw new Error('A current saved negotiation reference is required.');
+  const reference=negotiationRef?{attemptId:negotiationRef.attemptId,eventId:negotiationRef.eventId,revision:negotiationRef.revision}:null;
   let response;
-  try {response = await fetcher('/api/contracts/approve-map',{method:'POST',headers:{'content-type':'application/json','x-easygrid-demo':'1'},body:JSON.stringify({context,demoScope:'single-owner',...(demoTarget === 'participant' ? {demoTarget} : {})}),signal});}
+  try {response = await fetcher('/api/contracts/approve-map',{method:'POST',headers:{'content-type':'application/json','x-easygrid-demo':'1'},body:JSON.stringify({context,demoScope:'single-owner',...(demoTarget === 'participant' ? {demoTarget} : {}),...(reference?{negotiationRef:reference}:{})}),signal});}
   catch {throw new Error('The development approval service is unavailable. Open the app through its local server.');}
   const result = await response.json();
   if (!response.ok) throw new Error(result.error ?? 'The map negotiation could not be approved.');
   if (result.simulated !== true || !/^map-contract-[a-f0-9]{40}$/.test(result.packageId)) throw new Error('The development service returned an invalid approved package.');
   if (result.demoScope !== 'single-owner' || typeof result.demoParcelId !== 'string' || !result.input?.parcels?.some(parcel => parcel.parcelId === result.demoParcelId)) throw new Error('The local server does not support the representative contract demo yet. Open the updated server and try again.');
   if (demoTarget === 'participant' && (result.demoTarget !== 'participant' || result.demoParcelId !== context.userParcelId)) throw new Error('The service did not approve the current call target. The contract was not opened.');
+  if (reference && (result.approvalMode !== 'negotiated' || ['attemptId','eventId','revision'].some(key=>result.negotiationRef?.[key]!==reference[key]) || result.input?.approvalScope?.kind !== 'single-owner' || result.input.approvalScope.parcelId !== context.userParcelId)) throw new Error('The service did not verify the saved negotiated terms. The contract was not opened.');
   return result;
 }

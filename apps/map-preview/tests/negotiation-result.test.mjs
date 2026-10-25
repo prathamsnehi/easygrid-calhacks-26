@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createNegotiationResultController} from '../src/negotiation-result-controller.js';
 import {settlementBinding} from '../src/settlement-controller.js';
 const handoff=()=>({sessionId:'map-session',routeVersion:1,snapshot:{routes:[{id:'route'}]},
-  ownerHandoff:{routeId:'route',parcels:[{parcelId:'parcel'}]},coordinateTransform:{},costModel:{}});
+  ownerHandoff:{routeId:'route',parcels:[{parcelId:'parcel',offerPolicy:{recommendedOfferCents:10001},offerCapCents:12001,terms:{termsVersion:1,monthlyRentCents:500}}]},coordinateTransform:{},costModel:{}});
 function setup(){
   let h=handoff(),callbacks,cleanups=0;
   const states=[],controller=createNegotiationResultController({getHandoff:()=>h,onChange:s=>states.push(s)});
@@ -68,4 +68,40 @@ test('New Demo retains the host factory but clears the old saved result and subs
   s.controller.reset();assert.equal(s.controller.getState().view,null);assert(s.controller.getState().installed);
   s.setHandoff({...handoff(),sessionId:'second-demo'});s.controller.routeChanged();
   assert.notEqual(s.callbacks,old);assert.equal(old.onUpdate(update()).status,'ignored');
+});
+
+const acceptedSummary=(extra={})=>summary({disposition:'successful',reason:'AGREED',outcome:'accepted',accessConsent:'allowed',nextAction:'continue',
+  agreedCents:11357,offeredCents:11357,monthlyRentCents:500,termsVersion:2,explanation:'Owner agreed to $113.57 plus $5.00/month.',...extra});
+
+test('accepted compensation is exact display data with an opaque committed reference',()=>{
+  const s=setup();s.callbacks.onUpdate(update({phase:'finished',summary:acceptedSummary()}));
+  assert.deepEqual(s.controller.getAcceptedTerms(),{parcelId:'parcel',agreedCents:11357,monthlyRentCents:500,termsVersion:2,mode:'live',available:true,
+    negotiationRef:{attemptId:'attempt',eventId:'saved-1',revision:2}});
+  assert.equal(handoff().ownerHandoff.parcels[0].offerPolicy.recommendedOfferCents,10001);
+  s.callbacks.onUnavailable();assert.equal(s.controller.getAcceptedTerms().agreedCents,11357);assert.equal(s.controller.getAcceptedTerms().available,false);
+  s.setHandoff({...handoff(),routeVersion:2});s.controller.routeChanged();
+  assert.equal(s.controller.getAcceptedTerms(),null);assert.equal(s.controller.getState().view,null);
+});
+
+test('proposed, conditional and malformed final amounts cannot become agreed compensation',()=>{
+  for(const changes of [{agreedCents:12002,offeredCents:12002},{agreedCents:9999,offeredCents:9999},{agreedCents:11357.2},{offeredCents:10001},
+    {accessConsent:'unknown'},{monthlyRentCents:501},{termsVersion:0},{agreedCents:null}]){
+    const s=setup();assert.throws(()=>s.callbacks.onUpdate(update({phase:'finished',summary:acceptedSummary(changes)})),/agreed compensation/);
+    assert.equal(s.controller.getAcceptedTerms(),null);
+  }
+  const s=setup();s.callbacks.onUpdate(update());assert.equal(s.controller.getAcceptedTerms(),null);
+  s.callbacks.onUpdate(update({eventId:'conditions',revision:3,phase:'finished',summary:summary({disposition:'needs_review',reason:'ADDITIONAL_CONDITIONS',agreedCents:null})}));
+  assert.equal(s.controller.getAcceptedTerms(),null);
+});
+
+test('a newer saved revision revokes earlier agreed terms without reopening a terminal call',()=>{
+  const s=setup();s.callbacks.onUpdate(update({phase:'finished',summary:acceptedSummary()}));
+  assert.equal(s.callbacks.onUpdate(update({eventId:'terms-changed',revision:3})).status,'superseded');
+  assert.equal(s.controller.getAcceptedTerms(),null);assert.equal(s.controller.getState().terminal,true);assert.equal(s.controller.getState().superseded,true);
+  s.callbacks.onReady();assert.equal(s.controller.getAcceptedTerms(),null);
+  assert.equal(s.callbacks.onUpdate(update({phase:'finished',summary:acceptedSummary()})).status,'duplicate');
+  assert.equal(s.controller.getAcceptedTerms(),null);
+  const conflict=setup();conflict.callbacks.onUpdate(update({phase:'finished',summary:acceptedSummary()}));
+  assert.equal(conflict.callbacks.onUpdate(update({eventId:'conflicting-identity',phase:'finished',summary:acceptedSummary()})).status,'superseded');
+  assert.equal(conflict.controller.getAcceptedTerms(),null);
 });
