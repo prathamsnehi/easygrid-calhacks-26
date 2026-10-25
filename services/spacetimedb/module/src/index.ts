@@ -8,6 +8,11 @@ import {
   startSession,
 } from './logic.ts';
 import { spacetimedb } from './tables.ts';
+import { reserveVoiceAttempt, claimVoiceAttempt, markVoiceAttempt, saveVoiceCandidate, saveVoiceOutcome, recordVoiceTool, voiceWorkerAttempts, voiceResults } from './voice-state.ts';
+import {
+  bindNegotiation, executeNegotiation, claimNegotiationReview, commitNegotiationReview,
+  closeNegotiation, recordNegotiationTranscript, negotiationResults, negotiationWorkerState, negotiationReviewState, negotiationAgreements,
+} from './negotiation-state.ts';
 
 export { check_call, start_call };
 
@@ -155,7 +160,7 @@ export const publish_route = spacetimedb.reducer(
   (ctx, input) => publishRoute(ctx, input),
 );
 
-const summaryRow = t.object('NegotiationResultRow', {
+const summaryRow = t.object('CallResultRow', {
   attemptId: t.string(),
   sessionId: t.string(),
   parcelId: t.string(),
@@ -174,8 +179,8 @@ const summaryRow = t.object('NegotiationResultRow', {
   agreedCents: t.u32(),
 });
 
-export const negotiation_result = spacetimedb.view(
-  { name: 'negotiation_result', public: true },
+export const call_result = spacetimedb.view(
+  { name: 'call_result', public: true },
   { sessionId: t.string() },
   t.array(summaryRow),
   (ctx, { sessionId }) => [...ctx.db.negotiationSummary.bySession.filter(sessionId)].map(row => ({
@@ -236,5 +241,62 @@ export const record_outcome = spacetimedb.reducer(
   },
   (ctx, input) => recordOutcome(ctx, input),
 );
+
+export const bind_negotiation = spacetimedb.reducer(
+  { sessionId: t.string(), expectedRevision: t.u32(), requestKey: t.string(), handoffJson: t.string(), mapBindingJson: t.string() },
+  (ctx, input) => bindNegotiation(ctx, input),
+);
+export const execute_negotiation = spacetimedb.reducer(
+  { sessionId: t.string(), commandJson: t.string(), providerTurnsJson: t.string() },
+  (ctx, input) => executeNegotiation(ctx, input),
+);
+export const claim_negotiation_review = spacetimedb.reducer(
+  { sessionId: t.string(), attemptId: t.string(), claimId: t.string() },
+  (ctx, input) => claimNegotiationReview(ctx, input),
+);
+export const record_negotiation_transcript = spacetimedb.reducer(
+  { sessionId: t.string(), attemptId: t.string(), requestId: t.string(), providerTurnsJson: t.string() },
+  (ctx, input) => recordNegotiationTranscript(ctx, input),
+);
+export const commit_negotiation_review = spacetimedb.reducer(
+  { sessionId: t.string(), claimId: t.string(), commandJson: t.string(), providerTurnsJson: t.string() },
+  (ctx, input) => commitNegotiationReview(ctx, input),
+);
+export const close_negotiation = spacetimedb.reducer(
+  { sessionId: t.string() }, (ctx, input) => closeNegotiation(ctx, input),
+);
+export const negotiation_results = spacetimedb.view(
+  { name: 'negotiation_results', public: true }, { sessionId: t.string() },
+  t.array(t.object('NegotiationResultRow', { attemptId: t.string(), revision: t.u32(), updateJson: t.string() })),
+  (ctx, { sessionId }) => negotiationResults(ctx, sessionId),
+);
+export const negotiation_worker_state = spacetimedb.view(
+  { name: 'negotiation_worker_state', public: true }, { sessionId: t.string() },
+  t.array(t.object('NegotiationWorkerStateRow', { stateJson: t.string(), mapBindingJson: t.string() })),
+  (ctx, { sessionId }) => negotiationWorkerState(ctx, sessionId),
+);
+export const negotiation_review_state = spacetimedb.view(
+  { name: 'negotiation_review_state', public: true }, { sessionId: t.string(), attemptId: t.string() },
+  t.array(t.object('NegotiationReviewStateRow', { claimId: t.string(), leaseUntilMicros: t.u64(), completed: t.bool() })),
+  (ctx, { sessionId, attemptId }) => negotiationReviewState(ctx, sessionId, attemptId),
+);
+export const negotiation_agreements = spacetimedb.view(
+  { name: 'negotiation_agreements', public: true }, { sessionId: t.string() },
+  t.array(t.object('NegotiationAgreementRow', { revision: t.u32(), packetJson: t.string() })),
+  (ctx, { sessionId }) => negotiationAgreements(ctx, sessionId),
+);
+
+export const reserve_voice_attempt = spacetimedb.reducer({ inputJson: t.string() }, (ctx, input) => reserveVoiceAttempt(ctx, input));
+export const claim_voice_attempt = spacetimedb.reducer({ id: t.string(), claimId: t.string() }, (ctx, input) => claimVoiceAttempt(ctx, input));
+export const mark_voice_attempt = spacetimedb.reducer({ id: t.string(), claimId: t.string(), status: t.string(), providerCallId: t.string(), evidenceJson: t.string() }, (ctx, input) => markVoiceAttempt(ctx, input));
+export const save_voice_candidate = spacetimedb.reducer({ id: t.string(), claimId: t.string(), candidateJson: t.string() }, (ctx, input) => saveVoiceCandidate(ctx, input));
+export const save_voice_outcome = spacetimedb.reducer({ id: t.string(), claimId: t.string(), outcomeJson: t.string() }, (ctx, input) => saveVoiceOutcome(ctx, input));
+export const record_voice_tool = spacetimedb.reducer({ id: t.string(), claimId: t.string(), requestId: t.string(), kind: t.string(), payloadJson: t.string() }, (ctx, input) => recordVoiceTool(ctx, input));
+export const voice_worker_attempts = spacetimedb.view({ name: 'voice_worker_attempts', public: true }, t.array(t.object('VoiceWorkerAttemptRow', {
+  id: t.string(), sessionId: t.string(), revision: t.u32(), status: t.string(), attemptJson: t.string(),
+})), ctx => voiceWorkerAttempts(ctx));
+export const voice_results = spacetimedb.view({ name: 'voice_results', public: true }, t.array(t.object('VoiceResultRow', {
+  id: t.string(), sessionId: t.string(), revision: t.u32(), status: t.string(), resultJson: t.string(),
+})), ctx => voiceResults(ctx));
 
 export default spacetimedb;

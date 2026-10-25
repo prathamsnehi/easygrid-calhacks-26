@@ -27,6 +27,13 @@ No credentials, raw provider errors or transcripts are logged by this package.
 See [CAL-34 integration](../../docs/CAL34_INTEGRATION.md) for evidence validation,
 public result delivery and the remaining CAL-29/CAL-33 runtime requirements.
 
+`createEasyGridClaudeReviewer` is the separate current full-compensation reviewer.
+It takes `{ approvedOfferCents, turns }` and returns a candidate with whole-turn
+quotes and optional explicit original-parcel edge condition. It does not write
+state or authorize acceptance. `createEasyGridVoiceRuntime` independently
+corroborates its evidence, and the host verifies any geometry condition before
+committing. The older CAL-34 reviewer retains its original behavior.
+
 ## Existing credential and access smoke-test instructions
 
 Use the team's **Node.js 24** baseline for later backend work. This smoke test

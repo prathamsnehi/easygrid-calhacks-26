@@ -43,3 +43,6 @@ export function createCartesiaService(options: CartesiaServiceOptions) {
 export type CartesiaService = ReturnType<typeof createCartesiaService>;
 
 export { enforceConnectedCallDeadline } from './calls.service.js';
+export { EASYGRID_VOICE_PROMPT, buildEasyGridVoiceVariables, normalizeCartesiaTranscript, validateEasyGridVoiceCandidate, reviewEasyGridToolResponse, createEasyGridVoiceRuntime } from './easygrid-voice.js';
+export type { VoiceTurn, VoiceCondition, VoiceCandidate, VoiceReviewInput, EasyGridVoiceReviewer } from './easygrid-voice.js';
+export { easyGridVoiceToolDefinitions, provisionEasyGridVoiceTools } from './easygrid-tools.js';

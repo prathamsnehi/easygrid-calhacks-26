@@ -61,6 +61,8 @@ export function createPlanner({ THREE, scene, camera, canvas, world, onChange, o
   }
   function refreshHighlight() {
     const activeParcelId=analysisParcelId??(mode==='inspect'?selectedParcelId:null);
+    highlight.material.color.setHex(analysisParcelId?0xe57373:0xf4f7c7);
+    highlight.material.opacity=analysisParcelId?.28:.30;
     highlight.visible=Boolean(activeParcelId);
     parcelLines.visible=mode==='inspect'||Boolean(analysisParcelId);
     if(!highlight.visible || highlightedId===activeParcelId)return;

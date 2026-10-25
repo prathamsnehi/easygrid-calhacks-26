@@ -109,7 +109,7 @@ test('a committed review is redacted and a second dial is refused', () => {
       compensationCents: 0, monthlyRentCents: 0, hasAmounts: false, failureReason: '',
     });
   });
-  const view = db.withReducerTx(TestAuth.internal(), tx => module.negotiation_result(tx, { sessionId: 'call-1' }));
+  const view = db.withReducerTx(TestAuth.internal(), tx => module.call_result(tx, { sessionId: 'call-1' }));
   const encoded = JSON.stringify(view);
   assert.equal(encoded.includes(PHONE), false);
   assert.equal(encoded.includes('refuse transmission'), false);
@@ -125,7 +125,7 @@ test('a provider failure is a labeled simulation and an allowed yes is saved aft
   const failed = harness();
   const failedCtx = failed.procedureContextBuilder(TestAuth.internal()).http(() => httpResponse(503, '{"phone":"+15551219999"}')).build();
   assert.equal(module.start_call(failedCtx, { ...parcel('L002'), sessionId: 'call-fail', requestKey: 'dial-fail' }), 'requested');
-  const failedView = failed.withReducerTx(TestAuth.internal(), tx => module.negotiation_result(tx, { sessionId: 'call-fail' }));
+  const failedView = failed.withReducerTx(TestAuth.internal(), tx => module.call_result(tx, { sessionId: 'call-fail' }));
   assert.equal(failedView[0]?.mode, 'simulated');
   assert.equal(failedView[0]?.reason, 'SERVICE_UNAVAILABLE');
   assert.equal(JSON.stringify(failedView).includes(PHONE), false);
@@ -155,7 +155,7 @@ test('a provider failure is a labeled simulation and an allowed yes is saved aft
   module.start_call(ctx, { ...parcel('L001'), sessionId: 'call-yes', requestKey: 'dial-yes' });
   const attempt = [...db.db.callAttempt.bySession.filter('call-yes')][0];
   module.check_call(ctx, { check: { scheduledId: 1n, scheduledAt: { tag: 'Time', value: { __timestamp_micros_since_unix_epoch__: 0n } }, attemptId: attempt!.attemptId } });
-  const view = db.withReducerTx(TestAuth.internal(), tx => module.negotiation_result(tx, { sessionId: 'call-yes' }));
+  const view = db.withReducerTx(TestAuth.internal(), tx => module.call_result(tx, { sessionId: 'call-yes' }));
   assert.equal(view[0]?.reason, 'AGREED');
   assert.equal(view[0]?.outcome, 'accepted');
   assert.equal(view[0]?.agreedCents, 10_000);

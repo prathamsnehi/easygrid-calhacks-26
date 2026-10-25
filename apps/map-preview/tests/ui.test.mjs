@@ -9,7 +9,7 @@ import { createWorld } from '../src/world.js';
 import { PLAN_STORAGE_KEY, createPlacement } from '../src/placement.js';
 import { computeTransmissionRoutes } from '../src/routing.js';
 import { reconstructMapProposal } from '../server/map-contracts.mjs';
-import { contractSourceFromAgreement, simulatedMapAgreement } from '../src/contract-handoff.js';
+import { contractSourceFromAgreement, simulatedMapAgreement, mapContractRequest } from '../src/contract-handoff.js';
 
 const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
 const markup=html.slice(0,html.indexOf('<script>'));
@@ -25,7 +25,7 @@ const compiled=new vm.Script(embedded
 const expectedWorld=createWorld();
 const privateUser={alias:'Test User',phone:'+12025550123'};
 
-function boot({fetcher=undefined,saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,panelRects={},rect={left:37,top:100,width:1100,height:700}}={}) {
+function boot({fetcher=undefined,EventSourceClass=undefined,sessionUUID='10e8be2e-334e-4e12-97a9-e8053585587f',saved=new Map(),storageFails=false,prepareWorld=()=>{},autoStart=true,panelRects={},rect={left:37,top:100,width:1100,height:700}}={}) {
   const errors=[],elements=new Map();
   let currentScene,currentCamera,clock=1000;
   let timerSequence=0;
@@ -111,7 +111,8 @@ function boot({fetcher=undefined,saved=new Map(),storageFails=false,prepareWorld
   };
   const window=new Element('window');
   window.devicePixelRatio=1;
-  window.crypto={randomUUID:()=> '10e8be2e-334e-4e12-97a9-e8053585587f'};
+  window.crypto={randomUUID:()=>sessionUUID};
+  window.EventSource=EventSourceClass;
   window.localStorage={
     getItem(key){if(storageFails)throw new Error('storage unavailable');return saved.get(key)??null;},
     setItem(key,value){if(storageFails)throw new Error('storage unavailable');saved.set(key,value);},
@@ -560,7 +561,7 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.equal(handoff.parcelAnalysis.filter(row=>row.userRole).length,1);
   assert(route.parcelIds.includes(handoff.userRole.parcelId));
   assert.equal(handoff.userRole.participantReady,true);
-  assert.equal(app.elements.get('agent-call').disabled,false);
+  assert.equal(app.elements.get('agent-call').disabled,true);
   assert.equal(app.elements.get('agent-call').textContent,'Agent call');
   assert.equal(app.elements.has('export-handoff'),false);
   assert.equal(app.elements.has('prepare-handoff'),false);
@@ -575,7 +576,7 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.equal(app.elements.get('analysis-parcel-rent-label').textContent,'Monthly fee');
   assert.match(app.elements.get('analysis-line-length').textContent,/ m$/);
   assert.equal(app.elements.get('analysis-negotiation').textContent,'Pending');
-  assert.equal(app.elements.get('handoff-status-badge').textContent,'READY');
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'OFFLINE');
   assert.match(markup,/<details class="analysis-breakdown"><summary>View breakdown<\/summary>/);
   for(const id of ['analysis-email','analysis-contact','user-contact-status','user-role-note','handoff-budget-note','registered-participant-consent']){
     assert.equal(app.elements.has(id),false,`${id} should not duplicate information in the compact panel`);
@@ -628,7 +629,7 @@ test('participant consent gates Agent call while public snapshots and saved plan
   assert.equal(handoffOf(app),null);
   enterUser(app);await app.flushTimers();
   assert.equal(handoffOf(app).userRole.participantReady,true);
-  assert.equal(app.elements.get('agent-call').disabled,false,'saving contact readies Agent call and does not place one');
+  assert.equal(app.elements.get('agent-call').disabled,true,'saving contact does not connect or call a backend');
   const serialized=JSON.stringify(handoffOf(app));
   for(const secret of Object.values(privateUser)){
     assert(!serialized.includes(secret),'shareable handoff must not contain entered participant data');
@@ -1131,6 +1132,7 @@ test('CAL-34 saved results show precise reasons, block repeat calls and do not r
     disposition:'unsuccessful',reason:'PRICE_REJECTED',outcome:'refused',nextAction:'stop',explanation}});
   assert.equal(app.elements.get('handoff-status-badge').textContent,'UNSUCCESSFUL');
   assert.equal(app.elements.get('handoff-result').textContent,explanation);
+  assert.equal(app.elements.get('analysis-agreed').textContent,'Not agreed');
   assert(app.elements.get('agent-call').disabled);assert.equal(app.canvas.dataset.routeId,routeBefore);
   assert(app.elements.get('simulate-refusal').hidden);
   assert(app.elements.get('simulate-approval').hidden);assert(app.elements.get('simulate-approval').disabled);
@@ -1144,6 +1146,99 @@ test('CAL-34 saved results show precise reasons, block repeat calls and do not r
   app.window.easygridDemo.setNegotiationResultSource(null);
   assert.throws(()=>app.window.easygridDemo.runRefusalDemo(),/new demo/,'disconnecting a source cannot erase a live failure');
   assert.deepEqual(app.errors,[]);
+});
+
+function acceptedResult(app,amount){
+  const h=handoffOf(app),parcel=h.ownerHandoff.parcels.find(p=>p.parcelId===h.userRole.parcelId);
+  return {schemaVersion:1,kind:'easygrid-negotiation-result',eventId:'accepted-event',revision:7,saved:true,
+    mapBinding:app.window.easygridDemo.getNegotiationBinding(),localParcelId:parcel.parcelId,mode:'live',phase:'finished',
+    summary:{attemptId:'accepted-attempt',mode:'live',disposition:'successful',reason:'AGREED',outcome:'accepted',accessConsent:'allowed',nextAction:'continue',
+      agreedCents:amount,offeredCents:amount,monthlyRentCents:parcel.terms.monthlyRentCents,termsVersion:parcel.terms.termsVersion+1,
+      explanation:`Owner agreed to ${usd(amount)} plus ${usd(parcel.terms.monthlyRentCents)}/month.`}};
+}
+function acceptedApproval(context,result){
+  const handoff=reconstructMapProposal(context),agreement=simulatedMapAgreement(handoff,{negotiationId:'verified-accepted',approvedAt:'2026-10-25T10:00:00Z'});
+  agreement.ownerHandoff=JSON.parse(JSON.stringify(handoff.ownerHandoff));
+  agreement.approvalScope={kind:'single-owner',parcelId:context.userParcelId};
+  const parcel=agreement.ownerHandoff.parcels.find(p=>p.parcelId===context.userParcelId);
+  Object.assign(parcel.terms,{outcome:'accepted',accessConsent:'allowed',explicitConfirmation:true,confirmationRef:'accepted-confirmation',
+    compensationCents:result.summary.agreedCents,termsVersion:result.summary.termsVersion});
+  return {packageId:`map-contract-${'9'.repeat(40)}`,simulated:true,approvalMode:'negotiated',
+    negotiationRef:{attemptId:result.summary.attemptId,eventId:result.eventId,revision:result.revision},
+    agreement,input:contractSourceFromAgreement(agreement,handoff),mapBinding:agreement.mapBinding,demoScope:'single-owner',demoTarget:'participant',demoParcelId:context.userParcelId};
+}
+
+test('saved agreed compensation stays exact from analysis through the contract and payment review',async()=>{
+  const requests=[],signatures={};let approved,result,callbacks;
+  const app=boot({fetcher:async(url,options)=>{
+    const body=JSON.parse(options.body);requests.push({url,body});
+    if(url==='/api/contracts/approve-map'){
+      approved=acceptedApproval(body.context,result);return {ok:true,json:async()=>approved};
+    }
+    assert(['/api/contracts/state','/api/contracts/sign/utility','/api/contracts/sign/landowner'].includes(url),'navigation and signing cannot submit a bank action');
+    if(url.includes('/sign/'))signatures[url.split('/').at(-1)]={simulated:true,signedAt:'2026-10-25T10:01:00Z'};
+    return {ok:true,json:async()=>({draftId:body.draft.id,documentHash:'8'.repeat(64),signatures:{...signatures},audit:[],journal:[],
+      packageId:approved.packageId,demoScope:'single-owner',demoParcelId:approved.demoParcelId,
+      paymentReady:Boolean(signatures.utility&&signatures.landowner),packageReady:false,bankMode:'nessie-sandbox',paymentSemantics:'record-only',amountIncrementCents:100})};
+  }});
+  placePair(app);await app.flushTimers();const before=handoffOf(app),target=before.ownerHandoff.parcels.find(p=>p.parcelId===before.userRole.parcelId);
+  let amount=target.offerPolicy.recommendedOfferCents+137;if(amount%100===0)amount++;
+  assert(amount<=target.offerCapCents);result=acceptedResult(app,amount);
+  app.window.easygridDemo.setNegotiationResultSource(args=>{callbacks=args;args.onReady();});callbacks.onUpdate(result);
+  app.click('open-analysis');
+  assert.equal(app.elements.get('analysis-offer').textContent,usd(target.offerPolicy.recommendedOfferCents));
+  assert.equal(app.elements.get('analysis-limit').textContent,usd(target.offerCapCents));
+  assert.equal(app.elements.get('analysis-agreed').textContent,usd(amount));
+  assert.match(app.elements.get('analysis-negotiation').textContent,/Agreed/);
+  assert.equal(app.elements.get('settle-payment').textContent,'Review agreed contract');
+  assert.equal(app.elements.get('settle-payment').disabled,false);
+  assert.equal(app.elements.get('simulate-approval').hidden,true);
+  app.click('settle-payment');await settlePromises();await settlePromises();await settlePromises();
+  const approvalRequest=requests[0].body;
+  assert.deepEqual(approvalRequest.negotiationRef,{attemptId:'accepted-attempt',eventId:'accepted-event',revision:7});
+  assert.equal(approvalRequest.agreedCents,undefined);assert.equal(approvalRequest.context.agreedCents,undefined);
+  assert.equal(app.elements.get('cg-editor').hidden,false);assert.equal(app.elements.get('cg-gate').hidden,true);
+  assert.equal(app.elements.get('cg-parcel-total').textContent,usd(amount));assert(app.elements.get('cg-preview').innerHTML.includes(usd(amount)));
+  const source=JSON.parse(requests.find(r=>r.url==='/api/contracts/state').body.draft.sourceKey);
+  assert.equal(source.parcels.length,before.ownerHandoff.parcels.length);assert.equal(source.parcels.filter(p=>p.accepted).length,1);
+  assert.equal(source.parcels.find(p=>p.parcelId===target.parcelId).compensationCents,amount);
+  app.click('cg-sign-utility');await settlePromises();await settlePromises();
+  app.click('cg-sign-landowner');await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('cg-continue-payment').disabled,false);app.click('cg-continue-payment');
+  assert.equal(app.elements.get('cg-payment-view').hidden,false);assert.equal(app.elements.get('cg-payment-amount').textContent,usd(amount));
+  assert.equal(app.elements.get('cg-submit').disabled,true);assert.match(app.elements.get('cg-payout-help').textContent,/whole-dollar.*unchanged.*not be rounded/);
+  assert.equal(handoffOf(app).routeVersion,before.routeVersion);assert.equal(handoffOf(app).ownerHandoff.parcels.find(p=>p.parcelId===target.parcelId).terms.compensationCents,target.terms.compensationCents);
+  for(const secret of Object.values(privateUser))assert(!JSON.stringify(requests).includes(secret));
+  callbacks.onUnavailable();assert.equal(app.elements.get('cg-submit').disabled,true);assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.equal(app.elements.get('analysis-agreed').textContent,usd(amount));assert.match(app.elements.get('handoff-status-badge').textContent,/OFFLINE/);
+  callbacks.onReady();callbacks.onUpdate({...result,eventId:'newer-terms',revision:8,phase:'confirming',summary:null});
+  assert.equal(app.elements.get('analysis-agreed').textContent,'Not agreed');assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'TERMS CHANGED');assert.equal(app.elements.get('agent-call').disabled,true);
+  callbacks.onReady();assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('saved-result navigation rejects baseline approval fallback and cancels a late verified response',async()=>{
+  for(const scenario of ['fallback','wrong-amount','stale']){
+    let callbacks,result,finish;const requests=[];
+    const app=boot({fetcher:async(url,options)=>{
+      requests.push(url);assert.equal(url,'/api/contracts/approve-map');
+      const body=JSON.parse(options.body),response=acceptedApproval(body.context,result);
+      if(scenario==='fallback')delete response.approvalMode;
+      if(scenario==='wrong-amount')response.input.parcels.find(p=>p.parcelId===body.context.userParcelId).compensationCents--;
+      if(scenario==='stale')return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>response});});
+      return {ok:true,json:async()=>response};
+    }});
+    placePair(app);await app.flushTimers();const h=handoffOf(app),p=h.ownerHandoff.parcels.find(p=>p.parcelId===h.userRole.parcelId);
+    result=acceptedResult(app,p.offerPolicy.recommendedOfferCents+37);
+    app.window.easygridDemo.setNegotiationResultSource(args=>{callbacks=args;args.onReady();});callbacks.onUpdate(result);
+    app.click('overview-settlement');
+    if(scenario==='stale'){app.click('recalculate-route');finish();}
+    await settlePromises();await settlePromises();await settlePromises();
+    assert.equal(app.elements.get('contract-workspace').hidden,true);assert.equal(requests.length,1);
+    if(scenario!=='stale'){assert.match(app.elements.get('settlement-feedback').textContent,/did not verify/);assert.equal(app.elements.get('settle-payment').disabled,false);}
+    assert.deepEqual(app.errors,[]);
+  }
 });
 
 test('CAL-34 outage preserves the last saved reason with an offline note',async()=>{
@@ -1277,5 +1372,174 @@ test('route changes and host attachment cancel pending approval navigation',asyn
     assert.equal(requests.length,1);
     if(cancel==='host')assert.equal(app.elements.get('simulate-approval').hidden,true);
     assert.deepEqual(app.errors,[]);
+  }
+});
+
+test('explicit database-procedure configuration enables Agent call without dialing during registration',async()=>{
+  const requests=[];
+  class UnusedStream {constructor(){throw new Error('Procedure mode uses summary polling, not the coordinator stream.');}}
+  const app=boot({EventSourceClass:UnusedStream,fetcher:async url=>{
+    requests.push(url);assert.equal(url,'/api/voice/config');
+    return {ok:true,json:async()=>({enabled:true,mode:'database-procedure',origin:'https://state.example.com',database:'synthetic-call-demo'})};
+  }});
+  await settlePromises();placePair(app);await app.flushTimers();await settlePromises();
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'READY');
+  assert.equal(app.elements.get('settle-payment').disabled,true,'a callable participant does not approve a contract');
+  assert.deepEqual(requests,['/api/voice/config']);assert.deepEqual(app.errors,[]);
+});
+
+test('saved live voice acceptance opens the exact participant contract without simulation, signing or payment',async()=>{
+  const streams=[],requests=[];let approved;
+  class Stream {constructor(url){this.url=url;streams.push(this);}close(){this.closed=true;}}
+  const app=boot({EventSourceClass:Stream,fetcher:async(url,options)=>{
+    requests.push({url,body:options.body?JSON.parse(options.body):null});
+    if(url==='/api/voice/config')return {ok:true,json:async()=>({enabled:true})};
+    if(url==='/api/voice/active')return {ok:true,json:async()=>({active:null})};
+    if(url.startsWith('/api/voice/attempt?'))return {ok:true,json:async()=>({attempt:null})};
+    if(url==='/api/voice/calls')return {ok:true,json:async()=>({attemptId:'accepted-attempt',status:'negotiating'})};
+    assert.equal(url,'/api/contracts/state','live acceptance never invokes simulated approval or a payment');
+    const body=JSON.parse(options.body);
+    return {ok:true,json:async()=>({draftId:body.draft.id,documentHash:'d'.repeat(64),signatures:{},audit:[],journal:[],packageId:approved.packageId,demoScope:'single-owner',demoParcelId:approved.demoParcelId,paymentReady:false,bankMode:'simulation'})};
+  }});
+  placePair(app);await app.flushTimers();await settlePromises();
+  const before=handoffOf(app),parcel=before.ownerHandoff.parcels.find(p=>p.parcelId===before.userRole.parcelId);
+  app.click('agent-call');await settlePromises();await settlePromises();
+  assert.equal(requests.filter(r=>r.url==='/api/voice/calls').length,1);
+  const result=acceptedResult(app,parcel.offerPolicy.recommendedOfferCents+100);
+  approved={...acceptedApproval(mapContractRequest(before,app.storage(),{}),result),simulated:false};
+  const event={schemaVersion:1,kind:'easygrid-voice-result',attemptId:result.summary.attemptId,eventId:result.eventId,revision:result.revision,
+    saved:true,mode:'live',mapBinding:result.mapBinding,localParcelId:result.localParcelId,status:'finished',outcome:'accepted',
+    acceptedCompensationCents:result.summary.agreedCents,monthlyRentCents:0,reason:'The owner accepted the exact agreed compensation.',termsVersion:result.summary.termsVersion,contractApproval:approved};
+  streams.at(-1).onmessage({data:JSON.stringify(event)});await settlePromises();await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('contract-workspace').hidden,false);
+  assert.equal(app.elements.get('cg-parcel').value,before.userRole.parcelId);
+  assert.equal(app.elements.get('cg-parcel-total').textContent,usd(event.acceptedCompensationCents));
+  assert.equal(app.window.easygridDemo.getNegotiationState().simulated,false);
+  assert.equal(app.window.easygridDemo.getNegotiationState().outcomes[0].sourceMode,'live');
+  assert.match(app.elements.get('negotiation-status').textContent,/live call/);
+  assert.deepEqual(handoffOf(app).snapshot.routes[0].geometry,before.snapshot.routes[0].geometry);
+  assert.equal(app.elements.get('cg-continue-payment').disabled,true);
+  app.click('cg-close');streams.at(-1).onmessage({data:JSON.stringify(event)});await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('contract-workspace').hidden,true,'replayed saved events do not reopen the document');
+  assert.equal(requests.filter(r=>r.url==='/api/voice/calls').length,1);
+  for(const r of requests){assert(!r.url.includes(privateUser.phone));if(r.url!=='/api/voice/calls')assert(!JSON.stringify(r).includes(privateUser.phone));}
+  assert.deepEqual(app.errors,[]);
+});
+
+test('saved live refusal reroutes once and review keeps the original geometry without another call',async()=>{
+  for(const outcome of ['refused','review_required']){
+    const streams=[];let callCount=0;
+    class Stream {constructor(){streams.push(this);}close(){this.closed=true;}}
+    const app=boot({EventSourceClass:Stream,fetcher:async(url)=>{
+      if(url==='/api/voice/config')return {ok:true,json:async()=>({enabled:true})};
+    if(url==='/api/voice/active')return {ok:true,json:async()=>({active:null})};
+      if(url.startsWith('/api/voice/attempt?'))return {ok:true,json:async()=>({attempt:null})};
+      assert.equal(url,'/api/voice/calls');callCount++;return {ok:true,json:async()=>({attemptId:'voice-refusal',status:'negotiating'})};
+    }});
+    placePair(app);await app.flushTimers();await settlePromises();const before=handoffOf(app),binding=app.window.easygridDemo.getNegotiationBinding();
+    app.click('agent-call');await settlePromises();await settlePromises();
+    const stream=streams.at(-1),event={schemaVersion:1,kind:'easygrid-voice-result',attemptId:'voice-refusal',eventId:`voice-${outcome}`,revision:3,
+      saved:true,mode:'live',mapBinding:binding,localParcelId:before.userRole.parcelId,status:'finished',outcome,
+      reason:outcome==='refused'?'The owner refused access.':'The condition needs human review.'};
+    stream.onmessage({data:JSON.stringify(event)});await settlePromises();await settlePromises();
+    if(outcome==='refused'){
+      assert.equal(app.window.easygridDemo.getNegotiationState().phase,'rerouting');
+      assert.equal(app.canvas.dataset.previousRouteVisible,'true');await app.flushTimers();
+      const after=handoffOf(app);assert(!after.snapshot.routes[0].parcelIds.includes(before.userRole.parcelId));
+      assert.equal(after.userRole.liveCallLocked,true);assert.equal(app.window.easygridDemo.getNegotiationState().phase,'confirmed');
+      assert.match(app.elements.get('negotiation-status').textContent,/simulated/,'other fictional owners are not described as live approvals');
+    }else{
+      assert.equal(app.window.easygridDemo.getNegotiationState().phase,'review_required');
+      assert.deepEqual(handoffOf(app).snapshot.routes[0].geometry,before.snapshot.routes[0].geometry);
+      assert.equal(handoffOf(app).routeVersion,before.routeVersion);
+    }
+    stream.onmessage({data:JSON.stringify(event)});await settlePromises();app.click('agent-call');await settlePromises();
+    assert.equal(callCount,1);assert.equal(app.elements.get('contract-workspace').hidden,true);assert.deepEqual(app.errors,[]);
+  }
+});
+
+
+test('refresh restores a registered demo only when the saved map binding matches',async()=>{
+  const original=boot();placePair(original);await original.flushTimers();
+  const binding=original.window.easygridDemo.getNegotiationBinding();
+  const userParcelId=original.window.easygridDemo.getHandoff().userRole.parcelId;
+  const saved=original.saved;
+  assert.equal(JSON.stringify(original.storage()).includes(binding.sessionId),false);
+  const facilitiesOnly=boot({saved,autoStart:false});
+  assert.equal(facilitiesOnly.canvas.dataset.placementCount,'2');
+  assert.equal(facilitiesOnly.canvas.dataset.authoritativeDemo??'','');
+  enterUser(facilitiesOnly);await facilitiesOnly.flushTimers();
+  assert.equal(facilitiesOnly.canvas.dataset.authoritativeDemo??'','','restored facilities are not a registered demo');
+  assert.equal(facilitiesOnly.window.easygridDemo.getHandoff().userRole.participantReady,true);
+  const record={sessionId:binding.sessionId,routeId:binding.routeId,routeVersion:binding.routeVersion,userParcelId,mapBinding:binding};
+  const restored=boot({saved,autoStart:false});
+  restored.window.easygridDemo.restoreRegisteredDemo(record);
+  assert.equal(restored.canvas.dataset.authoritativeDemo,'pending');
+  assert.throws(()=>restored.window.easygridDemo.restoreRegisteredDemo({...record,phone:'+12025550123'}),/server/);
+  enterUser(restored);await restored.flushTimers();
+  assert.equal(restored.canvas.dataset.authoritativeDemo,'restored');
+  const restoredBinding=restored.window.easygridDemo.getNegotiationBinding();
+  assert.equal(restoredBinding.sessionId,binding.sessionId);
+  assert.equal(restoredBinding.routeId,binding.routeId);
+  assert.equal(restoredBinding.routeVersion,binding.routeVersion);
+  if(restoredBinding.proposalKey!==binding.proposalKey){
+    const left=restoredBinding.proposalKey,right=binding.proposalKey;
+    let index=0;while(index<left.length&&index<right.length&&left[index]===right[index])index++;
+    assert.fail(`proposal keys differ at ${index}: ${JSON.stringify(left.slice(Math.max(0,index-40),index+40))} vs ${JSON.stringify(right.slice(Math.max(0,index-40),index+40))}`);
+  }
+  let ready=false;const deliveries=[];
+  restored.window.easygridDemo.setNegotiationResultSource(args=>{
+    args.onUpdate({schemaVersion:1,kind:'easygrid-negotiation-result',eventId:'saved-result',revision:4,saved:true,
+      mapBinding:binding,localParcelId:userParcelId,mode:'live',phase:'confirming',summary:null});
+    deliveries.push('update');
+    args.onReady();ready=true;deliveries.push('ready');
+  });
+  assert.deepEqual(deliveries,['update','ready']);
+  assert.equal(ready,true);
+  assert.equal(restored.window.easygridDemo.getNegotiationResult().view.eventId,'saved-result');
+  const mismatched=boot({saved,autoStart:false});
+  mismatched.window.easygridDemo.restoreRegisteredDemo({...record,mapBinding:{...binding,proposalKey:`${binding.proposalKey}changed`}});
+  enterUser(mismatched);await mismatched.flushTimers();
+  assert.equal(mismatched.canvas.dataset.authoritativeDemo,'unmatched');
+  assert.notEqual(mismatched.window.easygridDemo.getNegotiationBinding().proposalKey,`${binding.proposalKey}changed`);
+  assert.deepEqual(restored.errors,[]);
+});
+
+test('voice startup restores the saved session only for matching facilities and replays acceptance without another call',async()=>{
+  const original=boot();placePair(original);await original.flushTimers();
+  const before=handoffOf(original),mapBinding=original.window.easygridDemo.getNegotiationBinding();
+  const parcel=before.ownerHandoff.parcels.find(p=>p.parcelId===before.userRole.parcelId),result=acceptedResult(original,parcel.offerPolicy.recommendedOfferCents+100);
+  const approved={...acceptedApproval(mapContractRequest(before,original.storage(),{}),result),simulated:false};
+  const event={schemaVersion:1,kind:'easygrid-voice-result',attemptId:result.summary.attemptId,eventId:result.eventId,revision:result.revision,
+    saved:true,mode:'live',mapBinding,localParcelId:before.userRole.parcelId,status:'finished',outcome:'accepted',acceptedCompensationCents:result.summary.agreedCents,
+    monthlyRentCents:0,termsVersion:result.summary.termsVersion,reason:'The owner accepted one full payment.',contractApproval:approved};
+  const record={sessionId:before.sessionId,routeId:mapBinding.routeId,routeVersion:mapBinding.routeVersion,userParcelId:before.userRole.parcelId,mapBinding};
+  const facilities=Object.fromEntries(['substation','datacenter'].map(kind=>[kind,{x:original.storage()[kind].x,z:original.storage()[kind].z}]));
+  for(const [matches,alreadyStarted] of [[true,false],[false,false],[true,true]]){
+    const restore=matches&&!alreadyStarted;
+    let calls=0;const streams=[];
+    class Stream {constructor(){streams.push(this);}close(){this.closed=true;}}
+    const app=boot({saved:original.saved,autoStart:alreadyStarted,sessionUUID:restore?'restored-uuid':'different-uuid',EventSourceClass:Stream,fetcher:async(url,options)=>{
+      if(url==='/api/voice/config')return {ok:true,json:async()=>({enabled:true,ready:true})};
+      if(url==='/api/voice/active')return {ok:true,json:async()=>({active:{record,facilities:matches?facilities:{...facilities,substation:{...facilities.substation,x:facilities.substation.x+1}}}})};
+      if(url.startsWith('/api/voice/attempt?'))return {ok:true,json:async()=>({attempt:event})};
+      if(url==='/api/voice/calls'){calls++;throw new Error('Restoration must not call.');}
+      assert.equal(url,'/api/contracts/state');const body=JSON.parse(options.body);
+      return {ok:true,json:async()=>({draftId:body.draft.id,documentHash:'d'.repeat(64),signatures:{},audit:[],journal:[],packageId:approved.packageId,demoScope:'single-owner',demoParcelId:approved.demoParcelId,paymentReady:false,bankMode:'simulation'})};
+    }});
+    await settlePromises();await settlePromises();await settlePromises();
+    assert.equal(app.canvas.dataset.authoritativeDemo??'',restore?'pending':'');
+    assert.equal(app.canvas.dataset.demoReady,String(alreadyStarted),'restoration never bypasses registration or replaces an active demo');
+    assert.equal(streams.length,0);assert.equal(calls,0);
+    if(!alreadyStarted)enterUser(app);await app.flushTimers();await settlePromises();await settlePromises();await settlePromises();
+    assert.equal(app.elements.get('contract-workspace').hidden,!restore);
+    if(restore){
+      assert.equal(app.canvas.dataset.authoritativeDemo,'restored');
+      assert.equal(handoffOf(app).sessionId,before.sessionId);
+      assert.equal(app.elements.get('cg-parcel-total').textContent,usd(event.acceptedCompensationCents));
+      assert.equal(app.window.easygridDemo.getNegotiationResult().view.summary.monthlyRentCents,0);
+    }else assert.notEqual(handoffOf(app).sessionId,before.sessionId);
+    assert.equal(calls,0);assert.deepEqual(app.errors,[]);
   }
 });
