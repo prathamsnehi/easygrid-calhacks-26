@@ -1,9 +1,10 @@
 # CAL-41 shared negotiation state: handoff to CAL-33
 
-This branch implements the first independent CAL-41 workstream: the SpacetimeDB
-transaction boundary for CAL-34 negotiation commands. CAL-33 can implement voice
-orchestration against this interface concurrently. This is not a deployed module,
-an assembled browser application, or evidence of a live call.
+This branch implements the CAL-41 saved-state boundary and the local map
+connection that imports a reconstructed fixture and restores that binding after
+refresh. CAL-33 can implement voice orchestration against the documented
+interface concurrently. This is not a deployed module, a published-service
+refresh, or evidence of a live call.
 
 ## Ownership and compatibility
 
@@ -119,8 +120,22 @@ The adapter resolves exact saved command receipts after commit, including a
 retried earlier command whose attempt has since advanced. Its local claim-token
 map only remembers tokens it acquired; exclusion/expiry is enforced in the DB.
 
-Actual generated bindings, a concrete connected transport, provider-to-attempt
-mapping and the CAL-33 process lifecycle remain to be connected and verified.
+`createGeneratedNegotiationClient` adapts generated reducer callbacks and view
+subscriptions. Its mutation promises resolve only after a matching callback
+reports `committed`. View reads go through `subscribeView`, which must resolve
+from an applied subscription rather than an older cache. The previously published
+CAL-29 database does not expose these reducers; do not point this client at it
+until an explicitly authorized module publication generates matching bindings.
+
+`importReconstructedNegotiation` rebuilds the map with `reconstructMapProposal`,
+registers only the privately resolved consenting participant, and calls
+`bind_negotiation`. A browser owner packet is rejected. `createSavedNegotiationResultSource`
+delivers saved rows through `setNegotiationResultSource` before `onReady`.
+`restoreRegisteredDemo` reattaches the saved local session, route and parcel.
+Restored facility endpoints without that record stay an unregistered local demo.
+
+Provider-to-attempt mapping, the CAL-33 process lifecycle, and a live published
+module remain to be connected and verified.
 
 ## Views and browser handoff
 
@@ -136,9 +151,9 @@ not unrestricted row access. The new view functions filter/check the caller.
 The host must authorize browser access and project only current public updates.
 Never place worker/operator tokens in browser code. On subscription readiness,
 deliver initial saved rows through `setNegotiationResultSource` before reporting
-ready; ongoing events reuse the exact imported `mapBinding`. This enables the
-existing result UI to display saved state after reconnect once the connected
-transport and active map/session restoration are implemented.
+ready; ongoing events reuse the exact imported `mapBinding`. The local map can
+reattach that binding after refresh. A deployed subscription still has to be
+connected before refresh works against the published service.
 
 The agreement packet is canonical. Do not relabel it `local-fixture` or send it
 through the current simulation approval action: that would bypass authoritative
@@ -156,6 +171,7 @@ npm ci --ignore-scripts --prefix packages/contracts
 npm run build --prefix packages/contracts
 npm ci --ignore-scripts --prefix services/spacetimedb
 npm run typecheck --prefix services/spacetimedb
+npm test --prefix services/spacetimedb
 npm run build --prefix services/spacetimedb
 npm ci --ignore-scripts --prefix services/spacetimedb/module
 npm run typecheck --prefix services/spacetimedb/module
@@ -172,12 +188,15 @@ synthetic sentinels. Existing legacy behavior remains covered separately.
 
 - [x] Implement/test the atomic negotiation, evidence, claim and projection boundary.
 - [x] Provide the tested CAL-33 backend adapter and preserve legacy APIs.
+- [x] Add the commit-aware generated-client adapter, trusted fixture import and local refresh restoration. Module tests (21/21), negotiation-client tests (2/2) and map-preview tests (253/253, including refresh restoration) cover this path. They do not publish a module or reconnect to a deployed database.
+- [x] Local browser check on the built preview: both facilities placed, the route reached `ok`, refresh kept the facilities with an empty onboarding form, and `restoreRegisteredDemo` marked the demo `pending`. A restore record carrying a phone was rejected, and the saved plan did not contain the map session id. The post-onboarding `restored` flag was confirmed in the map VM test; the browser pass did not submit the onboarding form a second time.
 - [ ] Publish an explicitly authorized module update and generate matching bindings.
-- [ ] Connect trusted fixture import, registration and the concrete live transport.
+- [ ] Connect the concrete live transport to that published module and private registration endpoint.
 - [ ] Verify actual-service refresh/reconnect and new active-session restoration.
 - [ ] Connect canonical agreement/signature/approval/full-payment persistence.
 - [ ] With CAL-33, demonstrate a consented live call and saved/reviewed result.
 - [ ] Verify the full browser journey and failure/fallback cases under CAL-42.
 
-Keep CAL-41 In Progress. Local tests/builds do not satisfy the live-service,
-browser or provider acceptance items above; no deployment is part of this change.
+Keep CAL-41 In Progress. Local tests and the local browser restore check do
+not satisfy actual-service refresh, payment persistence, live-call or CAL-42
+acceptance. No deployment is part of this change.

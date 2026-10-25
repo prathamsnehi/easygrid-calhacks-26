@@ -1279,3 +1279,49 @@ test('route changes and host attachment cancel pending approval navigation',asyn
     assert.deepEqual(app.errors,[]);
   }
 });
+
+test('refresh restores a registered demo only when the saved map binding matches',async()=>{
+  const original=boot();placePair(original);await original.flushTimers();
+  const binding=original.window.easygridDemo.getNegotiationBinding();
+  const userParcelId=original.window.easygridDemo.getHandoff().userRole.parcelId;
+  const saved=original.saved;
+  assert.equal(JSON.stringify(original.storage()).includes(binding.sessionId),false);
+  const facilitiesOnly=boot({saved,autoStart:false});
+  assert.equal(facilitiesOnly.canvas.dataset.placementCount,'2');
+  assert.equal(facilitiesOnly.canvas.dataset.authoritativeDemo??'','');
+  enterUser(facilitiesOnly);await facilitiesOnly.flushTimers();
+  assert.equal(facilitiesOnly.canvas.dataset.authoritativeDemo??'','','restored facilities are not a registered demo');
+  assert.equal(facilitiesOnly.window.easygridDemo.getHandoff().userRole.participantReady,true);
+  const record={sessionId:binding.sessionId,routeId:binding.routeId,routeVersion:binding.routeVersion,userParcelId,mapBinding:binding};
+  const restored=boot({saved,autoStart:false});
+  restored.window.easygridDemo.restoreRegisteredDemo(record);
+  assert.equal(restored.canvas.dataset.authoritativeDemo,'pending');
+  assert.throws(()=>restored.window.easygridDemo.restoreRegisteredDemo({...record,phone:'+12025550123'}),/server/);
+  enterUser(restored);await restored.flushTimers();
+  assert.equal(restored.canvas.dataset.authoritativeDemo,'restored');
+  const restoredBinding=restored.window.easygridDemo.getNegotiationBinding();
+  assert.equal(restoredBinding.sessionId,binding.sessionId);
+  assert.equal(restoredBinding.routeId,binding.routeId);
+  assert.equal(restoredBinding.routeVersion,binding.routeVersion);
+  if(restoredBinding.proposalKey!==binding.proposalKey){
+    const left=restoredBinding.proposalKey,right=binding.proposalKey;
+    let index=0;while(index<left.length&&index<right.length&&left[index]===right[index])index++;
+    assert.fail(`proposal keys differ at ${index}: ${JSON.stringify(left.slice(Math.max(0,index-40),index+40))} vs ${JSON.stringify(right.slice(Math.max(0,index-40),index+40))}`);
+  }
+  let ready=false;const deliveries=[];
+  restored.window.easygridDemo.setNegotiationResultSource(args=>{
+    args.onUpdate({schemaVersion:1,kind:'easygrid-negotiation-result',eventId:'saved-result',revision:4,saved:true,
+      mapBinding:binding,localParcelId:userParcelId,mode:'live',phase:'confirming',summary:null});
+    deliveries.push('update');
+    args.onReady();ready=true;deliveries.push('ready');
+  });
+  assert.deepEqual(deliveries,['update','ready']);
+  assert.equal(ready,true);
+  assert.equal(restored.window.easygridDemo.getNegotiationResult().view.eventId,'saved-result');
+  const mismatched=boot({saved,autoStart:false});
+  mismatched.window.easygridDemo.restoreRegisteredDemo({...record,mapBinding:{...binding,proposalKey:`${binding.proposalKey}changed`}});
+  enterUser(mismatched);await mismatched.flushTimers();
+  assert.equal(mismatched.canvas.dataset.authoritativeDemo,'unmatched');
+  assert.notEqual(mismatched.window.easygridDemo.getNegotiationBinding().proposalKey,`${binding.proposalKey}changed`);
+  assert.deepEqual(restored.errors,[]);
+});

@@ -219,6 +219,12 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     for(const id of ['user-alias','user-phone','user-consent'])el[id].setAttribute('aria-invalid','false');
     if(focus)el['user-alias'].focus({preventScroll:true});
   }
+  function adoptRegisteredSession({sessionId:nextSessionId,userParcelId:nextParcelId}){
+    if(snapshot||participant)throw new Error('The current demo already started.');
+    if(typeof nextSessionId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$/.test(nextSessionId))throw new Error('A saved map session is required.');
+    if(!world.parcelById.get(nextParcelId)?.synthetic)throw new Error('The saved participant parcel is not on this map.');
+    sessionId=nextSessionId;userParcelId=nextParcelId;
+  }
   function resetParticipant() {
     negotiationResults.reset();sessionId=newSessionId();userParcelId=null;liveCallLocked=false;snapshot=null;analysis=null;selectedParcelId=null;negotiationDisplay=new Map();
     clearParticipant();
@@ -300,6 +306,6 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     }
   });
   renderParticipant();el['user-alias'].focus({preventScroll:true});
-  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,isDemoReady,open,close,settlement,
+  return {setRoute,getHandoff,getParcelRole,setHandoffHandler,resetParticipant,adoptRegisteredSession,isDemoReady,open,close,settlement,
     getOriginalRole,setLiveCallLockout,getSessionId:()=>sessionId,setNegotiationDisplay,negotiationResults};
 }

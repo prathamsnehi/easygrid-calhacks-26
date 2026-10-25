@@ -14,13 +14,18 @@
     "./negotiation": {
       "types": "./dist/negotiation-host.d.ts",
       "import": "./dist/negotiation-host.js"
+    },
+    "./negotiation-client": {
+      "types": "./dist/negotiation-client.d.ts",
+      "import": "./dist/negotiation-client.js"
     }
   },
   "files": ["dist", "README.md"],
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test negotiation-client.test.ts"
   },
   "dependencies": {
     "spacetimedb": "2.13.0",

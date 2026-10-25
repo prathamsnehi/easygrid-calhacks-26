@@ -20,7 +20,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
   const layer=createTransmissionLayer(THREE,world);scene.add(layer.group);
   const previousLayer=new THREE.Group();previousLayer.name='Previous route';scene.add(previousLayer);
   const comparisonLayer=new THREE.Group();comparisonLayer.name='Updated route highlight';scene.add(comparisonLayer);
-  let generation=0,timer=null,result=null,selectedId=null,state='incomplete',routeVersion=0;
+  let generation=0,timer=null,result=null,selectedId=null,state='incomplete',routeVersion=0,pendingRouteId=null;
 
   function hasEndpoints(){const p=getPlacements();return canRoute()&&Boolean(p.substation&&p.datacenter);}
   function clearPrevious(){
@@ -140,7 +140,9 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       if(ticket!==generation||!canRoute())return;
       timer=null;result=computed;state=computed.status;
       if(result.status==='ok'){
-        const diagnostics=showCandidate(result.recommendedId);
+        const preferred=pendingRouteId&&result.candidates.some(candidate=>candidate.id===pendingRouteId)?pendingRouteId:result.recommendedId;
+        pendingRouteId=null;
+        const diagnostics=showCandidate(preferred);
         if(diagnostics)onFitRoute(result.candidates.find(c=>c.id===selectedId),diagnostics);
       }else{clearGeometry();renderState();onNoRoute();onDraw();}
     };
@@ -179,6 +181,12 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
   });
   elements['step-route'].addEventListener('click',()=>{if(!canRoute())return;onOverview();if(state==='calculating')updateVisibility();else if(!result||state==='error'||state==='no-route')schedule();else updateVisibility();});
   elements['recalculate-route'].addEventListener('click',schedule);
+  function adoptRegisteredRoute({routeId,routeVersion:version}){
+    if(state==='calculating'||routeVersion!==0||selectedId)throw new Error('The map already published a route version.');
+    if(typeof routeId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(routeId))throw new Error('A saved route id is required.');
+    if(!Number.isSafeInteger(version)||version<1)throw new Error('A saved route version is required.');
+    pendingRouteId=routeId;routeVersion=version-1;
+  }
   renderState();
-  return {invalidate:schedule,updateVisibility,initialize:schedule,replan:()=>{rememberPrevious();schedule({keepPrevious:true});}};
+  return {invalidate:schedule,updateVisibility,initialize:schedule,adoptRegisteredRoute,replan:()=>{rememberPrevious();schedule({keepPrevious:true});}};
 }
