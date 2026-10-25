@@ -13,16 +13,31 @@ Other developers keep their own configuration and database unchanged.
 
 ## Runtime status
 
-The dedicated database exists and is private. The matching application module
-has not been published there, and its application-worker token is not set.
-An independent worker identity must be registered on this database; do not
-copy a collaborator's worker token or use an administrative deployment token.
-Keep `EASYGRID_VOICE_ENABLED=no` until that setup and Cartesia checks pass.
+The operator has published the matching application module to a fresh private
+database. Its dashboard reports 12 tables and 16 reducers. The application-worker
+connection and Cartesia configuration still require verification. Dashboard
+publication alone does not establish a working voice connection.
+
+Run `npm run voice:prepare --prefix apps/map-preview` from the repository root
+after filling the private `.env.voice`. This builds the services, obtains or
+restores a separate application identity, saves it privately, confirms the
+caller-authorized voice views, and provisions/verifies the existing two-tool
+Cartesia agent configuration. It preserves the identity across partial failures
+and refuses a different database pin. It never reads administrative CLI
+credentials, invokes a reducer, dials a phone, or enables the live host.
+
+This voice store binds each reservation to its creating application identity;
+the separate legacy negotiation worker-registration flow is not required by
+the voice reservation reducers. Never copy a collaborator's worker token or use
+an administrative deployment token. Keep `EASYGRID_VOICE_ENABLED=no` until the
+actual authenticated host and callback endpoints have been deployed and verified.
 
 The current Cloudflare Pages deployment uses its existing D1 simulation ledger.
 It does not connect to any SpacetimeDB database. Changing the private voice
 environment alone does not enable hosted live calls or migrate the ledger.
-This change leaves Cloudflare, Cartesia, and payment-provider settings alone.
+Database isolation itself leaves Cloudflare and payment-provider settings alone.
+The separate explicit preparation command may create Cartesia tools and an agent;
+it checkpoints those resources and never places a call.
 
 ## Publish only to the dedicated database
 

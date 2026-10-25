@@ -12,6 +12,7 @@
     "dev:nessie": "node build.mjs && node --env-file=.env.nessie serve.mjs",
     "dev:voice": "node build.mjs && node --env-file=.env.voice serve.mjs",
     "voice:check": "node --env-file=.env.voice server/voice-setup.mjs --check",
-    "voice:setup": "node --env-file=.env.voice server/voice-setup.mjs --provision"
+    "voice:setup": "node --env-file=.env.voice server/voice-setup.mjs --provision",
+    "voice:prepare": "npm run build --prefix ../../services/spacetimedb && npm run build --prefix ../../services/cartesia && node server/voice-bootstrap.mjs --prepare"
   }
 }
