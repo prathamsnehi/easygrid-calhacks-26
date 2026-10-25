@@ -193,10 +193,11 @@ synthetic sentinels. Existing legacy behavior remains covered separately.
 - [ ] Publish an explicitly authorized module update and generate matching bindings.
 - [ ] Connect the concrete live transport to that published module and private registration endpoint.
 - [ ] Verify actual-service refresh/reconnect and new active-session restoration.
-- [ ] Connect canonical agreement/signature/approval/full-payment persistence.
+- [x] Connect canonical agreement/signature/approval/full-payment persistence in the module reducers `open_settlement`, `sign_settlement`, `approve_settlement` and `pay_settlement`. The map service `approveAuthoritative` calls that boundary and rejects a canonical packet relabeled as a local fixture. This does not publish the module.
+- [ ] Connect canonical agreement/signature/approval/full-payment persistence to a published database.
 - [ ] With CAL-33, demonstrate a consented live call and saved/reviewed result.
 - [ ] Verify the full browser journey and failure/fallback cases under CAL-42.
 
-Keep CAL-41 In Progress. Local tests and the local browser restore check do
-not satisfy actual-service refresh, payment persistence, live-call or CAL-42
+Keep CAL-41 In Progress. Local reducer tests cover canonical settlement. They do
+not publish the module or satisfy actual-service refresh, live-call or CAL-42
 acceptance. No deployment is part of this change.

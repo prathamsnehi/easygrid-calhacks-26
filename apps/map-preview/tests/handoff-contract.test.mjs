@@ -24,7 +24,9 @@ test('every map handoff snapshot and canonical call request pass the frozen shar
     assert.equal(handoff.ownerHandoff.referenceBinding,'local-fixture');
     assert.equal(handoff.ownerHandoff.routeStatus,'selected_for_negotiation');
     assert.equal(handoff.ownerHandoff.routeVersion,7);
-    assert.equal(handoff.ownerHandoff.parcels.length,handoff.snapshot.parcels.length);
+    assert.equal(handoff.snapshot.parcels.length,handoff.parcelAnalysis.length);
+    assert.equal(handoff.ownerHandoff.parcels.length,handoff.parcelAnalysis.filter(row=>!row.corridorOnly).length);
+    assert(handoff.parcelAnalysis.filter(row=>row.corridorOnly).every(row=>!handoff.ownerHandoff.parcels.some(parcel=>parcel.parcelId===row.parcelId)));
     for(const parcel of handoff.ownerHandoff.parcels){
       const row=handoff.parcelAnalysis.find(item=>item.parcelId===parcel.parcelId);
       assert.equal(parcel.ownerId,row.ownerId);

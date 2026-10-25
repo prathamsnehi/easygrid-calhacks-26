@@ -13,6 +13,7 @@ import {
   bindNegotiation, executeNegotiation, claimNegotiationReview, commitNegotiationReview,
   closeNegotiation, recordNegotiationTranscript, negotiationResults, negotiationWorkerState, negotiationReviewState, negotiationAgreements,
 } from './negotiation-state.ts';
+import { openSettlement, signSettlement, approveSettlement, paySettlement, settlementStatus } from './settlement-state.ts';
 
 export { check_call, start_call };
 
@@ -284,6 +285,27 @@ export const negotiation_agreements = spacetimedb.view(
   { name: 'negotiation_agreements', public: true }, { sessionId: t.string() },
   t.array(t.object('NegotiationAgreementRow', { revision: t.u32(), packetJson: t.string() })),
   (ctx, { sessionId }) => negotiationAgreements(ctx, sessionId),
+);
+export const open_settlement = spacetimedb.reducer(
+  { sessionId: t.string(), expectedRevision: t.u32() },
+  (ctx, input) => openSettlement(ctx, input),
+);
+export const sign_settlement = spacetimedb.reducer(
+  { sessionId: t.string(), expectedRevision: t.u32(), role: t.string(), ownerId: t.string(), requestKey: t.string() },
+  (ctx, input) => signSettlement(ctx, input),
+);
+export const approve_settlement = spacetimedb.reducer(
+  { sessionId: t.string(), expectedRevision: t.u32(), requestKey: t.string() },
+  (ctx, input) => approveSettlement(ctx, input),
+);
+export const pay_settlement = spacetimedb.reducer(
+  { sessionId: t.string(), expectedRevision: t.u32(), parcelId: t.string(), amountCents: t.u32(), paymentRecipientRef: t.string(), requestKey: t.string() },
+  (ctx, input) => paySettlement(ctx, input),
+);
+export const settlement_status = spacetimedb.view(
+  { name: 'settlement_status', public: true }, { sessionId: t.string() },
+  t.array(t.object('SettlementStatusRow', { revision: t.u32(), status: t.string(), stateJson: t.string() })),
+  (ctx, { sessionId }) => settlementStatus(ctx, sessionId),
 );
 
 export const reserve_voice_attempt = spacetimedb.reducer({ inputJson: t.string() }, (ctx, input) => reserveVoiceAttempt(ctx, input));

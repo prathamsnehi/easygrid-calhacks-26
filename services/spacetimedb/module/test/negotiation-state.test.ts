@@ -9,6 +9,7 @@ import {
   bindNegotiation, executeNegotiation, claimNegotiationReview, commitNegotiationReview, closeNegotiation,
   negotiationWorkerState, negotiationResults, negotiationAgreements, negotiationReviewState, recordNegotiationTranscript, REVIEW_LEASE_MICROS,
 } from '../src/negotiation-state.ts';
+import { approveSettlement, openSettlement, paySettlement, settlementStatus, signSettlement } from '../src/settlement-state.ts';
 import { createSavedNegotiationHost, type NegotiationBackend } from '../../negotiation-host.ts';
 
 const harness = () => createModuleTestHarness(module.default, module);
@@ -235,4 +236,54 @@ test('the CAL-33 host adapter executes and reviews against real reducer transact
   assert.equal(result.summary?.disposition, 'successful');
   assert.equal(await host.claimReview(binding.attemptId), null);
   await assert.rejects(host.execute({ ...binding, sessionId: 'wrong-session' }, { kind: 'failure', attemptId: binding.attemptId, requestId: 'bad', routeVersion: 1, termsVersion: 1, reason: 'DISCONNECTED' }));
+});
+
+test('route settlement waits for every parcel, then pays each exact accepted amount once to its saved recipient', () => {
+  const f = setup('settlement');
+  const before = f.state().current.revision;
+  expectCode(() => tx(f.db, WORKER, ctx => openSettlement(ctx, { sessionId: f.sessionId, expectedRevision: before })), 'BLOCKED_STATE');
+  agree(f);
+  const oneAccepted = f.state().current.revision;
+  expectCode(() => tx(f.db, WORKER, ctx => openSettlement(ctx, { sessionId: f.sessionId, expectedRevision: oneAccepted })), 'BLOCKED_STATE');
+  agree(f, 'simulated-attempt', 'L002', 'simulated');
+  const revision = f.state().current.revision;
+  const row = f.db.db.negotiationSession.sessionId.find(f.sessionId)!;
+  const saved = JSON.parse(row.stateJson);
+  saved.handoff.referenceBinding = 'local-fixture';
+  tx(f.db, WORKER, ctx => ctx.db.negotiationSession.sessionId.update({ ...ctx.db.negotiationSession.sessionId.find(f.sessionId)!, stateJson: JSON.stringify(saved) }));
+  expectCode(() => tx(f.db, WORKER, ctx => openSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision })), 'BLOCKED_STATE');
+  saved.handoff.referenceBinding = 'canonical';
+  tx(f.db, WORKER, ctx => ctx.db.negotiationSession.sessionId.update({ ...ctx.db.negotiationSession.sessionId.find(f.sessionId)!, stateJson: JSON.stringify(saved) }));
+  expectCode(() => tx(f.db, STRANGER, ctx => openSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision })), 'FORBIDDEN');
+  expectCode(() => tx(f.db, WORKER, ctx => openSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision - 1 })), 'STALE_VERSION');
+  tx(f.db, WORKER, ctx => openSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision }));
+  tx(f.db, WORKER, ctx => openSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision }));
+  const handoff = f.state().handoff;
+  const owners = handoff.owners;
+  tx(f.db, WORKER, ctx => signSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision, role: 'utility', ownerId: '', requestKey: 'sign-utility' }));
+  for (const owner of owners) tx(f.db, WORKER, ctx => signSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision, role: 'owner', ownerId: owner.ownerId, requestKey: `sign-${owner.ownerId}` }));
+  const first = handoff.parcels.find(parcel => parcel.parcelId === 'L001')!;
+  const recipient = owners.find(owner => owner.ownerId === first.ownerId)!.banking.paymentRecipientRef;
+  const pay = (amountCents: number, paymentRecipientRef: string, requestKey: string, parcelId = 'L001') => tx(f.db, WORKER, ctx => paySettlement(ctx, {
+    sessionId: f.sessionId, expectedRevision: revision, parcelId, amountCents, paymentRecipientRef, requestKey,
+  }));
+  expectCode(() => pay(first.terms.compensationCents, recipient, 'pay-L001'), 'BLOCKED_STATE');
+  tx(f.db, WORKER, ctx => approveSettlement(ctx, { sessionId: f.sessionId, expectedRevision: revision, requestKey: 'approve-route' }));
+  expectCode(() => pay(first.terms.compensationCents - 1, recipient, 'pay-L001'), 'BLOCKED_STATE');
+  expectCode(() => pay(first.terms.compensationCents, 'mock-mismatched', 'pay-L001'), 'BLOCKED_STATE');
+  expectCode(() => pay(first.terms.compensationCents, recipient, 'pay-L999', 'L999'), 'BLOCKED_STATE');
+  pay(first.terms.compensationCents, recipient, 'pay-L001');
+  pay(first.terms.compensationCents, recipient, 'pay-L001');
+  expectCode(() => pay(first.terms.compensationCents, recipient, 'pay-L001-again'), 'BLOCKED_STATE');
+  const second = handoff.parcels.find(parcel => parcel.parcelId === 'L002')!;
+  const secondRecipient = owners.find(owner => owner.ownerId === second.ownerId)!.banking.paymentRecipientRef;
+  pay(second.terms.compensationCents, secondRecipient, 'pay-L002', 'L002');
+  const view = tx(f.db, OPERATOR, ctx => settlementStatus(ctx, f.sessionId));
+  const projected = JSON.parse(view[0]!.stateJson);
+  assert.equal(view[0]!.status, 'paid');
+  assert.deepEqual(projected.payments.map((payment: { parcelId: string; amountCents: number; paymentRecipientRef: string }) => [payment.parcelId, payment.amountCents, payment.paymentRecipientRef]).sort(),
+    [['L001', first.terms.compensationCents, recipient], ['L002', second.terms.compensationCents, secondRecipient]].sort());
+  assert.equal(JSON.stringify(view).includes('fixture-reference-only'), false);
+  assert.equal(JSON.stringify(view).includes(NON_DIALABLE), false);
+  assert.deepEqual(tx(f.db, STRANGER, ctx => settlementStatus(ctx, f.sessionId)), []);
 });

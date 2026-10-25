@@ -21,10 +21,11 @@ that score on the declared graph; it does not claim zero impact or a global
 geographic optimum.
 
 An easement corridor can touch a parcel even when neither its priced centerline
-nor a tower pad enters that parcel. The existing pricing model does not price
-that corridor-only case. It remains **review required**, with negotiation and
-payment blocked; a new lower-impact route must not silently treat it as a
-zero-dollar approved parcel.
+nor a tower pad enters that parcel. That overlap stays on the map as partial
+corridor overlap and is labeled excluded. It is omitted from negotiated
+parcels, contracts and payment. Priced wire and tower compensation still
+follows the existing gates. A browser cannot relabel the overlap as a
+completed valuation.
 
 ## One amount from negotiation to payment
 

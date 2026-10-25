@@ -556,7 +556,7 @@ test('parcel analysis reconciles the selected route and assigns the onboarded pa
   assert.equal(app.elements.get('analysis-parcel-list').children.length,route.parcelIds.length);
   assert.equal(app.elements.get('analysis-count').textContent,String(route.parcelIds.length));
   assert.equal(app.elements.get('analysis-upfront').textContent,usd(route.upfrontCompensationCents));
-  assert.equal(app.elements.get('analysis-upfront-label').textContent,handoff.parcelAnalysis.some(row=>row.recommendationStatus==='review-required')?'Priced subtotal':'Recommended total');
+  assert.equal(app.elements.get('analysis-upfront-label').textContent,handoff.parcelAnalysis.some(row=>row.recommendationStatus==='review-required'||row.recommendationStatus==='excluded')?'Priced subtotal':'Recommended total');
   assert.equal(app.elements.get('analysis-rent').textContent,usd(route.recurringRentTotalCents));
   assert.equal(handoff.parcelAnalysis.filter(row=>row.userRole).length,1);
   assert(route.parcelIds.includes(handoff.userRole.parcelId));
@@ -779,9 +779,10 @@ test('an unpriced corridor parcel does not disable refusal on a current route',a
   app.click('next-site');app.click('next-site');app.click('confirm-placement');
   await app.flushTimers();
   const before=handoffOf(app),api=app.window.easygridDemo;
-  assert.equal(before.snapshot.routes[0].eligible,false);
-  assert.equal(app.elements.get('simulate-approval').disabled,true,'approval needs a fully eligible current route');
-  assert(before.parcelAnalysis.some(p=>p.corridorOnly),'exercise a real unpriced corridor contact');
+  assert(before.parcelAnalysis.some(p=>p.corridorOnly&&p.recommendationStatus==='excluded'),'exercise a real unpriced corridor contact');
+  assert(before.parcelAnalysis.filter(p=>p.corridorOnly).every(p=>!before.ownerHandoff.parcels.some(item=>item.parcelId===p.parcelId)));
+  assert.equal(before.snapshot.routes[0].eligible,before.parcelAnalysis.some(p=>!p.corridorOnly));
+  assert.equal(app.elements.get('simulate-approval').disabled,!before.snapshot.routes[0].eligible);
   assert.equal(app.elements.get('simulate-refusal').disabled,false);
   assert.equal(app.elements.get('settle-payment').disabled,true);
   app.click('simulate-refusal');
@@ -789,9 +790,13 @@ test('an unpriced corridor parcel does not disable refusal on a current route',a
   assert.equal(app.canvas.dataset.previousRouteVisible,'true');
   assert.equal(app.elements.get('simulate-refusal').disabled,true,'do not start a duplicate refusal');
   await app.flushTimers();
-  assert.equal(api.getNegotiationState().phase,'no_route','this placement has no priced replacement within the constraints');
-  assert.equal(api.getNegotiatedHandoff(),null);
-  assert.equal(app.elements.get('overview-settlement').disabled,true,'missing replacement cannot approve contracts');
+  assert.equal(api.getNegotiationState().phase,'confirmed','a priced replacement can proceed while corridor overlap stays excluded');
+  const agreed=api.getNegotiatedHandoff();
+  assert(agreed);
+  assert(!agreed.ownerHandoff.parcels.some(parcel=>parcel.parcelId===before.userRole.parcelId));
+  const next=handoffOf(app);
+  assert(next.parcelAnalysis.filter(row=>row.corridorOnly).every(row=>!agreed.ownerHandoff.parcels.some(parcel=>parcel.parcelId===row.parcelId)));
+  assert.equal(app.elements.get('overview-settlement').disabled,false);
   assert.deepEqual(app.errors,[]);
 });
 

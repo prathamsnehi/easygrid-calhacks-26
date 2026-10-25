@@ -58,12 +58,12 @@ test('an unassigned session receives one in-route user role without changing fix
     // Role assignment is independent of valuation readiness: an alternative may
     // graze another parcel with its corridor while the priced centerline misses it.
     const unpriced=nextAnalysis.parcels.filter(row=>row.lineLengthTiles<=1e-7&&row.towerCount===0);
-    assert.equal(packet.callPreparation.status,unpriced.length?'review-required':'participant-required');
-    assert.equal(packet.snapshot.routes[0].eligible,unpriced.length===0);
-    assert.equal(packet.ownerHandoff.simulationChecksPassed,unpriced.length===0);
+    assert.equal(packet.callPreparation.status,packet.snapshot.routes[0].eligible?'participant-required':'review-required');
+    assert.equal(packet.ownerHandoff.simulationChecksPassed,packet.snapshot.routes[0].eligible);
     if(unpriced.length){
-      assert(unpriced.every(row=>row.upfrontCents===0&&row.recommendationStatus==='review-required'));
-      assert(packet.snapshot.routes[0].reasons.includes('A corridor-only parcel needs compensation review before negotiation.'));
+      assert(unpriced.every(row=>row.upfrontCents===0&&row.recommendationStatus==='excluded'));
+      assert(unpriced.every(row=>!packet.ownerHandoff.parcels.some(parcel=>parcel.parcelId===row.parcelId)));
+      assert(packet.snapshot.routes[0].reasons.includes('Partial corridor overlap is excluded from compensation.'));
     }
     assert.equal(packet.callPreparation.canStartCall,false);
     assert.equal(packet.snapshot.routes[0].readyToApprove,false);
@@ -172,6 +172,7 @@ test('route-specific caps and fictional budget are validated without fabricating
     assert.equal(row.recommendedOfferCents,row.upfrontCents);
     assert.equal(row.offerCapCents,Number(BigInt(row.recommendedOfferCents)*6n/5n));
     const shared=packet.ownerHandoff.parcels.find(p=>p.parcelId===row.parcelId);
+    if(row.recommendationStatus==='excluded'){assert.equal(shared,undefined);continue;}
     assert.equal(shared.offerCapCents,row.offerCapCents);
     assert.equal(shared.offerPolicy.recommendedOfferCents,row.recommendedOfferCents);
     assert.equal(shared.terms.compensationCents,row.recommendedOfferCents);
@@ -191,12 +192,13 @@ test('corridor-only impact blocks readiness and cannot be relabeled as a complet
   const parcel=corridorAnalysis.parcels.find(row=>row.parcelId==='L008');
   assert(parcel);
   assert.equal(parcel.lineLengthTiles,0);assert.equal(parcel.towerCount,0);
-  assert.equal(parcel.corridorOnly,true);assert.equal(parcel.recommendationStatus,'review-required');
+  assert.equal(parcel.corridorOnly,true);assert.equal(parcel.recommendationStatus,'excluded');
   const corridorInput={...input,placements:corridorPlacements,route:corridorRoute,analysis:corridorAnalysis};
   const packet=createHandoff(corridorInput);
-  assert.equal(packet.snapshot.routes[0].eligible,false);
-  assert.equal(packet.ownerHandoff.simulationChecksPassed,false);
-  assert.equal(packet.callPreparation.status,'review-required');
+  assert.equal(packet.snapshot.routes[0].eligible,true);
+  assert.equal(packet.ownerHandoff.simulationChecksPassed,true);
+  assert.equal(packet.callPreparation.status,'participant-required');
+  assert(!packet.ownerHandoff.parcels.some(item=>item.parcelId===parcel.parcelId));
   for(const changes of [
     {corridorOnly:false},
     {recommendationStatus:'estimated'},

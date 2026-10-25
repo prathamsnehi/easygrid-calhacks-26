@@ -110,8 +110,9 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
     row.monthlyRentIsApproximate=row.monthlyRentCents*months!==row.rentTotalCents;
     row.withinOfferCap=row.upfrontCents<=row.offerCapCents;
     row.corridorOnly=row.lineLengthTiles<=EPSILON&&row.towerCount===0;
-    // A corridor touched without priced centerline/pad impact is not a verified zero-dollar valuation.
-    row.recommendationStatus=row.corridorOnly?'review-required':'estimated';
+    // Incidental corridor overlap stays visible and is excluded from compensation.
+    // It is not a verified zero-dollar valuation and cannot block a priced route.
+    row.recommendationStatus=row.corridorOnly?'excluded':'estimated';
     if(corridor.has(row.parcelId))row.affectReasons.push('line-corridor');
     if(row.lineLengthTiles>EPSILON)row.affectReasons.push('line-centerline');
     if(row.towerCount>0)row.affectReasons.push('tower-foundation');
@@ -132,5 +133,7 @@ export function chooseUserParcel(analysis,previousParcelId=null){
   const parcels=analysis?.parcels;
   if(!Array.isArray(parcels)||parcels.length===0)return null;
   if(parcels.some(parcel=>parcel.parcelId===previousParcelId))return previousParcelId;
-  return [...parcels].sort((a,b)=>Number(b.towerCount>0)-Number(a.towerCount>0)||b.lineLengthTiles-a.lineLengthTiles||a.parcelId.localeCompare(b.parcelId))[0].parcelId;
+  const priced=parcels.filter(parcel=>!parcel.corridorOnly);
+  const pool=priced.length?priced:parcels;
+  return [...pool].sort((a,b)=>Number(b.towerCount>0)-Number(a.towerCount>0)||b.lineLengthTiles-a.lineLengthTiles||a.parcelId.localeCompare(b.parcelId))[0].parcelId;
 }

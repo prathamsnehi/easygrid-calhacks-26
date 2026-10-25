@@ -14,7 +14,7 @@ import {mapContractRequest, contractSourceFromAgreement, simulatedMapAgreement} 
 import {createContractDraft, contractDocument, contractSourceKey} from '../src/contract-authoring.js';
 import {createContractAPI} from '../server/contract-api.mjs';
 import {createMapContractService, reconstructMapProposal} from '../server/map-contracts.mjs';
-import {createDemoBank} from '../server/contract-workflow.mjs';
+import {createDemoBank, DEMO_ACTORS} from '../server/contract-workflow.mjs';
 import {createNegotiatedStateFixture} from './helpers/negotiated-state.mjs';
 
 const world = createWorld();
@@ -92,7 +92,7 @@ test('map contract inputs preserve the selected session, route, all original own
   const handoff = proposal(), context = mapContractRequest(handoff,placements);
   const source = contractSourceFromAgreement(agreement(handoff),handoff);
   assert.equal(source.sessionId,handoff.sessionId);assert.equal(source.route.id,handoff.ownerHandoff.routeId);
-  assert.deepEqual(source.parcels.map(p => p.parcelId).sort(),[...route.parcelIds].sort());
+  assert.deepEqual(source.parcels.map(p => p.parcelId).sort(),handoff.parcelAnalysis.filter(row=>!row.corridorOnly).map(row=>row.parcelId).sort());
   for (const parcel of source.parcels) {
     const original = handoff.ownerHandoff.parcels.find(p => p.parcelId === parcel.parcelId);
     assert.equal(parcel.ownerId,original.ownerId);assert.equal(parcel.compensationCents,original.terms.compensationCents);
@@ -192,7 +192,7 @@ test('a refusal reroute signs and pays only final-route owners, with server-vali
   assert.throws(() => reconstructMapProposal(missingRestrictions));
   const approved = await call(api,'approve-map',{context});assert.equal(approved.status,200,approved.body.error);
   const {packageId,input:source} = approved.body;
-  assert.deepEqual(source.parcels.map(p=>p.parcelId).sort(),[...selected.parcelIds].sort());
+  assert.deepEqual(source.parcels.map(p=>p.parcelId).sort(),handoff.parcelAnalysis.filter(row=>!row.corridorOnly).map(row=>row.parcelId).sort());
   assert(!source.parcels.some(p=>p.parcelId===refused || p.ownerId===original.userRole.ownerId));
   const drafts = source.parcels.map((p,i)=>createContractDraft(source,p.parcelId,{id:`reroute-draft-${i}`}));
   const command = async (operation,draft,extra={}) => {
@@ -626,3 +626,81 @@ test('switching representative to participant cannot exclude an unresolved repre
   assert.equal(retained.status,200,retained.body.error);assert.equal(retained.body.demoTarget,'representative');
   assert.equal(retained.body.demoParcelId,demoParcelId);assert.equal(retained.body.packageId,packageId);
 }));
+
+test('corridor-only overlap stays out of the contract and receives no simulated payment', async () => withAPI(async (api,_options,directory) => {
+  const corridorPlacements={substation,datacenter:createPlacement(world,'datacenter',43,35,{substation})};
+  const corridorResult=computeTransmissionRoutes(world,corridorPlacements);
+  const corridorRoute=corridorResult.candidates.find(candidate=>candidate.id==='low-impact');
+  assert(corridorRoute);
+  const corridorAnalysis=analyzeRouteParcels(world,corridorRoute,corridorResult.assumptions);
+  const excluded=corridorAnalysis.parcels.filter(row=>row.corridorOnly);
+  assert(excluded.length>0);
+  const handoff=createHandoff({world,route:corridorRoute,placements:corridorPlacements,analysis:corridorAnalysis,
+    sessionId:'corridor-scope',routeVersion:1,participant:{alias:'Private participant name',phoneE164:'+12025550123',consent:true}});
+  assert.equal(handoff.snapshot.routes[0].eligible,true,handoff.snapshot.routes[0].reasons.join(' '));
+  const approved=await call(api,'approve-map',{context:mapContractRequest(handoff,corridorPlacements)});
+  assert.equal(approved.status,200,approved.body.error);
+  assert(excluded.every(row=>!approved.body.input.parcels.some(parcel=>parcel.parcelId===row.parcelId)));
+  const drafts=approved.body.input.parcels.map((parcel,index)=>createContractDraft(approved.body.input,parcel.parcelId,{id:`corridor-draft-${index}`}));
+  for(const draft of drafts){
+    assert.equal((await call(api,'sign/utility',{packageId:approved.body.packageId,draft})).status,200);
+    assert.equal((await call(api,'sign/landowner',{packageId:approved.body.packageId,draft})).status,200);
+  }
+  const paid=await call(api,'submit',{packageId:approved.body.packageId,draft:drafts[0],stage:'full'});
+  assert.equal(paid.status,200,paid.body.error);
+  assert.equal(paid.body.payment.status,'paid');
+  assert.equal(paid.body.payment.amountCents,approved.body.input.parcels[0].compensationCents);
+  const obligations=Object.values(JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).packages[approved.body.packageId].ledger.obligations);
+  assert.equal(obligations.length,1);
+  assert(excluded.every(row=>!obligations.some(item=>item.parcelId===row.parcelId)));
+}));
+
+test('authoritative settlement rejects a relabeled fixture and pays the saved recipient exactly once', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'easygrid-authoritative-'));
+  const stateURL=pathToFileURL(join(directory,'ledger.json'));
+  try {
+    const handoff=proposal(),packet=clone(handoff.ownerHandoff);
+    packet.referenceBinding='canonical';packet.routeStatus='ready_for_agreements';
+    for(const parcel of packet.parcels)parcel.terms={...parcel.terms,outcome:'accepted',accessConsent:'allowed',explicitConfirmation:true,confirmationRef:`ok:${parcel.parcelId}`};
+    for(const owner of packet.owners)owner.contact={contactRef:null,registration:'simulation',callConsent:false};
+    const relabeled=clone(handoff);relabeled.ownerHandoff=clone(packet);
+    assert.throws(()=>simulatedMapAgreement(relabeled,{negotiationId:'neg',approvedAt:'2026-10-24T20:00:00Z'}),/authoritative settlement/);
+    const calls=[];
+    const settlementBackend={
+      openSettlement:async input=>calls.push(['open',input]),
+      signSettlement:async input=>calls.push(['sign',input]),
+      approveSettlement:async input=>calls.push(['approve',input]),
+      paySettlement:async input=>{
+        if(input.paymentRecipientRef==='mock-mismatched')throw new Error('banking mismatch');
+        calls.push(['pay',input]);
+      },
+    };
+    const service=await createMapContractService({stateURL,settlementBackend});
+    const context=mapContractRequest(handoff,placements);
+    await assert.rejects(service.approveAuthoritative(context,{...packet,referenceBinding:'local-fixture'}),/canonical/);
+    await assert.rejects(service.approveAuthoritative(context,{...packet,routeVersion:packet.routeVersion+1}),/stale/);
+    const mismatched=clone(packet);
+    mismatched.owners=mismatched.owners.map(owner=>owner.ownerId===packet.parcels[0].ownerId?{...owner,banking:{...owner.banking,paymentRecipientRef:'mock-mismatched'}}:owner);
+    await assert.rejects(service.approveAuthoritative(context,mismatched),/banking/);
+    const approved=await service.approveAuthoritative(context,packet);
+    assert(calls.some(entry=>entry[0]==='approve'));
+    const drafts=approved.input.parcels.map((parcel,index)=>createContractDraft(approved.input,parcel.parcelId,{id:`authoritative-${index}`}));
+    for(const draft of drafts){
+      await service.execute(approved.packageId,workflow=>workflow.sign(draft,'utility',DEMO_ACTORS.utility));
+      await service.execute(approved.packageId,workflow=>workflow.sign(draft,'landowner',DEMO_ACTORS.landowner));
+    }
+    const target=approved.input.parcels[0];
+    const owner=packet.owners.find(item=>item.ownerId===target.ownerId);
+    const paid=await service.execute(approved.packageId,workflow=>workflow.submit(drafts[0],DEMO_ACTORS.requester,{stage:'full'}));
+    assert.equal(paid.payment.status,'paid');
+    assert.equal(paid.payment.amountCents,target.compensationCents);
+    const payment=calls.filter(entry=>entry[0]==='pay');
+    assert.equal(payment.length,1);
+    assert.equal(payment[0][1].amountCents,target.compensationCents);
+    assert.equal(payment[0][1].paymentRecipientRef,owner.banking.paymentRecipientRef);
+    assert.equal(payment[0][1].parcelId,target.parcelId);
+    await service.execute(approved.packageId,workflow=>workflow.submit(drafts[0],DEMO_ACTORS.requester,{stage:'full'}));
+    assert.equal(calls.filter(entry=>entry[0]==='pay').length,2,'the same request is replayed rather than creating a second amount');
+    assert(calls.filter(entry=>entry[0]==='pay').every(entry=>entry[1].requestKey===`pay:${target.parcelId}`));
+  } finally {await rm(directory,{recursive:true,force:true});}
+});

@@ -48,11 +48,13 @@ export function reconstructMapProposal(context, world = createWorld()) {
 }
 
 /** Local fixture registry. Production replaces this boundary with Pratham's atomic shared store. */
-export async function createMapContractService({stateURL, bank:configuredBank, resolveNegotiation, resolveProposal, now = () => new Date().toISOString(), stateStore}) {
+export async function createMapContractService({stateURL, bank:configuredBank, resolveNegotiation, resolveProposal, settlementBackend, now = () => new Date().toISOString(), stateStore}) {
   const bankMode = configuredBank?.mode ?? 'simulation';
   const bankIdentity = configuredBank?.storageNamespace ?? null;
   requireState(['simulation','nessie-sandbox'].includes(bankMode), 'Unsupported map payment provider.');
   requireState(resolveProposal == null || typeof resolveProposal === 'function','The proposal resolver must be a trusted server function.');
+  requireState(settlementBackend == null || ['openSettlement','signSettlement','approveSettlement','paySettlement'].every(name => typeof settlementBackend[name] === 'function'),
+    'The authoritative settlement backend must expose open, sign, approve and pay.');
   let state;
   try {state = stateStore ? await stateStore.read(stateURL) : JSON.parse(await readFile(stateURL,'utf8'));}
   catch (error) {if (error.code !== 'ENOENT') throw new Error('Preserve the unreadable map contract ledger for review.');state = {schemaVersion:2,bankMode,bankIdentity,packages:{},current:{}};}
@@ -191,6 +193,51 @@ export async function createMapContractService({stateURL, bank:configuredBank, r
       }
       return response(record);
     }),
+    approveAuthoritative: (context, packet) => serial(async () => {
+      requireState(settlementBackend,'The authoritative settlement service is not connected.');
+      requireState(packet?.referenceBinding === 'canonical' && packet.routeStatus === 'ready_for_agreements' && packet.kind === 'easygrid-owner-handoff',
+        'Authoritative settlement requires the canonical all-parcel agreement.');
+      requireState(packet.parcels?.every(parcel => parcel.terms?.outcome === 'accepted' && parcel.terms.accessConsent === 'allowed' && parcel.terms.explicitConfirmation === true),
+        'Every current affected parcel must accept before settlement.');
+      requireState(packet.owners?.every(owner => owner.contact?.registration !== 'registered' && owner.contact?.callConsent !== true && owner.banking?.ownerId === owner.ownerId &&
+        typeof owner.banking.paymentRecipientRef === 'string' && owner.banking.paymentRecipientRef.startsWith('mock-')),
+        'Registered contact must stay private, and each owner must keep the original simulated banking destination.');
+      const handoff = await proposalFor(context);
+      requireState(handoff.ownerHandoff.sessionId === packet.sessionId && handoff.ownerHandoff.routeId === packet.routeId && handoff.ownerHandoff.routeVersion === packet.routeVersion,
+        'The canonical agreement is stale for this route.');
+      requireState(handoff.ownerHandoff.parcels.length === packet.parcels.length && handoff.ownerHandoff.parcels.every(parcel => packet.parcels.some(item => item.parcelId === parcel.parcelId && item.ownerId === parcel.ownerId)),
+        'The canonical agreement must cover the current priced parcels and no excluded overlap.');
+      for (const parcel of packet.parcels) {
+        const current = handoff.ownerHandoff.parcels.find(item => item.parcelId === parcel.parcelId);
+        const owner = packet.owners.find(item => item.ownerId === parcel.ownerId);
+        const currentOwner = handoff.ownerHandoff.owners.find(item => item.ownerId === parcel.ownerId);
+        requireState(current && owner && currentOwner && owner.banking.paymentRecipientRef === currentOwner.banking.paymentRecipientRef &&
+          parcel.terms.compensationCents === current.terms.compensationCents && parcel.terms.compensationCents <= current.offerCapCents,
+          'The accepted amount or banking destination does not match the current parcel.');
+      }
+      requireState(handoff.parcelAnalysis.filter(row => row.corridorOnly).every(row => !packet.parcels.some(parcel => parcel.parcelId === row.parcelId)),
+        'Partial corridor overlap cannot enter authoritative settlement.');
+      const stored = copy(packet);
+      for (const owner of stored.owners) owner.contact = {contactRef:null,registration:'simulation',callConsent:false};
+      const agreement = {kind:'easygrid-authoritative-agreement',schemaVersion:1,sourceMode:'fixture',contractTermsVersion:2,
+        mapBinding:settlementBinding(handoff),ownerHandoff:stored,negotiationId:`authoritative-${digest(settlementBinding(handoff)).slice(0,32)}`,
+        negotiationVersion:stored.routeVersion,approvedAt:now()};
+      const source = contractSourceFromAgreement(agreement,handoff);
+      const mapBinding = settlementBinding(handoff);
+      const packageId = `map-contract-${digest(mapBinding).slice(0,40)}`;
+      await settlementBackend.openSettlement({sessionId:stored.sessionId,expectedRevision:stored.revision});
+      await settlementBackend.signSettlement({sessionId:stored.sessionId,expectedRevision:stored.revision,role:'utility',ownerId:'',requestKey:`${packageId}:utility`});
+      for (const owner of stored.owners) {
+        if (!stored.parcels.some(parcel => parcel.ownerId === owner.ownerId)) continue;
+        await settlementBackend.signSettlement({sessionId:stored.sessionId,expectedRevision:stored.revision,role:'owner',ownerId:owner.ownerId,requestKey:`${packageId}:owner:${owner.ownerId}`});
+      }
+      await settlementBackend.approveSettlement({sessionId:stored.sessionId,expectedRevision:stored.revision,requestKey:`${packageId}:approve`});
+      const record = {packageId,source,agreement,authoritative:true,negotiationContext:copy(context),...scopeFor(source,null,null,context),recipientBindingVersion:2,ledger:createWorkflowState()};
+      state.packages[packageId]=record;state.current[context.sessionId]=packageId;
+      try {await save();}
+      catch (error) {delete state.packages[packageId];delete state.current[context.sessionId];throw error;}
+      return response(record);
+    }),
     execute: (packageId, action, {demoScope = null,demoParcelId = null,reconciliation = false} = {}) => serial(async () => {
       const record = Object.hasOwn(state.packages,packageId) ? state.packages[packageId] : null;
       requireState(record && state.current[record.source.sessionId] === packageId, 'The approved map package is missing or superseded. Approve the current route first.');
@@ -201,8 +248,25 @@ export async function createMapContractService({stateURL, bank:configuredBank, r
         requireState(digest(contractSourceFromAgreement(currentAgreement,handoff)) === digest(record.source), 'The agreed terms changed. Reopen the current saved negotiation before continuing.');
       }
       const workflow = worker(record), result = await action(workflow);
+      const ledger = workflow.snapshot();
+      if (record.authoritative && result?.payment?.status === 'paid') {
+        requireState(settlementBackend,'The authoritative settlement service is not connected.');
+        const parcelId = ledger.documents?.[result.draftId]?.parcelId;
+        const packet = record.agreement.ownerHandoff;
+        const parcel = packet.parcels.find(item => item.parcelId === parcelId);
+        const owner = packet.owners.find(item => item.ownerId === parcel?.ownerId);
+        const current = await proposalFor(record.negotiationContext);
+        const currentOwner = current.ownerHandoff.owners.find(item => item.ownerId === owner?.ownerId);
+        requireState(parcel && owner && current.ownerHandoff.routeId === packet.routeId && current.ownerHandoff.routeVersion === packet.routeVersion &&
+          currentOwner?.banking?.paymentRecipientRef === owner.banking.paymentRecipientRef && result.payment.amountCents === parcel.terms.compensationCents,
+          'The authoritative payment no longer matches the current owner, route or amount.');
+        requireState(!current.parcelAnalysis.some(row => row.corridorOnly && row.parcelId === parcel.parcelId),
+          'Partial corridor overlap cannot be paid.');
+        await settlementBackend.paySettlement({sessionId:packet.sessionId,expectedRevision:packet.revision,parcelId:parcel.parcelId,
+          amountCents:result.payment.amountCents,paymentRecipientRef:owner.banking.paymentRecipientRef,requestKey:`pay:${parcel.parcelId}`});
+      }
       // Even idempotent replays must durably save a previous interrupted write.
-      record.ledger = workflow.snapshot();await save();return {...result,packageId};
+      record.ledger = ledger;await save();return {...result,packageId};
     }),
   };
 }
