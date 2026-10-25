@@ -42,12 +42,39 @@ function field(row, name) {
   return undefined;
 }
 
+function wholeCents(row, name) {
+  const value = field(row, name);
+  const cents = typeof value === 'bigint' ? Number(value) : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  return Number.isSafeInteger(cents) && cents >= 0 ? cents : null;
+}
+
 export function projectNegotiationResult(row, mapBinding) {
   const attemptId = String(field(row, 'attemptId') ?? '');
   const phase = field(row, 'phase');
   const mode = field(row, 'mode');
   const revision = Number(field(row, 'revision'));
   const finished = phase === 'finished';
+  const summary = finished ? {
+    attemptId,
+    mode,
+    reason: field(row, 'reason'),
+    disposition: field(row, 'disposition'),
+    explanation: field(row, 'explanation'),
+    nextAction: field(row, 'nextAction'),
+    outcome: field(row, 'outcome'),
+  } : null;
+  // The public summary stores the saved amount, not a terms version. A priced
+  // agreement has to carry that amount or the map treats the saved yes as missing.
+  if (summary?.disposition === 'successful' && summary.reason === 'AGREED' && summary.outcome === 'accepted') {
+    const agreed = wholeCents(row, 'agreedCents');
+    const monthly = wholeCents(row, 'monthlyRentCents');
+    const version = wholeCents(row, 'termsVersion');
+    summary.accessConsent = 'allowed';
+    summary.agreedCents = agreed;
+    summary.offeredCents = agreed;
+    summary.monthlyRentCents = monthly;
+    summary.termsVersion = version ?? 1;
+  }
   return {
     schemaVersion: 1,
     kind: 'easygrid-negotiation-result',
@@ -58,15 +85,7 @@ export function projectNegotiationResult(row, mapBinding) {
     localParcelId: field(row, 'parcelId'),
     mode,
     phase,
-    summary: finished ? {
-      attemptId,
-      mode,
-      reason: field(row, 'reason'),
-      disposition: field(row, 'disposition'),
-      explanation: field(row, 'explanation'),
-      nextAction: field(row, 'nextAction'),
-      outcome: field(row, 'outcome'),
-    } : null,
+    summary,
   };
 }
 

@@ -1258,6 +1258,27 @@ test('an unclear hosted call stays on the current route',async()=>{
   assert.deepEqual(app.errors,[]);
 });
 
+test('a hosted agreement shows the saved amount and enables contract continuation',async()=>{
+  const summary={reason:'AGREED',disposition:'successful',outcome:'accepted',nextAction:'continue',explanation:'Owner agreed to the offered compensation. This saved demo result is not a payment.',agreed_cents:0,monthly_rent_cents:0};
+  const call=hostedProcedure(summary);
+  class UnusedStream { close(){} }
+  const app=boot({fetcher:call.fetcher,EventSourceClass:UnusedStream});
+  placePair(app);await app.flushTimers();await settlePromises();
+  const handoff=handoffOf(app),parcel=handoff.ownerHandoff.parcels.find(row=>row.parcelId===handoff.userRole.parcelId);
+  const amount=parcel.offerPolicy.recommendedOfferCents;
+  summary.agreed_cents=amount;summary.monthly_rent_cents=parcel.terms.monthlyRentCents;
+  call.useParcel(parcel.parcelId);
+  app.click('agent-call');await finishHostedCall(app);await app.flushTimers();
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'SUCCESSFUL');
+  assert.match(app.elements.get('handoff-result').textContent,/Owner agreed/);
+  assert.equal(app.elements.get('analysis-agreed').textContent,usd(amount));
+  assert.match(app.elements.get('analysis-negotiation').textContent,/Agreed/);
+  assert.equal(app.elements.get('settle-payment').disabled,false);
+  assert.equal(app.elements.get('settle-payment').textContent,'Review agreed contract');
+  assert.equal(app.elements.get('settlement-status').textContent,'Agreed terms · saved');
+  assert.deepEqual(app.errors,[]);
+});
+
 test('a corridor-only neighbor does not disable Agent call for a priced participant parcel',async()=>{
   const app=boot();
   app.window.easygridDemo.setHandoffHandler(async()=>{});

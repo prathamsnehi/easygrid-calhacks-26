@@ -61,7 +61,20 @@ test('the dial request carries the private phone once and the saved result does 
     nextAction: 'stop', outcome: 'pending',
   }, { sessionId: 'map-session-1', routeId: 'route', routeVersion: 1, proposalKey: 'key' });
   assert.equal(finished.summary.outcome, 'pending');
+  assert.equal(finished.summary.agreedCents, undefined);
   assert.equal(JSON.stringify(finished).includes(phone), false);
+  const agreed = projectNegotiationResult({
+    attempt_id: 'attempt-agreed', parcel_id: 'L023', mode: 'live', phase: 'finished', revision: '2',
+    reason: 'AGREED', disposition: 'successful', outcome: 'accepted', next_action: 'continue',
+    explanation: 'Owner agreed to $1,063.56 plus $10.88 per month. This saved demo result is not a payment.',
+    agreed_cents: 106356, monthly_rent_cents: '1088',
+  }, { sessionId: 'map-session-1', routeId: 'route', routeVersion: 1, proposalKey: 'key' });
+  assert.equal(agreed.localParcelId, 'L023');
+  assert.equal(agreed.summary.agreedCents, 106356);
+  assert.equal(agreed.summary.offeredCents, 106356);
+  assert.equal(agreed.summary.monthlyRentCents, 1088);
+  assert.equal(agreed.summary.accessConsent, 'allowed');
+  assert.equal(agreed.summary.termsVersion, 1);
 });
 
 const binding = { sessionId: 'map-session-1', routeId: 'route', routeVersion: 1, proposalKey: 'key' };
