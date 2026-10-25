@@ -80,10 +80,18 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     if (recordOnly) return {status:'not-applicable',paidCount:0,recordedCount:payments.filter(payment => payment?.status === 'recorded').length,parcelCount:payments.length};
     return state.construction ? copy(state.construction) : {status: 'awaiting-payments', paidCount: payments.filter(payment => payment?.status === 'paid').length, parcelCount: payments.length};
   }
-  function packageReady() {
-    return approvedSource.parcels.every(parcel => Object.values(state.documents).some(doc => doc.parcelId === parcel.parcelId && doc.sourceHash === sourceHash &&
+  function hasCurrentAgreement(parcel) {
+    return Object.values(state.documents).some(doc => doc.parcelId === parcel.parcelId && doc.sourceHash === sourceHash &&
       doc.signatures.utility?.documentHash === doc.hash && doc.signatures.landowner?.documentHash === doc.hash &&
-      (!state.obligations[obligationId(parcel)] || state.obligations[obligationId(parcel)].documentHash === doc.hash)));
+      (!state.obligations[obligationId(parcel)] || state.obligations[obligationId(parcel)].documentHash === doc.hash));
+  }
+  function agreementProgress() {
+    const unsigned = approvedSource.parcels.filter(parcel => !hasCurrentAgreement(parcel));
+    return {signedCount:approvedSource.parcels.length-unsigned.length,totalCount:approvedSource.parcels.length,
+      nextUnsignedParcelId:unsigned[0]?.parcelId ?? null};
+  }
+  function packageReady() {
+    return approvedSource.parcels.every(hasCurrentAgreement);
   }
   function startConstruction(draft, actor) {
     if (recordOnly || state.construction) return;
@@ -102,10 +110,12 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
   }
   function project(draft) {
     const doc = state.documents[draft.id], hash = contractContentHash(draft, approvedSource), payment = state.obligations[obligationId(draft)];
+    const progress = agreementProgress();
     return {documentHash: hash, draftId: draft.id, signatures: doc?.hash === hash ? copy(doc.signatures) : {},
       payment: paymentView(payment, hash),
       construction: constructionState(),
-      packageReady: packageReady(),
+      packageReady: progress.signedCount === progress.totalCount,
+      agreementProgress: progress,
       bankMode: bank.mode, paymentSemantics, amountIncrementCents, agentMode: 'rule-based-event-worker',
       audit: copy(state.audit.filter(row => row.parcelId === draft.parcelId)),
       journal: copy(state.journal.filter(row => row.obligationId === obligationId(draft)))};

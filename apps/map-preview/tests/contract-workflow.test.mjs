@@ -306,3 +306,40 @@ test('record-only restart rejects prior paid or settlement-journal evidence with
     assert.equal(saved,0,'startup failure must not replace the preserved ledger');
   }
 });
+
+test('agreement progress counts only both current signatures and refreshes after another agreement changes', async () => {
+  const source=createContractExample(), drafts=source.parcels.map((parcel,index)=>createContractDraft(source,parcel.parcelId,{id:`progress-${index}`,now}));
+  let providerCalls=0;
+  const bank={...createDemoBank(),inspect:async()=>{providerCalls++;throw new Error('No provider access expected');},transfer:async()=>{providerCalls++;throw new Error('No provider access expected');}};
+  const flow=createContractWorkflow({source,bank,now:()=>now});
+  const check=(result,signedCount,nextUnsignedParcelId)=>{
+    assert.deepEqual(result.agreementProgress,{signedCount,totalCount:drafts.length,nextUnsignedParcelId});
+    assert.equal(result.packageReady,signedCount===drafts.length);
+  };
+  check(await flow.inspect(drafts[0]),0,drafts[0].parcelId);
+  for (let index=0;index<drafts.length;index++) {
+    check(await flow.sign(drafts[index],'utility',DEMO_ACTORS.utility),index,drafts[index].parcelId);
+    check(await flow.sign(drafts[index],'landowner',DEMO_ACTORS.landowner),index+1,drafts[index+1]?.parcelId ?? null);
+  }
+  const edited=updateContractDraft(drafts[1],{specialConditions:'New access schedule requires fresh consent'},source,now);
+  check(await flow.inspect(edited),drafts.length-1,edited.parcelId);
+  check(await flow.inspect(drafts[0]),drafts.length-1,edited.parcelId);
+  await assert.rejects(flow.submit(drafts[0],DEMO_ACTORS.requester),/Every final-route/);
+  check(await flow.sign(edited,'utility',DEMO_ACTORS.utility),drafts.length-1,edited.parcelId);
+  check(await flow.sign(edited,'landowner',DEMO_ACTORS.landowner),drafts.length,null);
+  const restored=createContractWorkflow({source,bank,initialState:flow.snapshot(),now:()=>now});
+  check(await restored.inspect(drafts[0]),drafts.length,null);
+  assert.equal(providerCalls,0);
+});
+
+test('agreement progress excludes signatures from an earlier source approval after restart', async () => {
+  const source=createContractExample(), bank=createDemoBank();
+  const flow=createContractWorkflow({source,bank,now:()=>now});
+  for (const parcel of source.parcels) await signBoth({flow,draft:createContractDraft(source,parcel.parcelId,{id:`old-progress-${parcel.parcelId}`,now})});
+  const changed=structuredClone(source);changed.project.signerName='A New Representative';
+  const restored=createContractWorkflow({source:changed,bank,initialState:flow.snapshot(),now:()=>now});
+  const draft=createContractDraft(changed,changed.parcels[0].parcelId,{id:'new-progress-source',now});
+  const result=await restored.inspect(draft);
+  assert.deepEqual(result.agreementProgress,{signedCount:0,totalCount:changed.parcels.length,nextUnsignedParcelId:changed.parcels[0].parcelId});
+  assert.equal(result.packageReady,false);
+});

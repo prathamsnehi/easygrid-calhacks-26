@@ -35,41 +35,52 @@ function boot({saved = new Map(), workflow = null, apiOverride = null, paymentsE
     click:async id => {if(!nodes.get(id).disabled)await nodes.get(id).emit('click');}};
 }
 
-test('approval gate, authoring, both click signatures, submission and restored payment work through the UI controller', async () => {
-  const ui = boot();
+test('current signatures unlock payment navigation before the other agreements, and navigation never submits', async () => {
+  let submits = 0;
+  const ui = boot({apiOverride:async (operation,draft,extra,api) => {
+    if (operation === 'submit') submits++;
+    return api(operation,draft,extra);
+  }});
   try {
     ui.app.open(createContractExample('pending'),{demo:true}); assert.equal(ui.nodes.get('cg-proceed').disabled,true);
     ui.app.setSource(createContractExample()); assert.equal(ui.nodes.get('cg-proceed').disabled,false);
     await ui.click('cg-proceed'); await ui.flush();
-    assert.equal(ui.nodes.get('cg-editor').hidden,false); assert(ui.nodes.get('cg-preview').innerHTML.includes('$12,000.00'));
-    assert.equal(ui.nodes.get('cg-payment-panel').hidden,true);
-    assert.equal(ui.nodes.has('cg-completion-panel'),false);
-    assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    await ui.click('cg-sign-utility'); assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    await ui.click('cg-sign-landowner'); assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    assert.equal(ui.nodes.get('cg-payment-panel').hidden,false);
-    ui.nodes.get('cg-parcel').value='P-009'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,true);
+    await ui.nodes.get('cg-continue-payment').emit('click');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,true);
+    await ui.click('cg-sign-utility'); assert.equal(ui.nodes.get('cg-continue-payment').disabled,true);
+    await ui.click('cg-sign-landowner'); assert.equal(ui.nodes.get('cg-continue-payment').disabled,false);
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,true,'signing never navigates or submits');
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
+    assert.equal(ui.nodes.get('cg-agreement-preview').hidden,true);
+    assert.equal(ui.nodes.get('cg-agreement-sidebar').hidden,true);
+    assert.equal(ui.nodes.get('cg-title').textContent,'Review your payment.');
+    assert.equal(ui.nodes.get('cg-step-payment').attributes['aria-current'],'step');
+    assert.equal(ui.nodes.get('cg-payment-owner').textContent,'Willow Creek Orchard');
+    assert.equal(ui.nodes.get('cg-payment-amount').textContent,'$12,000.00');
+    assert.equal(ui.nodes.get('cg-submit').disabled,true,'package signatures still gate the final action');
+    assert.equal(ui.nodes.get('cg-remaining-panel').hidden,false);
+    assert.equal(ui.nodes.get('cg-agreement-progress').textContent,'1 of 2 agreements signed');
+    await ui.nodes.get('cg-submit').emit('click'); assert.equal(submits,0);
+    await ui.click('cg-review-remaining'); await ui.flush();
+    assert.equal(ui.nodes.get('cg-parcel').value,'P-009');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,true);
     await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
-    ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-amount').textContent,'$8,000.00');
+    assert.equal(ui.nodes.get('cg-remaining-panel').hidden,true);
     assert.equal(ui.nodes.get('cg-submit').disabled,false);
-    await ui.click('cg-submit'); assert(ui.nodes.get('cg-execution-status').textContent.includes('payment complete'));
-    assert.equal(ui.nodes.has('cg-completion-panel'),false);
-    assert.equal(ui.nodes.get('cg-submit').disabled,true); assert.equal(ui.nodes.get('cg-notes').disabled,true);
-    assert(ui.nodes.get('cg-journal-summary').textContent.includes('$12,000.00'));
+    assert.equal(submits,0,'opening payment is side-effect free');
+    await ui.click('cg-back-agreement');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,true);
+    assert.equal(ui.nodes.get('cg-title').textContent,'Review your agreement.');
+    assert.equal(ui.nodes.get('cg-parcel').value,'P-009');
+    assert.equal(ui.nodes.get('cg-landowner-signature-status').textContent,'✓ Signed');
+    await ui.nodes.get('cg-submit').emit('click'); assert.equal(submits,0,'hidden final action cannot submit from agreement view');
+    await ui.click('cg-continue-payment'); await ui.click('cg-submit');
+    assert.equal(submits,1); assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.flow.snapshot().journal.length,1);
-    let run = null, complete = null, notices = 0;
-    ui.app.setConstructionHandler(({construction,onComplete}) => {run=construction;complete=onComplete;notices++;});
-    assert.equal(ui.nodes.has('cg-pay-balance'),false);
-    ui.nodes.get('cg-parcel').value='P-009'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
-    await ui.click('cg-submit');
-    assert.equal(notices,1); assert.equal(run.status,'in-progress');
-    assert.equal(ui.nodes.has('cg-pay-balance'),false);
-    await complete();
-    assert.equal(ui.flow.snapshot().construction.status,'completed');
-    assert.equal(ui.flow.snapshot().journal.length,2);
-    assert.equal(ui.flow.snapshot().journal.reduce((sum,row) => sum + row.debitCents,0),2000000);
-    assert.equal(ui.flow.snapshot().journal.length,2);
-    assert.equal(notices,1);
   } finally {ui.restore();}
 });
 
@@ -100,7 +111,7 @@ test('Nessie registration requires one explicit click and confirms a record with
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Waiting for all signatures');
     assert.equal(transferCount,0);
-    await signEveryAgreement(ui);
+    await signEveryAgreement(ui); await ui.click('cg-continue-payment');
     assert.equal(ui.nodes.get('cg-payout-provider').textContent,'Nessie sandbox');
     assert.equal(ui.nodes.get('cg-submit').textContent,'Register full amount · $12,000.00');
     assert.equal(ui.nodes.get('cg-payout-basis').textContent,'100% of $12,000.00 approved compensation');
@@ -125,6 +136,11 @@ test('Nessie registration requires one explicit click and confirms a record with
     bankEvidence.status='recorded'; await ui.click('cg-reconcile');
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Recorded in Nessie');
     assert.equal(ui.nodes.get('cg-submit').textContent,'Recorded in Nessie · $12,000.00');
+    await ui.click('cg-back-agreement');
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,false);
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
+    assert.equal(ui.nodes.get('cg-transfer-reference').hidden,false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.nodes.get('cg-reconcile').hidden,true);
     assert.equal(ui.nodes.has('cg-completion-panel'),false);
@@ -145,12 +161,14 @@ test('disabled Nessie writes keep a signed full payment locked and explain the m
   const ui=boot({workflow:createContractWorkflow({source:createContractExample(),bank}),paymentsEnabled:false});
   try {
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
-    await signEveryAgreement(ui);
+    await signEveryAgreement(ui); await ui.click('cg-continue-payment');
     assert.equal(ui.nodes.get('cg-payment-panel').hidden,false);
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,false);
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Setup required');
     assert.match(ui.nodes.get('cg-payout-help').textContent,/not enabled/);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
-    await ui.click('cg-submit');
+    await ui.click('cg-continue-payment'); await ui.click('cg-submit');
     assert.equal(transferCount,0);
   } finally {ui.restore();}
 });
@@ -165,7 +183,9 @@ test('Nessie rejects fractional amounts in the UI before any API submission with
   }});
   try {
     ui.app.open(source,{demo:true}); await ui.click('cg-proceed'); await ui.flush();
-    await signEveryAgreement(ui);
+    await signEveryAgreement(ui); await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,false);
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
     assert.equal(ui.nodes.get('cg-submit').textContent,'Register full amount · $1,144.25');
     assert.equal(ui.nodes.get('cg-parcel-total').textContent,'$1,144.25');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
@@ -198,10 +218,14 @@ test('a lost Nessie registration response stays locked until a status check reco
   }});
   try {
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
-    await signEveryAgreement(ui);
-    await ui.click('cg-submit');
+    await signEveryAgreement(ui); await ui.click('cg-continue-payment');
+    await ui.click('cg-continue-payment'); await ui.click('cg-submit');
     assert.equal(transfers,1);
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Outcome unknown');
+    await ui.click('cg-back-agreement');
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,false);
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.nodes.get('cg-reconcile').hidden,false);
     assert.match(ui.nodes.get('cg-payout-help').textContent,/Check record status/);
@@ -210,11 +234,20 @@ test('a lost Nessie registration response stays locked until a status check reco
     assert.equal(calls.filter(operation => operation === 'submit').length,1,'a lost response cannot enable a replacement request');
     stateUnavailable = true; await ui.click('cg-reconcile');
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Outcome unknown');
+    await ui.click('cg-back-agreement');
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,false);
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     bankEvidence.status = 'recorded';
     stateUnavailable = false; await ui.click('cg-reconcile');
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Recorded in Nessie');
     assert.equal(ui.nodes.get('cg-submit').textContent,'Recorded in Nessie · $12,000.00');
+    await ui.click('cg-back-agreement');
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,false);
+    await ui.click('cg-continue-payment');
+    assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
+    assert.equal(ui.nodes.get('cg-transfer-reference').hidden,false);
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     assert.equal(ui.flow.snapshot().journal.length,0);
     assert.deepEqual(calls.slice(-2),['state','reconcile']);
@@ -233,13 +266,13 @@ test('a status check finding no attempted payment unlocks only a new explicit pa
   }});
   try {
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
-    await signEveryAgreement(ui); await ui.click('cg-submit');
+    await signEveryAgreement(ui); await ui.click('cg-continue-payment'); await ui.click('cg-continue-payment'); await ui.click('cg-submit');
     assert.equal(ui.nodes.get('cg-submit').disabled,true);
     await ui.click('cg-reconcile');
     assert.equal(ui.nodes.get('cg-payout-status').textContent,'Ready to send');
     assert.equal(ui.nodes.get('cg-submit').disabled,false);
     assert.equal(transfers,0,'checking a missing obligation never creates a transfer');
-    requestReachedServer = true; await ui.click('cg-submit');
+    requestReachedServer = true; await ui.click('cg-continue-payment'); await ui.click('cg-submit');
     assert.equal(ui.nodes.get('cg-submit').textContent,'Paid in full · $12,000.00');
     assert.equal(transfers,1);
   } finally {ui.restore();}
@@ -250,8 +283,12 @@ test('editing invalidates signatures, parcel switches preserve edits, and source
   try {
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
     await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner'); assert.equal(ui.nodes.get('cg-submit').disabled,true);
+    await ui.click('cg-continue-payment'); assert.equal(ui.nodes.get('cg-payment-view').hidden,false);
+    await ui.click('cg-back-agreement'); assert.equal(ui.nodes.get('cg-payment-view').hidden,true);
     ui.nodes.get('cg-notes').value='Review this draft note.'; await ui.nodes.get('cg-notes').emit('input');
     assert.equal(ui.nodes.get('cg-submit').disabled,true); assert.equal(ui.nodes.get('cg-utility-signature-status').textContent,'Sign ↗');
+    assert.equal(ui.nodes.get('cg-continue-payment').disabled,true);
+    await ui.nodes.get('cg-continue-payment').emit('click'); assert.equal(ui.nodes.get('cg-payment-view').hidden,true);
     ui.nodes.get('cg-parcel').value='P-009'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
     ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
     assert.equal(ui.nodes.get('cg-notes').value,'Review this draft note.');
@@ -268,9 +305,9 @@ test('optional construction never triggers another payment and invalidation abor
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
     await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner');
     ui.nodes.get('cg-parcel').value='P-009'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
-    await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner'); await ui.click('cg-submit');
+    await ui.click('cg-sign-utility'); await ui.click('cg-sign-landowner'); await ui.click('cg-continue-payment'); await ui.click('cg-submit');
     ui.nodes.get('cg-parcel').value='P-004'; await ui.nodes.get('cg-parcel').emit('change'); await ui.flush();
-    await ui.click('cg-submit'); await ui.flush();
+    await ui.click('cg-continue-payment'); await ui.click('cg-submit'); await ui.flush();
     assert.equal(notices,1); assert.equal(ui.nodes.has('cg-pay-balance'),false);
     ui.app.setConstructionHandler(handler); assert.equal(notices,1);
     ui.app.invalidate(); assert.equal(signal.aborted,true);
@@ -290,6 +327,6 @@ test('a late signature response cannot re-enable submission after the source app
     ui.app.open(createContractExample(),{demo:true}); await ui.click('cg-proceed'); await ui.flush();
     const pending = ui.click('cg-sign-utility'); await ui.flush(); ui.app.invalidate();
     resolveSignature({signatures:{utility:{simulated:true,signedAt:'2026-10-24T18:00:00Z'},landowner:{simulated:true,signedAt:'2026-10-24T18:00:00Z'}},audit:[],journal:[],bankMode:'simulation'});
-    await pending; assert.equal(ui.nodes.get('cg-submit').disabled,true); assert.equal(ui.nodes.get('cg-stale').hidden,false);
+    await pending; assert.equal(ui.nodes.get('cg-continue-payment').disabled,true); assert.equal(ui.nodes.get('cg-submit').disabled,true); assert.equal(ui.nodes.get('cg-stale').hidden,false);
   } finally {ui.restore();}
 });

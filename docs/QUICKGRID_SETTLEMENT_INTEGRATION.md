@@ -18,6 +18,20 @@ full-amount action. Opening the workspace or signing an agreement triggers no
 payment or provider record. There is no deposit, completion balance or monthly
 payment control.
 
+The agreement view has a separate **Continue to payment** button. It becomes
+available when both parties sign the current selected agreement, and opens a
+payment review screen without submitting anything. The screen shows the exact
+amount, provider, current status and any record reference. **Back to agreement**
+returns to the same draft. Provider precision, remaining route signatures and
+previous attempts affect the final action, not access to this review screen.
+
+Execution responses include `agreementProgress` with `signedCount`, `totalCount`
+and `nextUnsignedParcelId`, calculated from the same current-signature checks as
+`packageReady`. The payment screen uses this to direct the user to remaining
+agreements. Editing a draft invalidates its signatures and payment navigation.
+New local mock agreements use `contractTermsVersion: 2` and concise access terms;
+unversioned/version-1 agreements retain their original source and signatures.
+
 With the default local simulation, each approved full amount can be paid once;
 optional construction starts only after all full payments are confirmed.
 With the configured Nessie record-only capability, one explicit action creates
