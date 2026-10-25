@@ -61,14 +61,14 @@ jobs:
         with:
           name: firebase-hosting-site
           path: apps/map-preview/dist/
-      - name: Check this commit is still current main
+      - name: Check the frontend is still current on main
         id: current
         run: |
-          current_main=$(git ls-remote origin refs/heads/main | cut -f1)
-          if [ "$current_main" = "$GITHUB_SHA" ]; then
+          git fetch --no-tags --depth=1 origin main
+          if git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- apps/map-preview packages/contracts firebase.json .firebaserc .github/workflows/firebase-hosting.yml; then
             echo 'deploy=true' >> "$GITHUB_OUTPUT"
           else
-            echo 'Skipped stale deployment; a newer main commit exists.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Skipped stale deployment; newer frontend inputs exist on main.' >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Authenticate to Firebase with short-lived Google credentials
         if: steps.current.outputs.deploy == 'true'
