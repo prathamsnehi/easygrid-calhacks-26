@@ -149,6 +149,21 @@ test('agreement is saved only for the opening or the one final amount', () => {
     ],
   });
   assert.equal(otherAmount.outcome, 'pending');
+  const spokenPairs = decideReview({
+    openingCents: 127_650,
+    finalCents: 153_180,
+    monthlyRentCents: 2243,
+    failureReason: 'MALFORMED_OUTPUT',
+    candidate: null,
+    turns: [
+      { id: 'vm', role: 'owner', text: 'If you record your name, hello.' },
+      { id: 'offer', role: 'agent', text: "I’m sorry, I didn’t catch that. Our proposal is twelve seventy-six fifty plus twenty-two forty-three per month for transmission access across this parcel. Does that work for you?" },
+      { id: 'yes', role: 'owner', text: 'That works.' },
+      { id: 'thanks', role: 'agent', text: 'Thank you.' },
+    ],
+  });
+  assert.equal(spokenPairs.outcome, 'accepted');
+  assert.equal(spokenPairs.agreedCents, 127_650);
 });
 
 test('a committed review is redacted and a second dial is refused', () => {

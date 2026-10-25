@@ -325,17 +325,74 @@ function moneyMentions(textValue: string): bigint[] {
   return mentions.sort((a, b) => a.index - b.index).map(item => item.value);
 }
 
+const smallNumbers = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const tensNumbers = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+function underHundred(value: number): string[] {
+  if (value < 20) return [smallNumbers[value] ?? ''];
+  const ten = tensNumbers[Math.floor(value / 10)] ?? '';
+  const one = value % 10;
+  if (one === 0) return [ten];
+  return [`${ten}-${smallNumbers[one]}`, `${ten} ${smallNumbers[one]}`];
+}
+
+/** "twelve seventy-six fifty" is how the transcript reads $1,276.50 when no dollar sign survives. */
+function colloquialPhrases(centsAmount: number): string[] {
+  const dollars = Math.floor(centsAmount / 100);
+  const remainder = centsAmount % 100;
+  const groups: number[] = [];
+  let rest = dollars;
+  if (rest === 0) return [];
+  while (rest > 0) {
+    groups.push(rest % 100);
+    rest = Math.floor(rest / 100);
+  }
+  groups.reverse();
+  if (groups.some(group => group === 0)) return [];
+  if (remainder > 0) groups.push(remainder);
+  if (groups.length < 2) return [];
+  const options = groups.map(underHundred);
+  const phrases = options.reduce<string[]>((acc, words) => acc.flatMap(prefix => words.map(word => prefix ? `${prefix} ${word}` : word)), ['']);
+  return phrases.filter(phrase => phrase.length > 0);
+}
+
+function locateAmount(text: string, centsAmount: number, from = 0): number {
+  const target = BigInt(centsAmount);
+  let best = -1;
+  const note = (value: bigint, index: number) => {
+    if (value === target && index >= from && (best < 0 || index < best)) best = index;
+  };
+  for (const match of text.matchAll(/(?:\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)|\b([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:US\s*)?dollars?\b)/gi)) {
+    const [whole, fraction = ''] = (match[1] ?? match[2]!).replaceAll(',', '').split('.');
+    note(BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, '0')), match.index ?? 0);
+  }
+  const word = `(?:${Object.keys(spokenNumbers).join('|')}|hundred|thousand|million|billion|and)`;
+  const pattern = new RegExp(`\\b(${word}(?:[ -]+${word})*)\\s+dollars?\\b(?:\\s+and\\s+(${word}(?:[ -]+${word})*)\\s+cents?\\b)?`, 'gi');
+  for (const match of text.matchAll(pattern)) {
+    const cents = match[2] ? spokenInteger(match[2]) : 0n;
+    if (cents < 100n) note(spokenInteger(match[1]!) * 100n + cents, match.index ?? 0);
+  }
+  const lower = text.toLowerCase();
+  for (const phrase of colloquialPhrases(centsAmount)) {
+    const index = lower.indexOf(phrase, from);
+    if (index >= 0 && (best < 0 || index < best)) best = index;
+  }
+  return best;
+}
+
 function statesOffer(spoken: string, compensationCents: number, monthlyRentCents: number): boolean {
   if (/(?:\b(?:cannot|can't|won't|unable to|not able to)\s+(?:\w+\s+){0,3}(?:offer|pay|agree|provide)|\bnot\s+(?:offering|paying|proposing)\b)/i.test(spoken)) return false;
   const amounts = moneyMentions(spoken);
   const compensation = BigInt(compensationCents);
   const monthly = BigInt(monthlyRentCents);
-  if (!amounts.includes(compensation)) return false;
-  const pair = amounts.some((value, index) => value === compensation && amounts[index + 1] === monthly);
+  const compensationAt = locateAmount(spoken, compensationCents);
+  if (compensationAt < 0) return false;
+  const monthlyAt = locateAmount(spoken, monthlyRentCents, compensationAt + 1);
   const question = /\b(?:does|would|will) that work(?: for you)?\b|\bdo you agree\b|\bis that (?:okay|ok|acceptable|all right|alright)\b/i.test(spoken);
-  if (pair && /month/i.test(spoken) && question) return true;
+  if (monthlyAt > compensationAt && /month/i.test(spoken) && question) return true;
   // Live transcripts often cut the offer after the lump sum, before the monthly fee and the question.
-  return /\b(?:proposal|offer|compensation)\b/i.test(spoken)
+  return monthlyAt < 0
+    && /\b(?:proposal|offer|compensation)\b/i.test(spoken)
     && amounts.every(value => value === compensation || value === monthly);
 }
 
