@@ -101,6 +101,14 @@ before manually removing it. Do not run separate copies against the same payer
 and obligations. Custom callers of `createContractAPI` must enforce exclusive
 ownership themselves; this local lock is not a distributed payment store.
 
+Before loading the new standalone full-payment ledger, Nessie startup checks
+the old `nessie-contract-ledger.json`. An attempted or uncertain staged payment,
+any journal evidence, or an unreadable old ledger stops startup for review.
+Creating a fresh full ledger cannot bypass this guard. Preserve the old file;
+do not delete evidence to make the new payment run. Unattempted holds can remain
+archived, but a full payment requires new signatures on the full-payment terms.
+Map packages retain their existing registry and similarly block earlier attempts.
+
 Setup is only account preparation. Demonstrate payments through the approved
 contract workflow: all required signatures, one explicit full-payment request
 per owner, then provider reconciliation. There is no construction gate or second

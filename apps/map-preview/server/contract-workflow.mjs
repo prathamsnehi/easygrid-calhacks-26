@@ -54,7 +54,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     assertNoLegacyPayment(draft);
     const hash = contractContentHash(draft, approvedSource), existing = state.documents[draft.id];
     const submitted = state.obligations[obligationId(draft)];
-    if (submitted && paymentMayHaveBeenAttempted(submitted,state.journal)) {
+    if (submitted && paymentMayHaveBeenAttempted({...submitted,id:obligationId(draft)},state.journal)) {
       const expectedCents = contractDocument(draft,approvedSource).totalCents;
       if (submitted.id !== obligationId(draft) || submitted.stage !== 'full' || submitted.parcelId !== draft.parcelId || submitted.amountCents !== expectedCents || ['held','rejected'].includes(submitted.status)) {
         throw new Error('The stored payment does not establish this full compensation obligation. Preserve its evidence for controller review.');

@@ -226,7 +226,8 @@ test('legacy unattempted holds remain preserved while freshly signed full terms 
 test('a copied partial or inconsistent attempted record is never accepted as a full payment', async () => {
   const original = setup();await signBoth(original);
   const paid = await original.flow.submit(original.draft,DEMO_ACTORS.requester), id = paid.payment.obligationId;
-  for (const change of [{amountCents:240000},{stage:'initial'},{id:'another-obligation'},{parcelId:'another-parcel'},{status:'held'},{status:'rejected'}]) {
+  for (const change of [{amountCents:240000},{stage:'initial'},{id:'another-obligation'},{parcelId:'another-parcel'},{status:'held'},{status:'rejected'},
+    {status:'held',id:'mismatched-record-id',transactionRef:null},{status:'rejected',id:'mismatched-record-id',transactionRef:null}]) {
     const state = original.flow.snapshot();Object.assign(state.obligations[id],change);
     const restored = setup({initialState:state});
     await assert.rejects(restored.flow.inspect(original.draft),/does not establish this full compensation|legacy staged-payment attempt/);
