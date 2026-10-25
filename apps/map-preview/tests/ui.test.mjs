@@ -1131,6 +1131,7 @@ test('CAL-34 saved results show precise reasons, block repeat calls and do not r
     disposition:'unsuccessful',reason:'PRICE_REJECTED',outcome:'refused',nextAction:'stop',explanation}});
   assert.equal(app.elements.get('handoff-status-badge').textContent,'UNSUCCESSFUL');
   assert.equal(app.elements.get('handoff-result').textContent,explanation);
+  assert.equal(app.elements.get('analysis-agreed').textContent,'Not agreed');
   assert(app.elements.get('agent-call').disabled);assert.equal(app.canvas.dataset.routeId,routeBefore);
   assert(app.elements.get('simulate-refusal').hidden);
   assert(app.elements.get('simulate-approval').hidden);assert(app.elements.get('simulate-approval').disabled);
@@ -1144,6 +1145,99 @@ test('CAL-34 saved results show precise reasons, block repeat calls and do not r
   app.window.easygridDemo.setNegotiationResultSource(null);
   assert.throws(()=>app.window.easygridDemo.runRefusalDemo(),/new demo/,'disconnecting a source cannot erase a live failure');
   assert.deepEqual(app.errors,[]);
+});
+
+function acceptedResult(app,amount){
+  const h=handoffOf(app),parcel=h.ownerHandoff.parcels.find(p=>p.parcelId===h.userRole.parcelId);
+  return {schemaVersion:1,kind:'easygrid-negotiation-result',eventId:'accepted-event',revision:7,saved:true,
+    mapBinding:app.window.easygridDemo.getNegotiationBinding(),localParcelId:parcel.parcelId,mode:'live',phase:'finished',
+    summary:{attemptId:'accepted-attempt',mode:'live',disposition:'successful',reason:'AGREED',outcome:'accepted',accessConsent:'allowed',nextAction:'continue',
+      agreedCents:amount,offeredCents:amount,monthlyRentCents:parcel.terms.monthlyRentCents,termsVersion:parcel.terms.termsVersion+1,
+      explanation:`Owner agreed to ${usd(amount)} plus ${usd(parcel.terms.monthlyRentCents)}/month.`}};
+}
+function acceptedApproval(context,result){
+  const handoff=reconstructMapProposal(context),agreement=simulatedMapAgreement(handoff,{negotiationId:'verified-accepted',approvedAt:'2026-10-25T10:00:00Z'});
+  agreement.ownerHandoff=JSON.parse(JSON.stringify(handoff.ownerHandoff));
+  agreement.approvalScope={kind:'single-owner',parcelId:context.userParcelId};
+  const parcel=agreement.ownerHandoff.parcels.find(p=>p.parcelId===context.userParcelId);
+  Object.assign(parcel.terms,{outcome:'accepted',accessConsent:'allowed',explicitConfirmation:true,confirmationRef:'accepted-confirmation',
+    compensationCents:result.summary.agreedCents,termsVersion:result.summary.termsVersion});
+  return {packageId:`map-contract-${'9'.repeat(40)}`,simulated:true,approvalMode:'negotiated',
+    negotiationRef:{attemptId:result.summary.attemptId,eventId:result.eventId,revision:result.revision},
+    agreement,input:contractSourceFromAgreement(agreement,handoff),mapBinding:agreement.mapBinding,demoScope:'single-owner',demoTarget:'participant',demoParcelId:context.userParcelId};
+}
+
+test('saved agreed compensation stays exact from analysis through the contract and payment review',async()=>{
+  const requests=[],signatures={};let approved,result,callbacks;
+  const app=boot({fetcher:async(url,options)=>{
+    const body=JSON.parse(options.body);requests.push({url,body});
+    if(url==='/api/contracts/approve-map'){
+      approved=acceptedApproval(body.context,result);return {ok:true,json:async()=>approved};
+    }
+    assert(['/api/contracts/state','/api/contracts/sign/utility','/api/contracts/sign/landowner'].includes(url),'navigation and signing cannot submit a bank action');
+    if(url.includes('/sign/'))signatures[url.split('/').at(-1)]={simulated:true,signedAt:'2026-10-25T10:01:00Z'};
+    return {ok:true,json:async()=>({draftId:body.draft.id,documentHash:'8'.repeat(64),signatures:{...signatures},audit:[],journal:[],
+      packageId:approved.packageId,demoScope:'single-owner',demoParcelId:approved.demoParcelId,
+      paymentReady:Boolean(signatures.utility&&signatures.landowner),packageReady:false,bankMode:'nessie-sandbox',paymentSemantics:'record-only',amountIncrementCents:100})};
+  }});
+  placePair(app);await app.flushTimers();const before=handoffOf(app),target=before.ownerHandoff.parcels.find(p=>p.parcelId===before.userRole.parcelId);
+  let amount=target.offerPolicy.recommendedOfferCents+137;if(amount%100===0)amount++;
+  assert(amount<=target.offerCapCents);result=acceptedResult(app,amount);
+  app.window.easygridDemo.setNegotiationResultSource(args=>{callbacks=args;args.onReady();});callbacks.onUpdate(result);
+  app.click('open-analysis');
+  assert.equal(app.elements.get('analysis-offer').textContent,usd(target.offerPolicy.recommendedOfferCents));
+  assert.equal(app.elements.get('analysis-limit').textContent,usd(target.offerCapCents));
+  assert.equal(app.elements.get('analysis-agreed').textContent,usd(amount));
+  assert.match(app.elements.get('analysis-negotiation').textContent,/Agreed/);
+  assert.equal(app.elements.get('settle-payment').textContent,'Review agreed contract');
+  assert.equal(app.elements.get('settle-payment').disabled,false);
+  assert.equal(app.elements.get('simulate-approval').hidden,true);
+  app.click('settle-payment');await settlePromises();await settlePromises();await settlePromises();
+  const approvalRequest=requests[0].body;
+  assert.deepEqual(approvalRequest.negotiationRef,{attemptId:'accepted-attempt',eventId:'accepted-event',revision:7});
+  assert.equal(approvalRequest.agreedCents,undefined);assert.equal(approvalRequest.context.agreedCents,undefined);
+  assert.equal(app.elements.get('cg-editor').hidden,false);assert.equal(app.elements.get('cg-gate').hidden,true);
+  assert.equal(app.elements.get('cg-parcel-total').textContent,usd(amount));assert(app.elements.get('cg-preview').innerHTML.includes(usd(amount)));
+  const source=JSON.parse(requests.find(r=>r.url==='/api/contracts/state').body.draft.sourceKey);
+  assert.equal(source.parcels.length,before.ownerHandoff.parcels.length);assert.equal(source.parcels.filter(p=>p.accepted).length,1);
+  assert.equal(source.parcels.find(p=>p.parcelId===target.parcelId).compensationCents,amount);
+  app.click('cg-sign-utility');await settlePromises();await settlePromises();
+  app.click('cg-sign-landowner');await settlePromises();await settlePromises();
+  assert.equal(app.elements.get('cg-continue-payment').disabled,false);app.click('cg-continue-payment');
+  assert.equal(app.elements.get('cg-payment-view').hidden,false);assert.equal(app.elements.get('cg-payment-amount').textContent,usd(amount));
+  assert.equal(app.elements.get('cg-submit').disabled,true);assert.match(app.elements.get('cg-payout-help').textContent,/whole-dollar.*unchanged.*not be rounded/);
+  assert.equal(handoffOf(app).routeVersion,before.routeVersion);assert.equal(handoffOf(app).ownerHandoff.parcels.find(p=>p.parcelId===target.parcelId).terms.compensationCents,target.terms.compensationCents);
+  for(const secret of Object.values(privateUser))assert(!JSON.stringify(requests).includes(secret));
+  callbacks.onUnavailable();assert.equal(app.elements.get('cg-submit').disabled,true);assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.equal(app.elements.get('analysis-agreed').textContent,usd(amount));assert.match(app.elements.get('handoff-status-badge').textContent,/OFFLINE/);
+  callbacks.onReady();callbacks.onUpdate({...result,eventId:'newer-terms',revision:8,phase:'confirming',summary:null});
+  assert.equal(app.elements.get('analysis-agreed').textContent,'Not agreed');assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'TERMS CHANGED');assert.equal(app.elements.get('agent-call').disabled,true);
+  callbacks.onReady();assert.equal(app.elements.get('settle-payment').disabled,true);
+  assert.deepEqual(app.errors,[]);
+});
+
+test('saved-result navigation rejects baseline approval fallback and cancels a late verified response',async()=>{
+  for(const scenario of ['fallback','wrong-amount','stale']){
+    let callbacks,result,finish;const requests=[];
+    const app=boot({fetcher:async(url,options)=>{
+      requests.push(url);assert.equal(url,'/api/contracts/approve-map');
+      const body=JSON.parse(options.body),response=acceptedApproval(body.context,result);
+      if(scenario==='fallback')delete response.approvalMode;
+      if(scenario==='wrong-amount')response.input.parcels.find(p=>p.parcelId===body.context.userParcelId).compensationCents--;
+      if(scenario==='stale')return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>response});});
+      return {ok:true,json:async()=>response};
+    }});
+    placePair(app);await app.flushTimers();const h=handoffOf(app),p=h.ownerHandoff.parcels.find(p=>p.parcelId===h.userRole.parcelId);
+    result=acceptedResult(app,p.offerPolicy.recommendedOfferCents+37);
+    app.window.easygridDemo.setNegotiationResultSource(args=>{callbacks=args;args.onReady();});callbacks.onUpdate(result);
+    app.click('overview-settlement');
+    if(scenario==='stale'){app.click('recalculate-route');finish();}
+    await settlePromises();await settlePromises();await settlePromises();
+    assert.equal(app.elements.get('contract-workspace').hidden,true);assert.equal(requests.length,1);
+    if(scenario!=='stale'){assert.match(app.elements.get('settlement-feedback').textContent,/did not verify/);assert.equal(app.elements.get('settle-payment').disabled,false);}
+    assert.deepEqual(app.errors,[]);
+  }
 });
 
 test('CAL-34 outage preserves the last saved reason with an offline note',async()=>{

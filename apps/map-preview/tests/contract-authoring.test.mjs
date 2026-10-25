@@ -140,3 +140,55 @@ test('representative demo copy scopes payment timing without changing approved d
   assert.deepEqual(contractDocument(draft,source),before);
   assert.match(renderContractDocument(draft,source,{...execution,demoParcelId:'P-009'}),/all final-route agreements/,'other parcel metadata cannot scope this agreement');
 });
+
+test('a single-owner approval preserves the full route while authorizing only its accepted parcel', () => {
+  const source=createContractExample();
+  source.approvalScope={kind:'single-owner',parcelId:'P-004'};
+  source.parcels[1].accepted=false;
+  const before=JSON.stringify(source), normalized=normalizeContractSource(source), draft=create(source);
+  assert.equal(JSON.stringify(source),before);
+  assert.deepEqual(normalized.approvalScope,source.approvalScope);
+  assert.deepEqual(normalized.parcels,source.parcels);
+  assert.equal(normalized.parcels.length,2);
+  assert.equal(normalized.parcels[1].accepted,false);
+  assert.equal(validateContractDraft(draft,source).valid,true);
+  assert.deepEqual(contractDocument(draft,source).approvalScope,source.approvalScope);
+  assert.match(renderContractDocument(draft,source),/One payment after both parties sign this agreement/);
+  assert.throws(() => create(source,'P-009'),/accepted parcel within the current approval scope/);
+  assert.equal(validateContractDraft({...draft,parcelId:'P-009'},source).valid,false);
+  source.parcels[1].accepted=true;
+  assert.throws(() => create(source,'P-009'),/approval scope/,'another accepted owner is still outside the selected scope');
+  assert.equal(validateContractDraft({...draft,parcelId:'P-009',sourceKey:contractSourceKey(source)},source).valid,false);
+});
+
+test('scoped approval and every retained parcel remain part of the canonical draft binding', () => {
+  const source=createContractExample(), legacyKey=contractSourceKey(source), legacyDraft=create(source);
+  assert.equal(legacyKey,JSON.stringify(source),'sources without scope keep their exact canonical serialization');
+  assert.equal(Object.hasOwn(normalizeContractSource(source),'approvalScope'),false);
+  assert.equal(Object.hasOwn(contractDocument(legacyDraft,source),'approvalScope'),false);
+  source.approvalScope={kind:'single-owner',parcelId:'P-004'};
+  const draft=create(source);
+  assert.notEqual(draft.sourceKey,legacyKey);
+  assert.equal(validateContractDraft(legacyDraft,source).valid,false);
+  for (const mutate of [s => s.approvalScope.parcelId='P-009',s => delete s.approvalScope,
+    s => s.parcels[1].accepted=false,s => s.parcels[1].termsVersion++,s => s.parcels[1].compensationCents++]) {
+    const changed=structuredClone(source);mutate(changed);
+    assert.equal(validateContractDraft(draft,changed).valid,false);
+  }
+});
+
+test('scoped sources still reject missing acceptance, invalid pending terms and malformed scope', () => {
+  const valid=() => {
+    const source=createContractExample();source.approvalScope={kind:'single-owner',parcelId:'P-004'};
+    source.parcels[1].accepted=false;return source;
+  };
+  for (const mutate of [s => s.approvalScope=null,s => s.approvalScope={kind:'all',parcelId:'P-004'},
+    s => s.approvalScope.parcelId='missing',s => s.parcels[0].accepted=false,
+    s => delete s.parcels[1].accepted,s => s.parcels[1].accepted='false',
+    s => s.parcels[1].compensationCents=1.5,s => s.parcels[1].compensationCents=-1,
+    s => s.parcels[1].termsVersion=0,s => s.parcels[1].ownerId='',s => {s.parcels.pop();s.approvalScope.parcelId='P-009';}]) {
+    const source=valid();mutate(source);
+    assert.equal(validateContractSource(source).valid,false);
+    assert.throws(() => normalizeContractSource(source));
+  }
+});

@@ -24,6 +24,7 @@ export function paymentMayHaveBeenAttempted(payment, journal = []) {
 export function createContractWorkflow({source, bank, initialState = createWorkflowState(), persist = async () => {}, now = () => new Date().toISOString(), demoParcelId = null}) {
   const approvedSource = normalizeContractSource(source), state = copy(initialState);
   const sourceHash = digest(contractSourceKey(approvedSource));
+  if (approvedSource.approvalScope && approvedSource.approvalScope.parcelId !== demoParcelId) throw new Error('The negotiated approval must retain its selected landowner scope.');
   if (demoParcelId !== null && !approvedSource.parcels.some(parcel => parcel.parcelId === demoParcelId)) throw new Error('The selected demo landowner must belong to the approved route.');
   const demoScope = demoParcelId === null ? null : 'single-owner';
   const requiredParcels = demoScope ? approvedSource.parcels.filter(parcel => parcel.parcelId === demoParcelId) : approvedSource.parcels;
@@ -85,7 +86,7 @@ export function createContractWorkflow({source, bank, initialState = createWorkf
     return state.construction ? copy(state.construction) : {status: 'awaiting-payments', paidCount: payments.filter(payment => payment?.status === 'paid').length, parcelCount: payments.length};
   }
   function hasCurrentAgreement(parcel) {
-    return Object.values(state.documents).some(doc => doc.parcelId === parcel.parcelId && doc.sourceHash === sourceHash &&
+    return parcel.accepted === true && Object.values(state.documents).some(doc => doc.parcelId === parcel.parcelId && doc.sourceHash === sourceHash &&
       doc.signatures.utility?.documentHash === doc.hash && doc.signatures.landowner?.documentHash === doc.hash &&
       (!state.obligations[obligationId(parcel)] || state.obligations[obligationId(parcel)].documentHash === doc.hash));
   }

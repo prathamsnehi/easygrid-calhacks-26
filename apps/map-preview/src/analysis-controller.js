@@ -5,11 +5,11 @@ import { createNegotiationResultController } from './negotiation-result-controll
 import { createSettlementController } from './settlement-controller.js';
 
 /** Local analysis and an explicit call-request boundary. No direct network or contact storage. */
-export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{},onContextChange=()=>{}}) {
+export function createAnalysisController({world,canvas,getPlacements,onFocusParcel=()=>{},onUserRoleChange=()=>{},onDemoReadyChange=()=>{},onContextChange=()=>{},onNegotiationResultChange=()=>{}}) {
   const ids=['open-analysis','analysis-entry-status','analysis-panel','close-analysis','analysis-route-note','analysis-count','analysis-upfront-label','analysis-upfront',
     'analysis-rent-label','analysis-rent','analysis-consent-note','analysis-parcel-list','analysis-parcel-detail',
     'analysis-parcel-title','analysis-parcel-badge','focus-analysis-parcel','analysis-parcel-copy','analysis-owner',
-    'analysis-land-use','analysis-line-length','analysis-foundation','analysis-offer','analysis-limit','analysis-parcel-rent-label',
+    'analysis-land-use','analysis-line-length','analysis-foundation','analysis-offer','analysis-limit','analysis-agreed','analysis-parcel-rent-label',
     'analysis-parcel-rent','analysis-negotiation','analysis-parcel-impact','focus-user-parcel','user-parcel-label',
     'user-form','user-alias','user-phone','user-consent','save-user',
     'clear-user','user-form-status','handoff-status-badge','agent-call',
@@ -31,7 +31,7 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   const settlement=createSettlementController({getHandoff});
   const negotiationResults=createNegotiationResultController({getHandoff,onChange:state=>{
     if(state.view?.phase!=='finished'||state.view.summary?.disposition!=='successful')settlement.invalidate();
-    onContextChange();renderHandoff();
+    onContextChange();renderHandoff();renderRows();renderDetail();renderConsent();onNegotiationResultChange(state);
   }});
   el['demo-workspace'].dataset.analysisOpen='false';
 
@@ -62,6 +62,8 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     liveCallLocked=true;invalidateHandoff();renderHandoff();
   }
   function displayedOutcome(parcelId) {
+    const accepted=negotiationResults.getAcceptedTerms();
+    if(accepted?.parcelId===parcelId)return `Agreed${accepted.mode==='simulated'?' · simulated':''}${accepted.available?'':' · offline'}`;
     const value=negotiationDisplay.get(parcelId);
     if(!value)return null;
     const label={accepted:'Accepted',refused:'Declined',counteroffer:'Counteroffer',pending:'Pending',review_required:'Review needed'}[value.outcome];
@@ -69,7 +71,8 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
   }
   function renderConsent() {
     if(!analysis)return;
-    const pendingCount=analysis.parcels.filter(row=>negotiationDisplay.get(row.parcelId)?.outcome!=='accepted'&&row.accessConsent!=='allowed').length;
+    const accepted=negotiationResults.getAcceptedTerms();
+    const pendingCount=analysis.parcels.filter(row=>accepted?.parcelId!==row.parcelId&&negotiationDisplay.get(row.parcelId)?.outcome!=='accepted'&&row.accessConsent!=='allowed').length;
     const reviewCount=analysis.parcels.filter(row=>row.recommendationStatus==='review-required').length;
     write('analysis-upfront-label',reviewCount?'Priced subtotal':'Recommended total');
     write('analysis-consent-note',`${pendingCount} pending${reviewCount?` · ${reviewCount} need pricing`:''}`);
@@ -100,6 +103,10 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     const saved=negotiationResults.getState(),result=saved.view;
     if(result||saved.unavailable){
       el['agent-call'].disabled=true;
+      if(saved.superseded){
+        write('handoff-status-badge','TERMS CHANGED');
+        feedback('handoff-result','A newer saved negotiation revision supersedes the earlier result. Contract preparation is locked until the current terms are verified.','error');return;
+      }
       const label=saved.unavailable&&result?.phase!=='finished'?'STATE UNAVAILABLE':result.phase==='finished'?{successful:'SUCCESSFUL',unsuccessful:'UNSUCCESSFUL',needs_review:'NEEDS REVIEW'}[result.summary.disposition]:result.phase==='confirming'?'CONFIRMING RESULT':'NEGOTIATING';
       write('handoff-status-badge',`${label}${result?.mode==='simulated'?' · SIMULATED':''}${saved.unavailable&&result?.phase==='finished'?' · OFFLINE':''}`);
       feedback('handoff-result',saved.unavailable?(result?.phase==='finished'?`${result.summary.explanation} Shared state unavailable; showing the last saved result.`:'Shared state unavailable. The result could not be confirmed as saved.'):result.phase==='finished'?result.summary.explanation:result.phase==='confirming'?'Confirming result…':'Negotiation in progress…',result?.summary?.disposition==='successful'?'success':'');
@@ -130,17 +137,19 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
     write('analysis-land-use',row.landUse.replaceAll('-',' '));
     write('analysis-line-length',row.corridorOnly?'Corridor only':distance(row.lineLengthTiles));
     write('analysis-foundation',row.towerCount);
-    write('analysis-offer',needsEstimate?'Review required':moneyOf(row.upfrontCents));
+    const accepted=negotiationResults.getAcceptedTerms(),agreed=accepted?.parcelId===row.parcelId?accepted:null;
+    write('analysis-offer',needsEstimate?'Review required':moneyOf(row.recommendedOfferCents));
     write('analysis-limit',needsEstimate?'Review required':moneyOf(row.offerCapCents));
+    write('analysis-agreed',agreed?moneyOf(agreed.agreedCents):'Not agreed');
     write('analysis-parcel-rent-label','Monthly fee');
-    write('analysis-parcel-rent',`${row.monthlyRentIsApproximate?'≈ ':''}${moneyOf(row.monthlyRentCents)}`);
+    write('analysis-parcel-rent',`${!agreed&&row.monthlyRentIsApproximate?'≈ ':''}${moneyOf(agreed?.monthlyRentCents??row.monthlyRentCents)}`);
     const status=row.accessConsent==='refused'||row.negotiationStatus==='refused'?'Declined':needsEstimate?'Review required':
       row.accessConsent==='allowed'&&row.negotiationStatus==='accepted'?'Agreed':
       row.negotiationStatus==='counteroffer'?'Counteroffer':row.negotiationStatus==='review_required'?'Review needed':'Pending';
     write('analysis-negotiation',displayedOutcome(row.parcelId)??status);
     const breakdown=row.compensationBreakdown;
     const components=breakdown?`Line allowance: ${moneyOf(breakdown.lineCents)}. Tower pad allowance: ${moneyOf(breakdown.foundationCents)}. `:'';
-    write('analysis-parcel-impact',`${components}${row.corridorOnly?'Corridor contact requires owner review. ':''}Negotiation limit: recommended offer × 1.2, rounded down to cents. ${analysis.rentHorizonMonths}-month fees: ${moneyOf(row.rentTotalCents)}.`);
+    write('analysis-parcel-impact',`${components}${row.corridorOnly?'Corridor contact requires owner review. ':''}Maximum compensation: recommended compensation × 1.2, rounded down to cents; available budget can reduce the final offer. ${analysis.rentHorizonMonths}-month fees: ${moneyOf(row.rentTotalCents)}.`);
   }
   function selectParcel(parcelId,focus=true) {
     if(!analysis?.parcels.some(row=>row.parcelId===parcelId))return;
@@ -155,9 +164,10 @@ export function createAnalysisController({world,canvas,getPlacements,onFocusParc
       const title=document.createElement('span');title.className='analysis-row-title';
       title.textContent=row.parcelId===userParcelId?(participant?.alias??'User participant'):row.ownerAlias;
       const code=document.createElement('small');code.textContent=row.parcelId;title.appendChild(code);
-      const cost=document.createElement('span');cost.className='analysis-row-cost';cost.textContent=row.recommendationStatus==='review-required'?'Review required':`${moneyOf(row.upfrontCents)} – ${moneyOf(row.offerCapCents)}`;
+      const accepted=negotiationResults.getAcceptedTerms(),agreed=accepted?.parcelId===row.parcelId?accepted:null;
+      const cost=document.createElement('span');cost.className='analysis-row-cost';cost.textContent=agreed?`${moneyOf(agreed.agreedCents)} agreed`:row.recommendationStatus==='review-required'?'Review required':`${moneyOf(row.recommendedOfferCents)} – ${moneyOf(row.offerCapCents)}`;
       const meta=document.createElement('span');meta.className='analysis-row-meta';
-      meta.textContent=`${row.towerCount} ${row.towerCount===1?'tower':'towers'} · ${row.corridorOnly?'corridor only':distance(row.lineLengthTiles)}${row.withinOfferCap?'':' · review needed'}${negotiationDisplay.has(row.parcelId)?` · ${displayedOutcome(row.parcelId)}`:''}`;
+      meta.textContent=`${row.towerCount} ${row.towerCount===1?'tower':'towers'} · ${row.corridorOnly?'corridor only':distance(row.lineLengthTiles)}${row.withinOfferCap?'':' · review needed'}${displayedOutcome(row.parcelId)?` · ${displayedOutcome(row.parcelId)}`:''}`;
       button.appendChild(title);button.appendChild(cost);button.appendChild(meta);
       if(row.parcelId===userParcelId){
         const badge=document.createElement('span');badge.className='analysis-row-role';

@@ -10,6 +10,7 @@ import {createHandoff} from '../src/handoff.js';
 import {settlementBinding} from '../src/settlement-controller.js';
 import {contractSourceFromAgreement, simulatedMapAgreement, matchesContractBinding} from '../src/contract-handoff.js';
 import {createContractWorkflow, createDemoBank, createWorkflowState, paymentMayHaveBeenAttempted} from './contract-workflow.mjs';
+import {agreementFromNegotiation, validateNegotiationRef} from './negotiated-contracts.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -41,7 +42,7 @@ export function reconstructMapProposal(context, world = createWorld()) {
 }
 
 /** Local fixture registry. Production replaces this boundary with Pratham's atomic shared store. */
-export async function createMapContractService({stateURL, bank:configuredBank, now = () => new Date().toISOString()}) {
+export async function createMapContractService({stateURL, bank:configuredBank, resolveNegotiation, now = () => new Date().toISOString()}) {
   const bankMode = configuredBank?.mode ?? 'simulation';
   const bankIdentity = configuredBank?.storageNamespace ?? null;
   requireState(['simulation','nessie-sandbox'].includes(bankMode), 'Unsupported map payment provider.');
@@ -69,6 +70,7 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
     }
   };
   const response = record => copy({packageId:record.packageId,input:record.source,mapBinding:record.agreement.mapBinding,agreement:record.agreement,
+    ...(record.negotiationRef ? {approvalMode:'negotiated',negotiationRef:record.negotiationRef} : {}),
     simulated:true,bankMode,demoScope:record.demoScope ?? null,demoParcelId:record.demoParcelId ?? null,demoTarget:record.demoTarget ?? (record.demoScope === 'single-owner' ? 'representative' : null),paymentSemantics:configuredBank?.paymentSemantics ?? 'simulated-transfer',amountIncrementCents:configuredBank?.amountIncrementCents ?? 1,paymentsEnabled:configuredBank?.canTransfer !== false});
   const worker = record => {
     if (workers.has(record.packageId)) return workers.get(record.packageId);
@@ -108,21 +110,41 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       [...journalIds].every(id => record.ledger.obligations[id]?.parcelId === scope.demoParcelId),
       'Other landowner payment attempts require review before switching this package to a single-owner demo. Preserve the current package and reconcile those outcomes.');
   }
+  async function resolveAgreement(context, handoff, reference) {
+    const negotiationRef = validateNegotiationRef(reference);
+    requireState(typeof resolveNegotiation === 'function','The authoritative negotiation source is not connected. The saved result cannot yet authorize a contract.');
+    let trusted;
+    try {trusted = await resolveNegotiation({context:copy(context),negotiationRef:copy(negotiationRef)});}
+    catch {throw new Error('The authoritative negotiation could not be confirmed. Reconnect before continuing.');}
+    return agreementFromNegotiation(trusted,handoff,negotiationRef);
+  }
   return {
-    approve: (context, {demoScope,demoTarget} = {}) => serial(async () => {
+    approve: (context, {demoScope,demoTarget,negotiationRef} = {}) => serial(async () => {
       const handoff = reconstructMapProposal(context,world), mapBinding = settlementBinding(handoff);
       const packageId = `map-contract-${digest(mapBinding).slice(0,40)}`, previous = state.packages[state.current[context.sessionId]];
+      const negotiated = negotiationRef !== undefined;
+      const reference = negotiated ? validateNegotiationRef(negotiationRef) : null;
+      requireState(typeof resolveNegotiation !== 'function' || negotiated,'This server uses authoritative negotiation results. A saved result reference is required; simulation cannot replace it.');
+      requireState(!negotiated || demoScope === 'single-owner' && demoTarget === 'participant','A saved negotiation requires the current participant contract scope.');
+      const resolvedAgreement = negotiated ? await resolveAgreement(context,handoff,reference) : null;
+      const resolvedSource = resolvedAgreement ? contractSourceFromAgreement(resolvedAgreement,handoff) : null;
       if (previous?.packageId === packageId) {
-        const scope = scopeFor(previous.source,demoScope,demoTarget,context);
+        requireState(!previous.negotiationRef || negotiated,'This package uses saved negotiated terms. Reopen its current saved result; simulation cannot replace it.');
+        const scope = scopeFor(resolvedSource ?? previous.source,demoScope,demoTarget,context);
         assertScopePreservesAttempts(previous,scope);
-        const sourceChanged = previous.source.paymentSchedule !== 'full-after-signatures' || previous.source.project.developerName !== 'EasyGrid';
+        const negotiatedChanged = resolvedSource && (digest(resolvedSource) !== digest(previous.source) || digest(reference) !== digest(previous.negotiationRef ?? null));
+        requireState(!negotiatedChanged || (!Object.values(previous.ledger.obligations).some(p => paymentMayHaveBeenAttempted(p,previous.ledger.journal)) && !previous.ledger.journal.length),
+          'This session already has a payment attempt. Preserve and reconcile it before changing the agreed terms.');
+        const sourceChanged = negotiatedChanged || previous.source.paymentSchedule !== 'full-after-signatures' || previous.source.project.developerName !== 'EasyGrid';
         const scopeChanged = (previous.demoScope ?? null) !== scope.demoScope || (previous.demoParcelId ?? null) !== scope.demoParcelId || (previous.demoTarget ?? null) !== scope.demoTarget;
         if (sourceChanged || scopeChanged) {
-          const priorSource = previous.source, priorScope = {demoScope:previous.demoScope,demoParcelId:previous.demoParcelId,demoTarget:previous.demoTarget};
-          previous.source = {...priorSource,paymentSchedule:'full-after-signatures',project:{...priorSource.project,developerName:'EasyGrid'}};
+          const priorSource = previous.source, priorScope = {demoScope:previous.demoScope,demoParcelId:previous.demoParcelId,demoTarget:previous.demoTarget}, priorAgreement = previous.agreement,
+            priorRef = previous.negotiationRef, priorContext = previous.negotiationContext;
+          previous.source = resolvedSource ?? {...priorSource,paymentSchedule:'full-after-signatures',project:{...priorSource.project,developerName:'EasyGrid'}};
+          if (resolvedAgreement) {previous.agreement=resolvedAgreement;previous.negotiationRef=validateNegotiationRef(negotiationRef);previous.negotiationContext=copy(context);}
           Object.assign(previous,scope);
           try {await save();}
-          catch (error) {previous.source=priorSource;Object.assign(previous,priorScope);throw error;}
+          catch (error) {previous.source=priorSource;previous.agreement=priorAgreement;previous.negotiationRef=priorRef;previous.negotiationContext=priorContext;Object.assign(previous,priorScope);throw error;}
           // approve and execute share this queue, so no in-flight worker is evicted.
           workers.delete(previous.packageId);
         }
@@ -130,9 +152,10 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       }
       requireState(!previous || (!Object.values(previous.ledger.obligations).some(p => paymentMayHaveBeenAttempted(p,previous.ledger.journal)) && !previous.ledger.journal.length), 'This session already has a payment attempt. Reconcile it before changing the route or package.');
       requireState(!previous || context.routeVersion > previous.source.route.version, 'A changed proposal requires a newer route version.');
-      const agreement = simulatedMapAgreement(handoff,{negotiationId:`neg-${digest(mapBinding).slice(0,32)}`,approvedAt:now()});
-      const source = contractSourceFromAgreement(agreement,handoff);
-      const record = {packageId,source,agreement,...scopeFor(source,demoScope,demoTarget,context),recipientBindingVersion:2,ledger:createWorkflowState()};
+      const agreement = resolvedAgreement ?? simulatedMapAgreement(handoff,{negotiationId:`neg-${digest(mapBinding).slice(0,32)}`,approvedAt:now()});
+      const source = resolvedSource ?? contractSourceFromAgreement(agreement,handoff);
+      const record = {packageId,source,agreement,...scopeFor(source,demoScope,demoTarget,context),recipientBindingVersion:2,ledger:createWorkflowState(),
+        ...(negotiated ? {negotiationRef:validateNegotiationRef(negotiationRef),negotiationContext:copy(context)} : {})};
       state.packages[packageId]=record;state.current[context.sessionId]=packageId;
       try {await save();}
       catch (error) {
@@ -142,10 +165,15 @@ export async function createMapContractService({stateURL, bank:configuredBank, n
       }
       return response(record);
     }),
-    execute: (packageId, action, {demoScope = null,demoParcelId = null} = {}) => serial(async () => {
+    execute: (packageId, action, {demoScope = null,demoParcelId = null,reconciliation = false} = {}) => serial(async () => {
       const record = Object.hasOwn(state.packages,packageId) ? state.packages[packageId] : null;
       requireState(record && state.current[record.source.sessionId] === packageId, 'The approved map package is missing or superseded. Approve the current route first.');
       requireState((record.demoScope ?? null) === demoScope && (record.demoParcelId ?? null) === demoParcelId, 'The contract demo scope changed. Reopen the approved package before continuing.');
+      if (record.negotiationRef && !reconciliation) {
+        const handoff = reconstructMapProposal(record.negotiationContext,world);
+        const currentAgreement = await resolveAgreement(record.negotiationContext,handoff,record.negotiationRef);
+        requireState(digest(contractSourceFromAgreement(currentAgreement,handoff)) === digest(record.source), 'The agreed terms changed. Reopen the current saved negotiation before continuing.');
+      }
       const workflow = worker(record), result = await action(workflow);
       // Even idempotent replays must durably save a previous interrupted write.
       record.ledger = workflow.snapshot();await save();return {...result,packageId};
