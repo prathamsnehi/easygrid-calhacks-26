@@ -8,7 +8,7 @@ import { analyzeRouteParcels } from './src/parcel-analysis.js';
 import { createHandoff } from './src/handoff.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
-const names=['cost-model.js','offer-policy.js','parcels.js','world.js','landscape.js','facility-models.js','placement.js','routing-constraints.js','routing.js','parcel-analysis.js','handoff.js','transmission-models.js','planner.js','route-controller.js','settlement-controller.js','demo-agreements.js','negotiation-controller.js','negotiation-result-controller.js','contract-authoring.js','contract-handoff.js','contract-api-client.js','contract-workspace.js','contract-entry.js','analysis-controller.js','voice-client.js','main.js'];
+const names=['cost-model.js','offer-policy.js','parcels.js','world.js','landscape.js','facility-models.js','placement.js','routing-constraints.js','routing.js','parcel-analysis.js','handoff.js','transmission-models.js','planner.js','route-controller.js','settlement-controller.js','demo-agreements.js','negotiation-controller.js','negotiation-result-controller.js','contract-authoring.js','contract-handoff.js','contract-api-client.js','contract-workspace.js','contract-entry.js','analysis-controller.js','voice-client.js','voice-host.js','main.js'];
 const [vendor,template,styles,contractStyles,contractWorkspace,contractTemplate,...sources]=await Promise.all([
   readFile(join(root,'vendor/three.cjs'),'utf8'),
   readFile(join(root,'src/index.html'),'utf8'),

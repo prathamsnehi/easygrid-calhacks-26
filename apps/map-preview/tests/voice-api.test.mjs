@@ -82,6 +82,29 @@ test('startup fails closed with missing configuration without opening providers'
   assert.equal(result.enabled,false);assert.equal(result.coordinator,null);result.api.close();
 });
 
+test('database-procedure mode requires explicit enablement and a pinned target without opening providers',async t=>{
+  const base={EASYGRID_VOICE_ENABLED:'yes',EASYGRID_VOICE_MODE:'database-procedure',
+    SPACETIMEDB_URI:'https://state.example.com',SPACETIMEDB_DATABASE:'synthetic-call-demo',
+    SPACETIMEDB_EXPECTED_DATABASE:'synthetic-call-demo'};
+  let opened=0;
+  const verifyProvider=async()=>{opened++;};
+  for(const patch of [{EASYGRID_VOICE_ENABLED:'no'},{SPACETIMEDB_EXPECTED_DATABASE:''},
+    {SPACETIMEDB_DATABASE:'other-demo'},{SPACETIMEDB_URI:'http://state.example.com'},
+    {SPACETIMEDB_URI:'https://user:secret@state.example.com'}]){
+    const blocked=await createConfiguredVoiceService({environment:{...base,...patch},verifyProvider});
+    assert.equal(blocked.enabled,false);blocked.api.close();
+  }
+  const ready=await createConfiguredVoiceService({environment:base,verifyProvider});
+  t.after(()=>ready.api.close());
+  assert.equal(ready.enabled,true);assert.equal(ready.coordinator,null);assert.equal(opened,0);
+  const {request}=await server(t,{procedureConfig:{origin:base.SPACETIMEDB_URI,database:base.SPACETIMEDB_DATABASE}});
+  const config=await (await request('/api/voice/config')).json();
+  assert.equal(config.enabled,true);assert.equal(config.mode,'database-procedure');
+  assert.equal(config.origin,base.SPACETIMEDB_URI);assert.equal(config.database,base.SPACETIMEDB_DATABASE);
+  assert.equal((await request('/api/voice/config',{headers:{host:'public.example'}})).status,403);
+  assert.equal((await request('/api/voice/calls',{method:'POST'})).status,503,'the local server does not masquerade as the configured coordinator');
+});
+
 test('an isolated deployment rejects another database before opening either provider',async t=>{
   const opened=[],environment={EASYGRID_VOICE_ENABLED:'yes',
     SPACETIMEDB_DATABASE:'collaborator-database',SPACETIMEDB_EXPECTED_DATABASE:'isolated-test-database',

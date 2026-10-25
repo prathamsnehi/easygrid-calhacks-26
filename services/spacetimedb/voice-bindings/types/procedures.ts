@@ -6,5 +6,8 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all procedure arg schemas
+import * as StartCallProcedure from "../start_call_procedure.js";
 
+export type StartCallArgs = __Infer<typeof StartCallProcedure.params>;
+export type StartCallResult = __Infer<typeof StartCallProcedure.returnType>;
 

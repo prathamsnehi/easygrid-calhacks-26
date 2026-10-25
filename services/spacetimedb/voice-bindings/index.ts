@@ -38,6 +38,7 @@ import BindNegotiationReducer from "./bind_negotiation_reducer.js";
 import ClaimNegotiationReviewReducer from "./claim_negotiation_review_reducer.js";
 import ClaimVoiceAttemptReducer from "./claim_voice_attempt_reducer.js";
 import CloseNegotiationReducer from "./close_negotiation_reducer.js";
+import CommitCallReviewReducer from "./commit_call_review_reducer.js";
 import CommitNegotiationReviewReducer from "./commit_negotiation_review_reducer.js";
 import ExecuteNegotiationReducer from "./execute_negotiation_reducer.js";
 import MarkVoiceAttemptReducer from "./mark_voice_attempt_reducer.js";
@@ -52,10 +53,13 @@ import SaveVoiceOutcomeReducer from "./save_voice_outcome_reducer.js";
 import StartSessionReducer from "./start_session_reducer.js";
 
 // Import all procedure arg schemas
+import * as StartCallProcedure from "./start_call_procedure.js";
 
 // Import all table schema definitions
+import CallResultRow from "./call_result_table.js";
 import CommandResultRow from "./command_result_table.js";
 import CurrentRouteRow from "./current_route_table.js";
+import NegotiationSummaryRow from "./negotiation_summary_table.js";
 import NegotiationAgreementsRow from "./negotiation_agreements_table.js";
 import NegotiationResultsRow from "./negotiation_results_table.js";
 import NegotiationReviewStateRow from "./negotiation_review_state_table.js";
@@ -69,6 +73,27 @@ import VoiceWorkerAttemptsRow from "./voice_worker_attempts_table.js";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  negotiationSummary: __table({
+    name: 'negotiation_summary',
+    indexes: [
+      { accessor: 'attemptId', name: 'negotiation_summary_attempt_id_idx_btree', algorithm: 'btree', columns: [
+        'attemptId',
+      ] },
+      { accessor: 'bySession', name: 'negotiation_summary_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'negotiation_summary_attempt_id_key', constraint: 'unique', columns: ['attemptId'] },
+    ],
+  }, NegotiationSummaryRow),
+  callResult: __table({
+    name: 'call_result',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, CallResultRow),
   commandResult: __table({
     name: 'command_result',
     indexes: [
@@ -147,6 +172,7 @@ const reducersSchema = __reducers(
   __reducerSchema("claim_negotiation_review", ClaimNegotiationReviewReducer),
   __reducerSchema("claim_voice_attempt", ClaimVoiceAttemptReducer),
   __reducerSchema("close_negotiation", CloseNegotiationReducer),
+  __reducerSchema("commit_call_review", CommitCallReviewReducer),
   __reducerSchema("commit_negotiation_review", CommitNegotiationReviewReducer),
   __reducerSchema("execute_negotiation", ExecuteNegotiationReducer),
   __reducerSchema("mark_voice_attempt", MarkVoiceAttemptReducer),
@@ -163,10 +189,13 @@ const reducersSchema = __reducers(
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
 const proceduresSchema = __procedures(
+  __procedureSchema("start_call", StartCallProcedure.params, StartCallProcedure.returnType),
 );
 
 type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "tables"> & {
   tables: typeof tablesSchema.schemaType.tables & {
+    /** @deprecated Use `callResult` instead. This alias will be removed in the next major version. */
+    readonly "call_result": Omit<typeof tablesSchema.schemaType.tables["callResult"], "accessorName"> & { readonly accessorName: "call_result" };
     /** @deprecated Use `commandResult` instead. This alias will be removed in the next major version. */
     readonly "command_result": Omit<typeof tablesSchema.schemaType.tables["commandResult"], "accessorName"> & { readonly accessorName: "command_result" };
     /** @deprecated Use `currentRoute` instead. This alias will be removed in the next major version. */
@@ -194,7 +223,7 @@ const REMOTE_MODULE = {
     cliVersion: "2.13.0" as const,
   },
   tables: tablesSchema.schemaType.tables as __SchemaWithTableAccessorAliases["tables"],
-  viewsWithArgs: ["command_result", "current_route", "negotiation_agreements", "negotiation_results", "negotiation_review_state", "negotiation_worker_state", "obligations", "session_progress"],
+  viewsWithArgs: ["call_result", "command_result", "current_route", "negotiation_agreements", "negotiation_results", "negotiation_review_state", "negotiation_worker_state", "obligations", "session_progress"],
   reducers: reducersSchema.reducersType.reducers,
   ...proceduresSchema,
 } satisfies __RemoteModule<
@@ -204,6 +233,7 @@ const REMOTE_MODULE = {
 >;
 
 const tableAccessorAliases = {
+  "call_result": "callResult",
   "command_result": "commandResult",
   "current_route": "currentRoute",
   "negotiation_agreements": "negotiationAgreements",
@@ -233,6 +263,8 @@ function __withTableAccessorAliases<T extends object>(target: T, freeze = false)
 
 type __DbViewBase = __DbConnectionImpl<typeof REMOTE_MODULE>["db"];
 export type DbView = __DbViewBase & {
+  /** @deprecated Use `callResult` instead. This alias will be removed in the next major version. */
+  readonly "call_result": __DbViewBase["callResult"];
   /** @deprecated Use `commandResult` instead. This alias will be removed in the next major version. */
   readonly "command_result": __DbViewBase["commandResult"];
   /** @deprecated Use `currentRoute` instead. This alias will be removed in the next major version. */
@@ -255,6 +287,8 @@ export type DbView = __DbViewBase & {
 
 type __TablesBase = __QueryBuilder<typeof tablesSchema.schemaType>;
 export type Tables = __TablesBase & {
+  /** @deprecated Use `callResult` instead. This alias will be removed in the next major version. */
+  readonly "call_result": __TablesBase["callResult"];
   /** @deprecated Use `commandResult` instead. This alias will be removed in the next major version. */
   readonly "command_result": __TablesBase["commandResult"];
   /** @deprecated Use `currentRoute` instead. This alias will be removed in the next major version. */

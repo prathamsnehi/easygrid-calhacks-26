@@ -11,6 +11,16 @@ export async function createConfiguredVoiceService({environment=process.env, dep
   const expectedDatabase=environment.SPACETIMEDB_EXPECTED_DATABASE?.trim();
   if(expectedDatabase&&databaseName!==expectedDatabase)
     return disabled('Live voice is blocked because the configured database does not match this deployment’s isolated database.');
+  if(environment.EASYGRID_VOICE_MODE==='database-procedure') {
+    const origin=environment.SPACETIMEDB_URI?.trim() || 'https://maincloud.spacetimedb.com';
+    let validOrigin=false;
+    try {const url=new URL(origin);validOrigin=url.protocol==='https:'&&!url.username&&!url.password&&url.origin===origin;}
+    catch {/* Invalid configuration leaves calling disabled. */}
+    if(!validOrigin||!databaseName||databaseName!==expectedDatabase||!/^[-a-zA-Z0-9_]+$/.test(databaseName))
+      return disabled('Database-procedure voice requires an HTTPS origin and matching explicit database names.');
+    const procedureConfig={origin,database:databaseName};
+    return {enabled:true,coordinator:null,api:createVoiceAPI({port,procedureConfig})};
+  }
   const required=['SPACETIMEDB_DATABASE','SPACETIMEDB_TOKEN','CARTESIA_API_KEY','CARTESIA_AGENT_ID','CARTESIA_FROM_NUMBER_ID','EASYGRID_VOICE_SECRET','EASYGRID_VOICE_PUBLIC_URL'];
   if(required.some(key=>!environment[key]?.trim()) || environment.EASYGRID_VOICE_SECRET.length<32)
     return disabled('Live voice configuration is incomplete. Check the server environment.');

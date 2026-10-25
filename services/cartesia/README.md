@@ -93,7 +93,7 @@ low-level request methods for the documented Managed Agents endpoints.
 
 From this folder, copy `.env.example` to `.env` and fill in the values. Running
 this command creates an agent if `CARTESIA_AGENT_ID` is empty and places one real
-call to `CARTESIA_TO_NUMBER`:
+call to `CARTESIA_FALLBACK_TO_NUMBER`:
 
 ```sh
 node --env-file=.env --import tsx examples/call.ts

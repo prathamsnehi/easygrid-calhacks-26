@@ -4,6 +4,7 @@ dist/
 build/
 *.tsbuildinfo
 
+
 # Local environment files
 .env
 .env.*
@@ -21,6 +22,7 @@ coverage/
 # Repo-local tools and credentials; keep the CLI wrapper versioned.
 **/.tools/*
 !/.tools/spacetime-cli
+.cursor
 
 
 # Private local contract ledgers and sandbox setup checkpoints

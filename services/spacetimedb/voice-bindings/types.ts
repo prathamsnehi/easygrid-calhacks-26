@@ -17,6 +17,74 @@ export const Agreement = __t.object("Agreement", {
 });
 export type Agreement = __Infer<typeof Agreement>;
 
+export const CallAttempt = __t.object("CallAttempt", {
+  attemptId: __t.string(),
+  sessionId: __t.string(),
+  parcelId: __t.string(),
+  routeVersion: __t.u32(),
+  providerCallId: __t.string(),
+  lifecycle: __t.string(),
+  mode: __t.string(),
+  phase: __t.string(),
+  openingCents: __t.u32(),
+  finalCents: __t.u32(),
+  monthlyRentCents: __t.u32(),
+  revision: __t.u32(),
+  checks: __t.u32(),
+  dialClaimed: __t.bool(),
+  reviewClaimed: __t.bool(),
+  outcome: __t.string(),
+  disposition: __t.string(),
+  reason: __t.string(),
+  explanation: __t.string(),
+  nextAction: __t.string(),
+  agreedCents: __t.u32(),
+});
+export type CallAttempt = __Infer<typeof CallAttempt>;
+
+export const CallCheck = __t.object("CallCheck", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  attemptId: __t.string(),
+});
+export type CallCheck = __Infer<typeof CallCheck>;
+
+export const CallResult = __t.object("CallResult", {
+  sessionId: __t.string(),
+});
+export type CallResult = __Infer<typeof CallResult>;
+
+export const CallResultRow = __t.object("CallResultRow", {
+  attemptId: __t.string(),
+  sessionId: __t.string(),
+  parcelId: __t.string(),
+  mode: __t.string(),
+  phase: __t.string(),
+  lifecycle: __t.string(),
+  revision: __t.u32(),
+  outcome: __t.string(),
+  disposition: __t.string(),
+  reason: __t.string(),
+  explanation: __t.string(),
+  nextAction: __t.string(),
+  openingCents: __t.u32(),
+  finalCents: __t.u32(),
+  monthlyRentCents: __t.u32(),
+  agreedCents: __t.u32(),
+});
+export type CallResultRow = __Infer<typeof CallResultRow>;
+
+export const CallTurn = __t.object("CallTurn", {
+  id: __t.string(),
+  attemptId: __t.string(),
+  role: __t.string(),
+  text: __t.string(),
+  startMs: __t.u32(),
+  endMs: __t.u32(),
+  ordinal: __t.u32(),
+});
+export type CallTurn = __Infer<typeof CallTurn>;
+
 export const CommandResult = __t.object("CommandResult", {
   sessionId: __t.string(),
   requestKey: __t.string(),
@@ -111,6 +179,26 @@ export const NegotiationSession = __t.object("NegotiationSession", {
   stateJson: __t.string(),
 });
 export type NegotiationSession = __Infer<typeof NegotiationSession>;
+
+export const NegotiationSummary = __t.object("NegotiationSummary", {
+  attemptId: __t.string(),
+  sessionId: __t.string(),
+  parcelId: __t.string(),
+  mode: __t.string(),
+  phase: __t.string(),
+  lifecycle: __t.string(),
+  revision: __t.u32(),
+  outcome: __t.string(),
+  disposition: __t.string(),
+  reason: __t.string(),
+  explanation: __t.string(),
+  nextAction: __t.string(),
+  openingCents: __t.u32(),
+  finalCents: __t.u32(),
+  monthlyRentCents: __t.u32(),
+  agreedCents: __t.u32(),
+});
+export type NegotiationSummary = __Infer<typeof NegotiationSummary>;
 
 export const NegotiationWorkerState = __t.object("NegotiationWorkerState", {
   sessionId: __t.string(),
@@ -231,6 +319,12 @@ export const SessionProgressRow = __t.object("SessionProgressRow", {
   explanation: __t.string(),
 });
 export type SessionProgressRow = __Infer<typeof SessionProgressRow>;
+
+export const VoiceAgent = __t.object("VoiceAgent", {
+  id: __t.string(),
+  agentId: __t.string(),
+});
+export type VoiceAgent = __Infer<typeof VoiceAgent>;
 
 export const VoiceAttempt = __t.object("VoiceAttempt", {
   id: __t.string(),

@@ -25,7 +25,7 @@ async function readBody(req,limit=32768) {
  * All browser endpoints remain bound to the local preview host and signed cookie.
  */
 export function createVoiceAPI({coordinator = null, secret, port = 4177, reason = 'Live voice is not configured.',
-  pollIntervalMs = 2000} = {}) {
+  pollIntervalMs = 2000, procedureConfig = null} = {}) {
   if (coordinator && (typeof secret !== 'string' || secret.length < 32)) throw new Error('A stable private voice secret is required.');
   const localHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
   const streams = new Set(); let polling = false, stopped = false;
@@ -74,6 +74,11 @@ export function createVoiceAPI({coordinator = null, secret, port = 4177, reason 
       json(res,403,{error:'Same-origin local preview access required.'}); return true;
     }
     if (req.method === 'GET' && pathname === '/api/voice/config') {
+      if(procedureConfig){
+        json(res,200,{enabled:true,mode:'database-procedure',...procedureConfig,
+          reason:'Cartesia call with post-call review; agreement and payment integration remain separate.',language:'en'});
+        return true;
+      }
       if (coordinator) client(req,res);
       json(res,200,{enabled:!!coordinator,mode:coordinator?'live':'unavailable',
         reason:coordinator?'Cartesia calls with saved SpacetimeDB results.':reason,

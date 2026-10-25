@@ -69,6 +69,32 @@ A readiness check is not proof of a completed live call.
 
 ## User flow
 
+### Separate database-procedure demo
+
+The earlier consented-call demo is retained as an explicit alternative for a
+database that already publishes `start_call`. It uses Cartesia managed speech,
+one Claude transcript review after hangup, and redacted summary polling. Its
+opening/final compensation and monthly fee are demonstration terms. It does not
+authorize the newer contract/payment path or perform its conditional rerouting.
+
+Start this mode with `EASYGRID_VOICE_ENABLED=yes`,
+`EASYGRID_VOICE_MODE=database-procedure`, `SPACETIMEDB_URI` set to the HTTPS
+database origin, and both `SPACETIMEDB_DATABASE` and
+`SPACETIMEDB_EXPECTED_DATABASE` set to the same explicitly chosen published
+database. Then run `npm run dev --prefix apps/map-preview` from the repository
+root. Provider keys stay in that database's private environment. The server
+returns only its non-secret origin/database configuration to the local browser.
+There is no automatic fallback from a disabled or misconfigured server adapter
+to this mode. Hosted simulation keeps voice disabled.
+
+This legacy procedure uses `call_attempt`, `call_turn`, `voice_agent`,
+`call_check`, and `negotiation_summary`; its redacted view is named `call_result`
+to avoid the separate CAL-41 `negotiation_result` table. It retains one attempt
+per session. An uncertain submission still needs reconciliation; do not start a
+new demo merely to retry an unknown call.
+
+### Configured server adapter
+
 1. Enter the roleplay participant details and consent, place both facilities, and
    select the route. **Agent call** is the explicit call-start action.
 2. A verified acceptance saves the exact agreed integer cents and opens that

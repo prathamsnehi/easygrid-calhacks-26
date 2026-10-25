@@ -1375,6 +1375,20 @@ test('route changes and host attachment cancel pending approval navigation',asyn
   }
 });
 
+test('explicit database-procedure configuration enables Agent call without dialing during registration',async()=>{
+  const requests=[];
+  class UnusedStream {constructor(){throw new Error('Procedure mode uses summary polling, not the coordinator stream.');}}
+  const app=boot({EventSourceClass:UnusedStream,fetcher:async url=>{
+    requests.push(url);assert.equal(url,'/api/voice/config');
+    return {ok:true,json:async()=>({enabled:true,mode:'database-procedure',origin:'https://state.example.com',database:'synthetic-call-demo'})};
+  }});
+  await settlePromises();placePair(app);await app.flushTimers();await settlePromises();
+  assert.equal(app.elements.get('agent-call').disabled,false);
+  assert.equal(app.elements.get('handoff-status-badge').textContent,'READY');
+  assert.equal(app.elements.get('settle-payment').disabled,true,'a callable participant does not approve a contract');
+  assert.deepEqual(requests,['/api/voice/config']);assert.deepEqual(app.errors,[]);
+});
+
 test('saved live voice acceptance opens the exact participant contract without simulation, signing or payment',async()=>{
   const streams=[],requests=[];let approved;
   class Stream {constructor(url){this.url=url;streams.push(this);}close(){this.closed=true;}}

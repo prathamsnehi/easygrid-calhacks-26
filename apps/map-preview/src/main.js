@@ -6,6 +6,7 @@ import { createAnalysisController } from './analysis-controller.js';
 import { createNegotiationController } from './negotiation-controller.js';
 import { createContractEntry } from './contract-entry.js';
 import { createVoiceClient, voiceResultView } from './voice-client.js';
+import { createLiveCallHost } from './voice-host.js';
 import { matchesContractBinding } from './contract-handoff.js';
 
 const canvas = document.querySelector('canvas');
@@ -388,6 +389,13 @@ if(typeof window.EventSource==='function'&&typeof fetch==='function'){
     }});
   voice.getConfig().then(async config=>{
     if(config.enabled!==true||config.ready===false)return;
+    if(config.mode==='database-procedure'){
+      const liveCalls=createLiveCallHost({origin:config.origin,database:config.database,
+        lockLiveCall:()=>analysis.setLiveCallLockout(true),
+        installSource:source=>window.easygridDemo.setNegotiationResultSource(source)});
+      analysis.setHandoffHandler(liveCalls.handle);
+      return;
+    }
     analysis.setHandoffHandler(input=>{voiceActive=true;renderNegotiation(negotiation.getState());return voice.requestCall(input);});
     analysis.negotiationResults.setSource(voice.subscribe);
     const {active}=await voice.getActive();
