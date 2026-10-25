@@ -94,11 +94,25 @@ test('authoritative evidence is saved before review and missing persistence cann
   const result=await unavailable.inspect({callId:'call_fixture',approvedOfferCents:[98946]});
   assert.equal(result.reasonCode,'STATE_UNAVAILABLE');assert.equal(result.candidate,undefined);
 });
+test('omitted optional tool amounts permit a refusal but cannot manufacture acceptance',()=>{
+  const refusal=fixture('No, I refuse.');
+  const rejected=reviewEasyGridToolResponse({decision:'refused',conditionDirection:'none',conditionQuote:'',
+    evidenceQuote:refusal.input.turns[1]!.text},refusal.input);
+  assert(rejected.ok);assert.equal(rejected.candidate.acceptedCompensationCents,null);
+  for(const decision of ['accepted','conditional']) {
+    const f=fixture(decision==='conditional'?'Yes, if you move the towers to the north edge of my property.':'Yes.');
+    assert.equal(reviewEasyGridToolResponse({decision,conditionDirection:decision==='conditional'?'north':'none',
+      conditionQuote:decision==='conditional'?f.input.turns[1]!.text:'',evidenceQuote:f.input.turns[1]!.text},f.input).ok,false);
+  }
+});
 test('tool definitions bind provider call and attempt authorization without model-selected identities',()=>{
   const definitions=easyGridVoiceToolDefinitions('https://voice.example.com');
   assert.equal(definitions[0]!.api_schema.request_headers.Authorization.name,'attempt_authorization');
   assert.equal(definitions[0]!.api_schema.request_headers['X-EasyGrid-Call'].name,'system__conversation_id');
   assert(!JSON.stringify(definitions).includes('ownerId'));assert(!JSON.stringify(definitions).includes('sessionId'));
+  assert(!JSON.stringify(definitions).includes('"nullable"'),'Cartesia rejects unsupported nullable schema keys');
+  assert(!definitions[0]!.api_schema.request_body_schema.required.includes('requestedCompensationCents'));
+  assert(!definitions[1]!.api_schema.request_body_schema.required.includes('acceptedCompensationCents'));
   assert.throws(()=>easyGridVoiceToolDefinitions('http://localhost:3000'));
   assert.throws(()=>easyGridVoiceToolDefinitions('https://127.0.0.1'));
   const variables=buildEasyGridVoiceVariables({openingCompensationCents:98946,maximumCompensationCents:118735,attemptSecret:'x'.repeat(40)});

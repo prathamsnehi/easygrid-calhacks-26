@@ -43,7 +43,14 @@ async function configureVoiceProviderUnlocked({environment=process.env,mode='che
         const definition=JSON.parse(options.body);
         saved.pending={kind:'tool',name:definition.name};await save();
       }
-      return fetcher(url,options);
+      const response=await fetcher(url,options);
+      // Explicit validation/auth rejection confirms that no tool was created.
+      // Lost responses and server failures retain the pending write checkpoint.
+      if(options.method==='POST'&&[400,401,403,404,422].includes(response.status)) {
+        saved.lastRejected={...saved.pending,status:response.status};
+        saved.pending=null;await save();
+      }
+      return response;
     };
     saved.toolIds=await provider.provisionEasyGridVoiceTools({apiKey:environment.CARTESIA_API_KEY,
       publicBaseUrl:environment.EASYGRID_VOICE_PUBLIC_URL,existingToolIds:saved.toolIds,fetch:transport,
