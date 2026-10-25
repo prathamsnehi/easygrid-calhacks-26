@@ -1,7 +1,7 @@
 import { computeTransmissionRoutes } from './routing.js';
 import { createTransmissionLayer } from './transmission-models.js';
 import { DEMO_METERS_PER_TILE, DEMO_BUDGET_CENTS } from './cost-model.js';
-import { analyzeRouteParcels } from './parcel-analysis.js';
+import { analyzeRouteParcels, isCorridorOverlapOnly } from './parcel-analysis.js';
 
 // Keep the analysis transition readable; this is presentation time, not extra model reasoning.
 export const ROUTE_REVEAL_DELAY_MS = 1600;
@@ -102,9 +102,11 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
       const isRecommended=id===result.recommendedId;
       write('route-title',isRecommended?'Recommended connection':'Alternative connection');
       write('route-badge',isRecommended?'LOWEST MODELED COST':'COMPARING');
-      write('route-status-note',`${route.pendingConsentParcelIds.length} parcels awaiting consent`);
+      const detail=analyzeRouteParcels(world,route,result.assumptions),direct=detail.parcels.filter(parcel=>!isCorridorOverlapOnly(parcel));
+      const pending=direct.filter(parcel=>route.pendingConsentParcelIds.includes(parcel.parcelId)).length,overlaps=detail.parcels.length-direct.length;
+      write('route-status-note',`${pending} parcels awaiting consent${overlaps?` · ${overlaps} corridor ${overlaps===1?'overlap':'overlaps'} excluded`:''}`);
       write('route-length',`${(route.lengthTiles*DEMO_METERS_PER_TILE/1000).toFixed(2)} km`);write('route-towers',route.metrics.towerCount);
-      const owners=new Set(route.parcelIds.map(parcelId=>world.parcelById.get(parcelId)?.ownerId).filter(Boolean));write('route-owners',owners.size);
+      const owners=new Set(direct.map(parcel=>parcel.ownerId));write('route-owners',owners.size);
       for(let i=0;i<3;i++){
         const candidate=result.candidates[i],button=elements[`route-choice-${i}`];button.hidden=!candidate;if(!candidate)continue;
         button.setAttribute('aria-pressed',String(candidate.id===id));
@@ -163,7 +165,7 @@ export function createRouteController({THREE,scene,world,landscape,canvas,getPla
           const candidate=computed.candidates.find(route=>{
             if(route.totalCostCents>DEMO_BUDGET_CENTS)return false;
             const analysis=analyzeRouteParcels(world,route,computed.assumptions);
-            return analysis.parcels.every(parcel=>parcel.recommendationStatus==='estimated'&&parcel.withinOfferCap&&parcel.accessConsent!=='refused'&&parcel.negotiationStatus!=='refused');
+            return analysis.parcels.every(parcel=>(parcel.recommendationStatus==='estimated'||isCorridorOverlapOnly(parcel))&&parcel.withinOfferCap&&parcel.accessConsent!=='refused'&&parcel.negotiationStatus!=='refused');
           });
           computed.candidates=candidate?[candidate]:[];computed.recommendedId=candidate?.id??null;
           if(!candidate){computed.status='no-route';computed.reasons=['No eligible route within the current budget and parcel constraints.'];}

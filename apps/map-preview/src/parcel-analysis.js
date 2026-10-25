@@ -2,6 +2,11 @@ import { ROUTING_ASSUMPTIONS, evaluateTransmissionSpan, evaluateTowerSite, trace
 import { negotiationLimitCents, createOfferPolicy } from './offer-policy.js';
 
 const EPSILON=1e-7;
+/** Demo compensation scope: an unoccupied buffer touch is informational only. */
+export function isCorridorOverlapOnly(row){
+  return Number.isFinite(row?.lineLengthTiles)&&row.lineLengthTiles>=0&&row.lineLengthTiles<=EPSILON&&
+    row.towerCount===0&&(row.foundationAreaTiles??0)===0;
+}
 const sum=(values)=>values.reduce((total,value)=>total+value,0);
 function check(condition,message){if(!condition)throw new Error(`Parcel analysis: ${message}`);}
 function cents(value){return Number.isSafeInteger(value)&&value>=0;}
@@ -109,9 +114,9 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
     row.monthlyRentCents=months===0?0:Math.round(row.rentTotalCents/months);
     row.monthlyRentIsApproximate=row.monthlyRentCents*months!==row.rentTotalCents;
     row.withinOfferCap=row.upfrontCents<=row.offerCapCents;
-    row.corridorOnly=row.lineLengthTiles<=EPSILON&&row.towerCount===0;
-    // A corridor touched without priced centerline/pad impact is not a verified zero-dollar valuation.
-    row.recommendationStatus=row.corridorOnly?'review-required':'estimated';
+    row.corridorOnly=isCorridorOverlapOnly(row);
+    // Excluded from this demo's compensation/approval scope, not an accepted $0 agreement.
+    row.recommendationStatus=row.corridorOnly?'excluded-corridor-overlap':'estimated';
     if(corridor.has(row.parcelId))row.affectReasons.push('line-corridor');
     if(row.lineLengthTiles>EPSILON)row.affectReasons.push('line-centerline');
     if(row.towerCount>0)row.affectReasons.push('tower-foundation');
@@ -129,7 +134,7 @@ export function analyzeRouteParcels(world,route,assumptions=ROUTING_ASSUMPTIONS)
 
 /** Keep the user role on an affected parcel; every valid nonempty route gets one. */
 export function chooseUserParcel(analysis,previousParcelId=null){
-  const parcels=analysis?.parcels;
+  const parcels=analysis?.parcels?.filter(row=>!isCorridorOverlapOnly(row));
   if(!Array.isArray(parcels)||parcels.length===0)return null;
   if(parcels.some(parcel=>parcel.parcelId===previousParcelId))return previousParcelId;
   return [...parcels].sort((a,b)=>Number(b.towerCount>0)-Number(a.towerCount>0)||b.lineLengthTiles-a.lineLengthTiles||a.parcelId.localeCompare(b.parcelId))[0].parcelId;

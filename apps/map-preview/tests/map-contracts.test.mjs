@@ -106,6 +106,32 @@ test('map contract inputs preserve the selected session, route, all original own
   assert(!source.parcels.some(p => p.ownerId.startsWith('OWNER-DEMO-')));
 });
 
+test('corridor overlaps stay visible but cannot create contracts or payments, while the priced owner can proceed', async () => withAPI(async(api,options,directory)=>{
+  const candidates=computeTransmissionRoutes(world,placements), selected=candidates.candidates.find(r=>r.id==='low-impact');
+  const detail=analyzeRouteParcels(world,selected,candidates.assumptions), overlaps=detail.parcels.filter(p=>p.corridorOnly);
+  assert(overlaps.length>0);
+  const handoff=createHandoff({world,route:selected,analysis:detail,placements,sessionId:'corridor-exclusion-payment',routeVersion:1});
+  const response=await call(api,'approve-map',{context:mapContractRequest(handoff,placements),demoScope:'single-owner',demoTarget:'participant'});
+  assert.equal(response.status,200,response.body.error);
+  const {packageId,input,demoScope,demoParcelId}=response.body,scope={packageId,demoScope,demoParcelId};
+  for(const overlap of overlaps){
+    assert(handoff.parcelAnalysis.some(p=>p.parcelId===overlap.parcelId));
+    assert(!input.parcels.some(p=>p.parcelId===overlap.parcelId));
+    assert.throws(()=>createContractDraft(input,overlap.parcelId));
+  }
+  assert.equal(input.parcels.reduce((n,p)=>n+p.compensationCents,0),detail.totals.upfrontCents);
+  const draft=createContractDraft(input,demoParcelId,{id:'corridor-priced-owner'}),expected=input.parcels.find(p=>p.parcelId===demoParcelId).compensationCents;
+  assert.equal((await call(api,'submit',{...scope,draft})).status,409,'signatures still required');
+  for(const operation of ['sign/utility','sign/landowner'])assert.equal((await call(api,operation,{...scope,draft})).status,200);
+  const paid=await call(api,'submit',{...scope,draft});
+  assert.equal(paid.status,200,paid.body.error);assert.equal(paid.body.payment.status,'paid');
+  assert.equal(paid.body.payment.amountCents,expected);
+  const saved=JSON.parse(await readFile(join(directory,'map-contracts.json'),'utf8')).packages[packageId];
+  assert.equal(Object.keys(saved.ledger.obligations).length,1);
+  assert(Object.values(saved.ledger.obligations).every(p=>p.parcelId===demoParcelId&&p.amountCents===expected));
+  assert.equal(saved.ledger.journal.length,1);
+}));
+
 test('selection and call consent cannot grant agreement; missing, stale, changed-recipient and unsigned terms are rejected', () => {
   const handoff = proposal();
   assert.throws(() => contractSourceFromAgreement({mapBinding:mapContractRequest(handoff,placements).mapBinding,ownerHandoff:handoff.ownerHandoff},handoff),/approved development/);

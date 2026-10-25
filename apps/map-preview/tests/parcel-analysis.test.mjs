@@ -79,7 +79,7 @@ test('diagonal corner corridor parcels remain visible with zero centerline cost'
     assert.equal(parcel.corridorOnly,true);assert.equal(parcel.lineLengthTiles,0);
     assert.equal(parcel.upfrontCents,0);assert.equal(parcel.rentTotalCents,0);
     assert.equal(parcel.offerCapCents,0);
-    assert.equal(parcel.recommendationStatus,'review-required');
+    assert.equal(parcel.recommendationStatus,'excluded-corridor-overlap');
     assert.deepEqual(parcel.affectReasons,['line-corridor']);
   }
   assert.equal(analysis.totals.upfrontCents,Math.round(Math.sqrt(8)*101+Math.sqrt(8)*104));

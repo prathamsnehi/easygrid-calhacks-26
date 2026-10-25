@@ -771,7 +771,7 @@ test('refusal demo bypasses the original owner and opens one representative cont
   assert.deepEqual(app.errors,[]);
 });
 
-test('an unpriced corridor parcel does not disable refusal on a current route',async()=>{
+test('partial corridor overlap blocks neither approval nor refusal on a current route',async()=>{
   const app=boot();
   assert.equal(app.elements.get('simulate-refusal').disabled,true,'a route is still required');
   assert.equal(app.elements.get('simulate-approval').disabled,true);
@@ -779,8 +779,8 @@ test('an unpriced corridor parcel does not disable refusal on a current route',a
   app.click('next-site');app.click('next-site');app.click('confirm-placement');
   await app.flushTimers();
   const before=handoffOf(app),api=app.window.easygridDemo;
-  assert.equal(before.snapshot.routes[0].eligible,false);
-  assert.equal(app.elements.get('simulate-approval').disabled,true,'approval needs a fully eligible current route');
+  assert.equal(before.snapshot.routes[0].eligible,true);
+  assert.equal(app.elements.get('simulate-approval').disabled,false,'an incidental buffer contact must not block approval');
   assert(before.parcelAnalysis.some(p=>p.corridorOnly),'exercise a real unpriced corridor contact');
   assert.equal(app.elements.get('simulate-refusal').disabled,false);
   assert.equal(app.elements.get('settle-payment').disabled,true);
@@ -789,9 +789,12 @@ test('an unpriced corridor parcel does not disable refusal on a current route',a
   assert.equal(app.canvas.dataset.previousRouteVisible,'true');
   assert.equal(app.elements.get('simulate-refusal').disabled,true,'do not start a duplicate refusal');
   await app.flushTimers();
-  assert.equal(api.getNegotiationState().phase,'no_route','this placement has no priced replacement within the constraints');
-  assert.equal(api.getNegotiatedHandoff(),null);
-  assert.equal(app.elements.get('overview-settlement').disabled,true,'missing replacement cannot approve contracts');
+  assert.equal(api.getNegotiationState().phase,'confirmed','the replacement is no longer rejected for an incidental overlap');
+  const after=handoffOf(app),agreement=api.getNegotiatedHandoff();
+  assert(!after.snapshot.routes[0].parcelIds.includes(before.userRole.parcelId),'the refused parcel remains excluded');
+  assert(agreement);
+  assert(agreement.ownerHandoff.parcels.every(p=>!after.parcelAnalysis.find(row=>row.parcelId===p.parcelId).corridorOnly));
+  assert.equal(app.elements.get('overview-settlement').disabled,false);
   assert.deepEqual(app.errors,[]);
 });
 
@@ -1292,7 +1295,22 @@ test('simulate approval opens the original call target agreement directly withou
     assert.equal(body.draft.parcelId,approved.demoParcelId);
     return {ok:true,json:async()=>({draftId:body.draft.id,documentHash:'d'.repeat(64),signatures:{},audit:[],journal:[],packageId:approved.packageId,demoScope:'single-owner',demoParcelId:approved.demoParcelId,paymentReady:false,packageReady:false,bankMode:'simulation'})};
   }});
-  placePair(app);await app.flushTimers();const before=handoffOf(app),api=app.window.easygridDemo;
+  app.click('next-site');app.click('confirm-placement');
+  app.click('next-site');app.click('next-site');app.click('confirm-placement');
+  await app.flushTimers();const before=handoffOf(app),api=app.window.easygridDemo;
+  const excluded=before.parcelAnalysis.filter(row=>row.corridorOnly);
+  assert(excluded.length>0,'exercise a formerly blocking buffer contact');
+  assert.equal(app.elements.get('route-owners').textContent,String(before.ownerHandoff.owners.length));
+  assert.match(app.elements.get('route-status-note').textContent,/corridor overlap excluded/);
+  app.click('open-analysis');
+  const overlapButton=app.elements.get('analysis-parcel-list').children.find(button=>button.dataset.parcelId===excluded[0].parcelId);
+  overlapButton.click();
+  assert.equal(app.elements.get('analysis-offer').textContent,'Excluded');
+  assert.equal(app.elements.get('analysis-limit').textContent,'Excluded');
+  assert.equal(app.elements.get('analysis-negotiation').textContent,'Partial corridor overlap');
+  assert.equal(app.elements.get('analysis-agreed').textContent,'Not applicable');
+  assert.match(app.elements.get('analysis-consent-note').textContent,/corridor overlap excluded/);
+
   const target=before.userRole.parcelId,owner=before.ownerHandoff.owners.find(owner=>owner.ownerId===before.ownerHandoff.parcels.find(parcel=>parcel.parcelId===target).ownerId);
   assert.equal(app.elements.get('simulate-approval').disabled,false);
   app.click('simulate-approval');
@@ -1301,6 +1319,7 @@ test('simulate approval opens the original call target agreement directly withou
   app.click('simulate-approval');assert.equal(requests.length,1);
   releaseApproval();await settlePromises();await settlePromises();await settlePromises();
   assert.equal(app.elements.get('contract-workspace').hidden,false);
+  assert(excluded.every(row=>!approved.input.parcels.some(p=>p.parcelId===row.parcelId)));
   assert.equal(app.elements.get('cg-gate').hidden,true,'skip the extra review gate');
   assert.equal(app.elements.get('cg-editor').hidden,false);
   assert.equal(app.elements.get('cg-parcel').value,target);
